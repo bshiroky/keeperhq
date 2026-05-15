@@ -19,9 +19,10 @@ async function fetchJson(url) {
 
 async function fetchAllPaged(endpoint) {
   const limit = 100;
+  const MAX_PAGES = 30; // ~3000 records ceiling; way more than any NHL season has
   let start = 0;
-  const all = [];
-  while (true) {
+  const byId = new Map(); // dedupe defensively in case the API returns overlapping pages
+  for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({
       limit: String(limit),
       start: String(start),
@@ -30,11 +31,18 @@ async function fetchAllPaged(endpoint) {
     const url = `${STATS_BASE}/${endpoint}?${params}`;
     const data = await fetchJson(url);
     const items = data.data || [];
-    all.push(...items);
-    if (items.length < limit) break;
+    let newCount = 0;
+    for (const item of items) {
+      if (!byId.has(item.playerId)) {
+        byId.set(item.playerId, item);
+        newCount++;
+      }
+    }
+    // Stop if the page is short OR every item was a duplicate (API ignoring `start`)
+    if (items.length < limit || newCount === 0) break;
     start += limit;
   }
-  return all;
+  return Array.from(byId.values());
 }
 
 function lastTeam(teamAbbrevs) {

@@ -67,6 +67,11 @@ export function PlayersTab({ league, isDark, accentColor }) {
   const [statusFilter, setStatusFilter] = React.useState('all'); // 'all' | 'rostered' | 'keeper' | 'available'
   const [sortKey, setSortKey] = React.useState('p');
   const [sortDir, setSortDir] = React.useState('desc');
+  const [page, setPage] = React.useState(0);
+  const PAGE_SIZE = 50;
+
+  // Reset to page 1 whenever the visible set changes
+  React.useEffect(() => { setPage(0); }, [kind, query, statusFilter, sortKey, sortDir]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -208,6 +213,13 @@ export function PlayersTab({ league, isDark, accentColor }) {
       )}
       {!err && data && rows.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
+          {(() => {
+            const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+            const currentPage = Math.min(page, totalPages - 1);
+            const start = currentPage * PAGE_SIZE;
+            const pageRows = rows.slice(start, start + PAGE_SIZE);
+            return (
+          <>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
@@ -228,9 +240,9 @@ export function PlayersTab({ league, isDark, accentColor }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((p, i) => (
-                <tr key={p.id}
-                  style={{ borderBottom: i < rows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s' }}
+              {pageRows.map((p, i) => (
+                <tr key={`${p.id}-${start + i}`}
+                  style={{ borderBottom: i < pageRows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s' }}
                   onMouseEnter={e => e.currentTarget.style.background = t.sectionBg}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   {cols.map(c => (
@@ -242,6 +254,21 @@ export function PlayersTab({ league, isDark, accentColor }) {
               ))}
             </tbody>
           </table>
+          <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${t.divider}`, fontSize: 12, color: t.textSecondary }}>
+            <span>
+              {start + 1}–{Math.min(start + PAGE_SIZE, rows.length)} of {rows.length}
+            </span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={currentPage === 0}
+                style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: currentPage === 0 ? t.textMuted : t.textPrimary, cursor: currentPage === 0 ? 'default' : 'pointer', fontFamily: 'inherit' }}>‹ Prev</button>
+              <span style={{ fontSize: 12, color: t.textMuted, minWidth: 64, textAlign: 'center' }}>Page {currentPage + 1} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1}
+                style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: currentPage >= totalPages - 1 ? t.textMuted : t.textPrimary, cursor: currentPage >= totalPages - 1 ? 'default' : 'pointer', fontFamily: 'inherit' }}>Next ›</button>
+            </div>
+          </div>
+          </>
+            );
+          })()}
         </div>
       )}
     </div>
