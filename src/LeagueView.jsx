@@ -152,10 +152,6 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
 }
 
 // ─── Small input primitives styled to match the existing cards ──────────────
-function FieldLabel({ children, t }) {
-  return <span style={{ fontSize: '13px', color: t.textSecondary, flex: '0 0 200px' }}>{children}</span>;
-}
-
 function inputStyle(t, isDark) {
   return {
     background: isDark ? '#161a22' : '#f7f9fc',
@@ -166,13 +162,14 @@ function inputStyle(t, isDark) {
     color: t.textPrimary,
     fontFamily: 'inherit',
     outline: 'none',
-    width: 180,
-    textAlign: 'right',
+    width: 160,
+    textAlign: 'left',
+    boxSizing: 'border-box',
   };
 }
 
 function TextField({ value, onChange, t, isDark, type = 'text', width }) {
-  return <input type={type} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} style={{ ...inputStyle(t, isDark), width: width || 180 }} />;
+  return <input type={type} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} style={{ ...inputStyle(t, isDark), width: width || 160 }} />;
 }
 
 function SelectField({ value, onChange, options, t, isDark }) {
@@ -221,14 +218,22 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
         )}
       </div>
       <div style={{ padding: '0 20px' }}>
-        {rows.map((row, i) => (
-          <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: i < rows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', gap: 12 }}>
-            <FieldLabel t={t}>{row.label}</FieldLabel>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', minHeight: 22 }}>
-              {row.control || <span style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary, textAlign: 'right' }}>{row.value}</span>}
+        {rows.map((row, i) => {
+          const showControl = isEditing && !row.locked && row.control;
+          return (
+            <div key={row.label} style={{ display: 'grid', gridTemplateColumns: '200px 1fr', alignItems: 'center', padding: '11px 0', borderBottom: i < rows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: '13px', color: t.textSecondary }}>{row.label}</span>
+                {row.help && <span style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.35 }}>{row.help}</span>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', minHeight: 22 }}>
+                {showControl
+                  ? row.control
+                  : <span style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{row.value}</span>}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -249,9 +254,14 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
   }
 
   // ── League Info card ──────────────────────────────────────────────────────
+  // Sport and Draft Type are locked: they're foundational decisions set when the
+  // league is created. Changing them mid-league would invalidate keeper records.
+  const lockedRows = [
+    { label: 'Sport', value: sport.label, locked: true },
+    { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType, locked: true },
+  ];
   const infoView = [
-    { label: 'Sport', value: sport.label },
-    { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType },
+    ...lockedRows,
     { label: 'Season', value: league.season },
     { label: 'Teams', value: league.teamCount || league.teams.length },
     { label: 'Playoff Teams', value: league.playoffTeams },
@@ -260,8 +270,6 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
     { label: 'Draft Date', value: formatDate(league.draftDate) },
   ];
   const infoDraftInitial = {
-    sport: league.sport,
-    draftType: league.draftType,
     season: league.season || '',
     playoffTeams: league.playoffTeams || 0,
     buyIn: league.buyIn || 0,
@@ -270,10 +278,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
   function infoEdit(draft, setDraft) {
     const set = (k, v) => setDraft({ ...draft, [k]: v });
     return [
-      { label: 'Sport', control: <SelectField value={draft.sport} onChange={v => set('sport', v)} t={t} isDark={isDark}
-          options={[{value:'hockey',label:'Hockey'},{value:'basketball',label:'Basketball'},{value:'football',label:'Football'},{value:'baseball',label:'Baseball'}]} /> },
-      { label: 'Draft Type', control: <SelectField value={draft.draftType} onChange={v => set('draftType', v)} t={t} isDark={isDark}
-          options={[{value:'snake',label:'Snake (contracts)'},{value:'auction',label:'Auction'}]} /> },
+      ...lockedRows,
       { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
       { label: 'Playoff Teams', control: <TextField type="number" value={draft.playoffTeams} onChange={v => set('playoffTeams', v)} t={t} isDark={isDark} /> },
       { label: 'Buy-in', control: <TextField type="number" value={draft.buyIn} onChange={v => set('buyIn', v)} t={t} isDark={isDark} /> },
@@ -296,18 +301,17 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
 
   const rulesView = [
     { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0–' : ''}${league.keeperSlots} per team` },
-    { label: 'Min Keepers Required', value: league.minKeepers || 0 },
+    { label: 'Min Keepers Required', value: league.minKeepers || 0, help: 'Minimum number of keepers each team must declare. 0 = optional.' },
     ...(isSnake ? [
-      { label: 'Contract Length', value: `${league.contractYears} years` },
-      { label: 'Contracts Required', value: league.contractsRequired ? 'All slots must be filled' : 'Optional' },
-      { label: 'Contracts on Trade', value: (league.contractsFollowTrade ?? true) ? 'Travel with the player' : 'Renewable by new owner' },
+      { label: 'Contract Length', value: `${league.contractYears} years`, help: 'How many years a keeper can be held before returning to the draft pool.' },
+      { label: 'Contracts Required', value: league.contractsRequired ? 'All slots must be filled' : 'Optional', help: 'Whether teams must fill every keeper slot.' },
+      { label: 'Contracts on Trade', value: (league.contractsFollowTrade ?? true) ? 'Travel with the player' : 'Renewable by new owner', help: 'When a contract holder is traded, does the contract travel with the player or can the new owner renegotiate?' },
     ] : []),
     ...(isAuction ? [
-      { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}` },
-      { label: 'Undrafted Player Cost', value: `$${ar.undraftedStartCost || 0} first year` },
-      ...(ar.lastPlacePenalty ? [{ label: 'Last Place Penalty', value: `$${ar.lastPlacePenalty}` }] : []),
+      { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}`, help: "How much a keeper's salary increases each year you keep them." },
+      { label: 'Undrafted Player Cost', value: `$${ar.undraftedStartCost || 0} first year`, help: "First-year cost for keeping a player who wasn't drafted last season." },
     ] : []),
-    { label: 'No Playoff Pickup Keepers', value: league.noPlayoffPickupKeepers ? 'Enforced' : 'Not enforced' },
+    { label: 'No Playoff Pickup Keepers', value: league.noPlayoffPickupKeepers ? 'Enforced' : 'Not enforced', help: 'Block keeping players added after the playoff start date.' },
   ];
   const rulesDraftInitial = {
     keeperSlots: league.keeperSlots || 0,
@@ -318,25 +322,23 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
     noPlayoffPickupKeepers: !!league.noPlayoffPickupKeepers,
     costIncreasePerYear: ar.costIncreasePerYear || 0,
     undraftedStartCost: ar.undraftedStartCost || 0,
-    lastPlacePenalty: ar.lastPlacePenalty || 0,
   };
   function rulesEdit(draft, setDraft) {
     const set = (k, v) => setDraft({ ...draft, [k]: v });
     return [
       { label: 'Keeper Slots', control: <TextField type="number" value={draft.keeperSlots} onChange={v => set('keeperSlots', v)} t={t} isDark={isDark} /> },
-      { label: 'Min Keepers Required', control: <TextField type="number" value={draft.minKeepers} onChange={v => set('minKeepers', v)} t={t} isDark={isDark} /> },
+      { label: 'Min Keepers Required', help: 'Minimum number of keepers each team must declare. 0 = optional.', control: <TextField type="number" value={draft.minKeepers} onChange={v => set('minKeepers', v)} t={t} isDark={isDark} /> },
       ...(isSnake ? [
-        { label: 'Contract Length (years)', control: <TextField type="number" value={draft.contractYears} onChange={v => set('contractYears', v)} t={t} isDark={isDark} /> },
-        { label: 'Contracts Required', control: <ToggleField value={draft.contractsRequired} onChange={v => set('contractsRequired', v)} t={t} isDark={isDark} /> },
-        { label: 'Contracts on Trade', control: <SelectField value={draft.contractsFollowTrade ? 'follow' : 'renewable'} onChange={v => set('contractsFollowTrade', v === 'follow')} t={t} isDark={isDark}
+        { label: 'Contract Length (years)', help: 'How many years a keeper can be held before returning to the draft pool.', control: <TextField type="number" value={draft.contractYears} onChange={v => set('contractYears', v)} t={t} isDark={isDark} /> },
+        { label: 'Contracts Required', help: 'Whether teams must fill every keeper slot.', control: <ToggleField value={draft.contractsRequired} onChange={v => set('contractsRequired', v)} t={t} isDark={isDark} /> },
+        { label: 'Contracts on Trade', help: 'Travel with the player, or renewable by the new owner?', control: <SelectField value={draft.contractsFollowTrade ? 'follow' : 'renewable'} onChange={v => set('contractsFollowTrade', v === 'follow')} t={t} isDark={isDark}
             options={[{value:'follow',label:'Travel with player'},{value:'renewable',label:'Renewable by new owner'}]} /> },
       ] : []),
       ...(isAuction ? [
-        { label: 'Cost Increase per Year ($)', control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
-        { label: 'Undrafted Player Cost ($)', control: <TextField type="number" value={draft.undraftedStartCost} onChange={v => set('undraftedStartCost', v)} t={t} isDark={isDark} /> },
-        { label: 'Last Place Penalty ($)', control: <TextField type="number" value={draft.lastPlacePenalty} onChange={v => set('lastPlacePenalty', v)} t={t} isDark={isDark} /> },
+        { label: 'Cost Increase per Year ($)', help: "How much a keeper's salary increases each year you keep them.", control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
+        { label: 'Undrafted Player Cost ($)', help: "First-year cost for keeping a player who wasn't drafted last season.", control: <TextField type="number" value={draft.undraftedStartCost} onChange={v => set('undraftedStartCost', v)} t={t} isDark={isDark} /> },
       ] : []),
-      { label: 'No Playoff Pickup Keepers', control: <ToggleField value={draft.noPlayoffPickupKeepers} onChange={v => set('noPlayoffPickupKeepers', v)} t={t} isDark={isDark} /> },
+      { label: 'No Playoff Pickup Keepers', help: 'Block keeping players added after the playoff start date.', control: <ToggleField value={draft.noPlayoffPickupKeepers} onChange={v => set('noPlayoffPickupKeepers', v)} t={t} isDark={isDark} /> },
     ];
   }
   function saveRules(draft) {
@@ -356,7 +358,6 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
         ...ar,
         costIncreasePerYear: draft.costIncreasePerYear,
         undraftedStartCost: draft.undraftedStartCost,
-        lastPlacePenalty: draft.lastPlacePenalty,
       };
     }
     onUpdateLeague(next);
