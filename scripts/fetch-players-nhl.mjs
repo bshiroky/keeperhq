@@ -1,13 +1,14 @@
-// Fetch NHL player roster + previous-season stats from the official NHL API
-// and write to public/players-nhl.json. Designed to be run as part of `npm run
-// build` on Vercel, where outbound HTTP is unrestricted. On failure it leaves
-// any existing players-nhl.json in place rather than breaking the build.
+// Fetch NHL player stats from the NHL Stats REST API and write to
+// public/players-nhl.json. Uses the season-aggregate endpoints which include
+// hits/blocks (the api-web /club-stats endpoint omits those). Designed to run
+// as part of `npm run build` on Vercel; if the fetch fails the build keeps any
+// existing players-nhl.json in place rather than failing.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-const SEASON = '20252026'; // Most recent completed regular season (April 2026).
-const BASE = 'https://api-web.nhle.com/v1';
+const SEASON_ID = '20252026'; // Most recent completed regular season (April 2026).
+const STATS_BASE = 'https://api.nhle.com/stats/rest/en';
 const OUT_PATH = path.join(process.cwd(), 'public', 'players-nhl.json');
 
 async function fetchJson(url) {
@@ -16,78 +17,110 @@ async function fetchJson(url) {
   return res.json();
 }
 
-async function getTeamAbbrevs() {
-  const data = await fetchJson(`${BASE}/standings/now`);
-  return data.standings.map(s => s.teamAbbrev.default);
+async function fetchAllPaged(endpoint) {
+  const limit = 100;
+  let start = 0;
+  const all = [];
+  while (true) {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      start: String(start),
+      cayenneExp: `seasonId=${SEASON_ID} and gameTypeId=2`,
+    });
+    const url = `${STATS_BASE}/${endpoint}?${params}`;
+    const data = await fetchJson(url);
+    const items = data.data || [];
+    all.push(...items);
+    if (items.length < limit) break;
+    start += limit;
+  }
+  return all;
 }
 
-function normalize(p, abbrev, kind) {
-  const firstName = p.firstName?.default || '';
-  const lastName = p.lastName?.default || '';
-  const base = {
-    id: String(p.playerId),
-    firstName,
-    lastName,
-    name: `${firstName} ${lastName}`.trim(),
-    pos: kind === 'goalie' ? 'G' : (p.positionCode || ''),
-    team: abbrev,
-    headshot: p.headshot || null,
-    kind,
-    gp: p.gamesPlayed || 0,
-  };
-  if (kind === 'skater') {
+function lastTeam(teamAbbrevs) {
+  if (!teamAbbrevs) return '';
+  // Stats API returns comma-separated abbrevs for traded players, chronological.
+  const parts = String(teamAbbrevs).split(',').map(s => s.trim()).filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
+function headshotUrl(playerId) {
+  return `https://assets.nhle.com/mugs/nhl/${SEASON_ID}/${playerId}.png`;
+}
+
+async function fetchSkaters() {
+  const [summary, realtime] = await Promise.all([
+    fetchAllPaged('skater/summary'),
+    fetchAllPaged('skater/realtime'),
+  ]);
+  const rtById = new Map(realtime.map(r => [r.playerId, r]));
+  return summary.map(s => {
+    const rt = rtById.get(s.playerId) || {};
+    const firstName = s.skaterFullName?.split(' ')[0] || '';
+    const lastName = s.skaterFullName?.split(' ').slice(1).join(' ') || '';
     return {
-      ...base,
-      g: p.goals || 0,
-      a: p.assists || 0,
-      p: p.points || 0,
-      plusMinus: p.plusMinus || 0,
-      pim: p.penaltyMinutes || 0,
-      sog: p.shots || 0,
-      hit: p.hits || 0,
-      blk: p.blockedShots || 0,
+      id: String(s.playerId),
+      firstName,
+      lastName,
+      name: s.skaterFullName || '',
+      pos: s.positionCode || '',
+      team: lastTeam(s.teamAbbrevs),
+      headshot: headshotUrl(s.playerId),
+      kind: 'skater',
+      gp: s.gamesPlayed || 0,
+      g: s.goals || 0,
+      a: s.assists || 0,
+      p: s.points || 0,
+      plusMinus: s.plusMinus || 0,
+      pim: s.penaltyMinutes || 0,
+      sog: s.shots || 0,
+      hit: rt.hits || 0,
+      blk: rt.blockedShots || 0,
     };
-  }
-  return {
-    ...base,
-    w: p.wins || 0,
-    l: p.losses || 0,
-    gaa: p.goalsAgainstAverage || 0,
-    svPct: p.savePercentage || 0,
-    so: p.shutouts || 0,
-  };
+  });
+}
+
+async function fetchGoalies() {
+  const summary = await fetchAllPaged('goalie/summary');
+  return summary.map(g => {
+    const firstName = g.goalieFullName?.split(' ')[0] || '';
+    const lastName = g.goalieFullName?.split(' ').slice(1).join(' ') || '';
+    return {
+      id: String(g.playerId),
+      firstName,
+      lastName,
+      name: g.goalieFullName || '',
+      pos: 'G',
+      team: lastTeam(g.teamAbbrevs),
+      headshot: headshotUrl(g.playerId),
+      kind: 'goalie',
+      gp: g.gamesPlayed || 0,
+      w: g.wins || 0,
+      l: g.losses || 0,
+      gaa: g.goalsAgainstAverage || 0,
+      svPct: g.savePercentage || 0,
+      so: g.shutouts || 0,
+    };
+  });
 }
 
 async function main() {
-  console.log(`[players-nhl] Fetching for season ${SEASON}…`);
-  let abbrevs;
+  console.log(`[players-nhl] Fetching for season ${SEASON_ID}…`);
+  let players;
   try {
-    abbrevs = await getTeamAbbrevs();
+    const [skaters, goalies] = await Promise.all([fetchSkaters(), fetchGoalies()]);
+    players = [...skaters, ...goalies];
+    console.log(`[players-nhl] ${skaters.length} skaters, ${goalies.length} goalies`);
   } catch (e) {
-    console.warn(`[players-nhl] Could not list teams: ${e.message}`);
+    console.warn(`[players-nhl] Fetch failed: ${e.message}`);
     return keepOrStub(e.message);
   }
-  console.log(`[players-nhl] ${abbrevs.length} teams found.`);
 
-  const players = [];
-  for (const abbrev of abbrevs) {
-    try {
-      const data = await fetchJson(`${BASE}/club-stats/${abbrev}/${SEASON}/2`);
-      const skaters = data.skaters || [];
-      const goalies = data.goalies || [];
-      for (const p of skaters) players.push(normalize(p, abbrev, 'skater'));
-      for (const p of goalies) players.push(normalize(p, abbrev, 'goalie'));
-      console.log(`[players-nhl]   ${abbrev}: ${skaters.length} skaters, ${goalies.length} goalies`);
-    } catch (e) {
-      console.warn(`[players-nhl]   ${abbrev}: ${e.message}`);
-    }
-  }
-
-  if (players.length === 0) return keepOrStub('No players returned from any team');
+  if (!players.length) return keepOrStub('No players returned');
 
   const out = {
     sport: 'nhl',
-    season: SEASON,
+    season: SEASON_ID,
     fetchedAt: new Date().toISOString(),
     players,
   };
@@ -103,13 +136,12 @@ async function keepOrStub(reason) {
     return;
   } catch {}
   await fs.mkdir(path.dirname(OUT_PATH), { recursive: true });
-  const stub = { sport: 'nhl', season: SEASON, fetchedAt: null, players: [], error: reason };
+  const stub = { sport: 'nhl', season: SEASON_ID, fetchedAt: null, players: [], error: reason };
   await fs.writeFile(OUT_PATH, JSON.stringify(stub));
   console.log(`[players-nhl] Wrote empty stub (reason: ${reason}).`);
 }
 
 main().catch(e => {
   console.warn(`[players-nhl] Unexpected error: ${e.message}`);
-  // Never fail the build over this.
   process.exit(0);
 });
