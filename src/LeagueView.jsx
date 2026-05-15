@@ -39,11 +39,28 @@ function TabBar({ tabs, active, onChange, accentColor, isDark }) {
 function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const buyIn = league.buyIn || 0;
+  const payouts = league.payouts || [];
+  const totalPool = buyIn * teamCount;
+  const allocated = payouts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const remaining = totalPool - allocated;
   const paid = teams.filter(tm => tm.paid).length;
-  const collected = paid * league.buyIn;
+  const collected = paid * buyIn;
   const [expandedTeam, setExpandedTeam] = React.useState(null);
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const fmtDate = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+
+  const fieldStyle = {
+    background: isDark ? '#161a22' : '#f7f9fc',
+    border: `1px solid ${t.border}`,
+    borderRadius: 5,
+    padding: '5px 8px',
+    fontSize: 13,
+    color: t.textPrimary,
+    fontFamily: 'inherit',
+    outline: 'none',
+  };
 
   function updateTeam(teamId, patch) {
     const newTeams = teams.map(tm => tm.id === teamId ? { ...tm, ...patch } : tm);
@@ -57,6 +74,23 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
       setExpandedTeam(team.id); // open the editor so user can add note/edit date
     }
   }
+  function setBuyIn(v) {
+    const next = Number(v) || 0;
+    onUpdateLeague({ ...league, buyIn: next, totalPool: next * teamCount });
+  }
+  function updatePayout(idx, patch) {
+    const next = payouts.map((p, i) => i === idx ? { ...p, ...patch } : p);
+    onUpdateLeague({ ...league, payouts: next });
+  }
+  function addPayout() {
+    onUpdateLeague({ ...league, payouts: [...payouts, { label: '', amount: 0 }] });
+  }
+  function removePayout(idx) {
+    onUpdateLeague({ ...league, payouts: payouts.filter((_, i) => i !== idx) });
+  }
+  function setPayoutNote(v) {
+    onUpdateLeague({ ...league, payoutNote: v });
+  }
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -64,36 +98,72 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Prize Structure</div>
         </div>
+
+        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.divider}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: '14px', color: t.textBody, flex: 1 }}>Buy-in (per team)</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
+            <input type="number" value={buyIn || ''} onChange={e => setBuyIn(e.target.value)}
+              style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700 }} />
+          </div>
+        </div>
+        <div style={{ padding: '8px 20px 12px', fontSize: 11, color: t.textMuted }}>
+          × {teamCount} teams = <span style={{ color: t.textSecondary, fontWeight: 700 }}>${totalPool.toLocaleString()}</span> total pool
+        </div>
+
         <div style={{ padding: '0 20px' }}>
-          {league.payouts.length === 0 && <div style={{ color: t.textMuted, fontSize: '13px', padding: '16px 0' }}>No payouts configured yet.</div>}
-          {league.payouts.map((p, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: i < league.payouts.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-              <span style={{ fontSize: '14px', color: t.textBody }}>{p.label}</span>
-              <span style={{ fontSize: '16px', fontWeight: 700, color: p.amount < 0 ? '#e85252' : '#6dd4a8' }}>
-                {p.amount < 0 ? `-$${Math.abs(p.amount)}` : `$${p.amount.toLocaleString()}`}
-              </span>
+          {payouts.length === 0 && <div style={{ color: t.textMuted, fontSize: '13px', padding: '12px 0' }}>No payouts configured yet.</div>}
+          {payouts.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < payouts.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+              <input type="text" value={p.label} onChange={e => updatePayout(i, { label: e.target.value })} placeholder="e.g. 1st Place"
+                style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
+              <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
+              <input type="number" value={p.amount} onChange={e => updatePayout(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })}
+                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: (Number(p.amount) || 0) < 0 ? '#e85252' : '#6dd4a8' }} />
+              <button onClick={() => removePayout(i)} title="Remove payout"
+                style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
             </div>
           ))}
         </div>
-        {league.payoutNote && (
-          <div style={{ margin: '0 20px 16px', padding: '12px', background: t.noteBg, borderRadius: 8, fontSize: '12px', color: t.textSecondary, lineHeight: 1.5 }}>
-            {league.payoutNote}
+        <div style={{ padding: '10px 20px 14px' }}>
+          <button onClick={addPayout}
+            style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+            + Add Payout
+          </button>
+        </div>
+
+        <div style={{ padding: '0 20px 14px' }}>
+          <input type="text" value={league.payoutNote || ''} onChange={e => setPayoutNote(e.target.value)}
+            placeholder="Optional note about the payout structure…"
+            style={{ ...fieldStyle, width: '100%', boxSizing: 'border-box' }} />
+        </div>
+
+        <div style={{ margin: '0 20px', borderTop: `1px solid ${t.divider}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 4px', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '13px', color: t.textMuted }}>Total Pool</span>
+            <span style={{ fontSize: '18px', fontWeight: 700, color: t.textPrimary }}>${totalPool.toLocaleString()}</span>
           </div>
-        )}
-        <div style={{ margin: '0 20px', display: 'flex', justifyContent: 'space-between', padding: '14px 0', borderTop: `1px solid ${t.divider}` }}>
-          <span style={{ fontSize: '13px', color: t.textMuted }}>Total Pool</span>
-          <span style={{ fontSize: '18px', fontWeight: 700, color: t.textPrimary }}>${league.totalPool.toLocaleString()}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '12px', color: t.textMuted }}>Allocated</span>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: t.textSecondary }}>${allocated.toLocaleString()}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0 12px', alignItems: 'baseline' }}>
+            <span style={{ fontSize: '12px', color: t.textMuted }}>{remaining < 0 ? 'Over-allocated by' : 'Unallocated'}</span>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: remaining < 0 ? '#e85252' : (remaining === 0 ? '#6dd4a8' : t.textSecondary) }}>
+              ${Math.abs(remaining).toLocaleString()}
+            </span>
+          </div>
         </div>
       </div>
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Payments</div>
-          <div style={{ fontSize: '13px', color: t.textMuted }}>${collected.toLocaleString()} / ${league.totalPool.toLocaleString()}</div>
+          <div style={{ fontSize: '13px', color: t.textMuted }}>${collected.toLocaleString()} / ${totalPool.toLocaleString()}</div>
         </div>
         <div style={{ padding: '14px 20px 0' }}>
           <div style={{ background: t.progressBg, borderRadius: 4, height: 5, marginBottom: 14 }}>
-            <div style={{ background: collected >= league.totalPool ? '#4caf7d' : '#e8832a', height: '100%', borderRadius: 4, width: `${Math.min((collected / (league.totalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
+            <div style={{ background: collected >= totalPool ? '#4caf7d' : '#e8832a', height: '100%', borderRadius: 4, width: `${Math.min((collected / (totalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
           </div>
         </div>
         <div style={{ padding: '0 20px' }}>
@@ -119,7 +189,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       color: team.paid ? '#6dd4a8' : '#e85252', cursor: 'pointer', fontFamily: 'inherit',
                       minWidth: 70, textAlign: 'center',
                     }}>
-                    {team.paid ? `✓ $${league.buyIn}` : 'Mark Paid'}
+                    {team.paid ? `✓ $${buyIn}` : 'Mark Paid'}
                   </button>
                 </div>
                 {isOpen && team.paid && (
