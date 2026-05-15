@@ -29,18 +29,6 @@ const GOALIE_COLS = [
   { key: 'status', label: 'Status', align: 'left',  sortable: false, width: 160 },
 ];
 
-function StatusPill({ entry, t }) {
-  const isKeeper = entry?.status === 'keeper';
-  const bg = isKeeper ? 'rgba(107,77,230,0.14)' : 'rgba(76,175,125,0.12)';
-  const fg = isKeeper ? '#9d8cf0' : '#6dd4a8';
-  const label = isKeeper ? `Keeper · ${entry.teamName}` : entry.teamName;
-  return (
-    <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: bg, color: fg, fontSize: 11, fontWeight: 700, maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-      {label}
-    </span>
-  );
-}
-
 function fmtSvPct(v) {
   if (!v) return '—';
   return v.toFixed(3).replace(/^0/, '');
@@ -86,6 +74,39 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
       if (tm.id !== teamId) return tm;
       const roster = tm.roster || [];
       return { ...tm, roster: [...roster, { player: player.name, pos: posForRoster(player.pos) }] };
+    });
+    onUpdateLeague({ ...league, teams });
+    setAssigningId(null);
+  }
+
+  function moveRostered(player, fromTeamId, toTeamId) {
+    if (!onUpdateLeague || fromTeamId === toTeamId) { setAssigningId(null); return; }
+    const target = normalizeName(player.name);
+    const teams = (league.teams || []).map(tm => {
+      if (tm.id === fromTeamId) {
+        return { ...tm, roster: (tm.roster || []).filter(r => normalizeName(r.player) !== target) };
+      }
+      if (tm.id === toTeamId) {
+        return { ...tm, roster: [...(tm.roster || []), { player: player.name, pos: posForRoster(player.pos) }] };
+      }
+      return tm;
+    });
+    onUpdateLeague({ ...league, teams });
+    setAssigningId(null);
+  }
+
+  function tradeKeeper(player, entry, toTeamId) {
+    if (!onUpdateLeague) return;
+    const teams = (league.teams || []).map(tm => {
+      if (tm.id !== entry.teamId) return tm;
+      const list = (tm[entry.keeperList] || []).map((kp, i) => {
+        if (i !== entry.keeperIdx) return kp;
+        const next = { ...kp };
+        if (!next.originalTeamId) next.originalTeamId = entry.teamId;
+        next.tradedTo = toTeamId === entry.teamId ? null : toTeamId;
+        return next;
+      });
+      return { ...tm, [entry.keeperList]: list };
     });
     onUpdateLeague({ ...league, teams });
     setAssigningId(null);
@@ -144,44 +165,87 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
   function renderCell(p, c) {
     if (c.key === 'status') {
       const entry = statusIndex.get(normalizeName(p.name));
-      if (entry) return <StatusPill entry={entry} t={t} />;
       const isOpen = assigningId === p.id;
+      const status = entry?.status; // 'rostered' | 'keeper' | undefined
+      // Visual config per status
+      let label, bg, fg, dropdownTitle;
+      if (!entry) {
+        label = 'Free Agent';
+        bg = 'transparent'; fg = t.textMuted;
+        dropdownTitle = `Add ${p.name} to…`;
+      } else if (status === 'keeper') {
+        label = `Keeper · ${entry.teamName}`;
+        bg = 'rgba(107,77,230,0.14)'; fg = '#9d8cf0';
+        dropdownTitle = `Trade ${p.name} to…`;
+      } else {
+        label = entry.teamName;
+        bg = 'rgba(76,175,125,0.12)'; fg = '#6dd4a8';
+        dropdownTitle = `Move ${p.name} to…`;
+      }
+      // The "current owner" for the team picker is the trade destination if
+      // set, otherwise the entry's home team. Matches OverviewTab semantics.
+      const currentOwnerId = entry?.tradedToTeamId || entry?.teamId;
+
+      function handlePick(toTeamId) {
+        if (!entry) return assignToTeam(p, toTeamId);
+        if (status === 'rostered') return moveRostered(p, entry.teamId, toTeamId);
+        return tradeKeeper(p, entry, toTeamId);
+      }
+
       return (
-        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }} data-assign-popover>
-          <span style={{ fontSize: 11, color: t.textMuted }}>Free Agent</span>
-          {onUpdateLeague && (
-            <button
-              onClick={e => { e.stopPropagation(); setAssigningId(isOpen ? null : p.id); }}
-              title="Assign to a team"
-              style={{
-                background: isOpen ? accentColor : 'transparent',
-                color: isOpen ? '#fff' : accentColor,
-                border: `1px solid ${accentColor}55`,
-                borderRadius: 5, padding: '1px 7px', fontSize: 11, fontWeight: 700,
-                cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.4,
-              }}>
-              + Assign
-            </button>
+        <span data-assign-popover style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+          <button
+            onClick={e => { e.stopPropagation(); if (onUpdateLeague) setAssigningId(isOpen ? null : p.id); }}
+            disabled={!onUpdateLeague}
+            title={onUpdateLeague ? 'Change assignment' : undefined}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '2px 8px', borderRadius: 12,
+              background: bg, color: fg,
+              border: !entry ? `1px dashed ${t.border}` : 'none',
+              fontSize: 11, fontWeight: 700, fontFamily: 'inherit',
+              cursor: onUpdateLeague ? 'pointer' : 'default',
+              maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+            {onUpdateLeague && <span style={{ opacity: 0.7, fontSize: 9 }}>▾</span>}
+          </button>
+          {entry?.tradedToTeamName && (
+            <span style={{ fontSize: 10, color: '#e8832a', fontWeight: 700, whiteSpace: 'nowrap' }}>
+              → traded to {entry.tradedToTeamName}
+            </span>
           )}
-          {isOpen && (
+          {isOpen && onUpdateLeague && (
             <div style={{
-              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 25,
+              position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 25,
               background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 8,
               boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 180, padding: '4px 0',
             }}>
               <div style={{ padding: '4px 12px 6px', fontSize: 10, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${t.dividerFaint}`, marginBottom: 4 }}>
-                Add {p.name} to…
+                {dropdownTitle}
               </div>
-              {(league.teams || []).map(tm => (
-                <div key={tm.id}
-                  onClick={() => assignToTeam(p, tm.id)}
-                  style={{ padding: '6px 12px', fontSize: 12, color: t.textBody, cursor: 'pointer' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = accentColor; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textBody; }}
-                >
-                  {tm.name}
-                </div>
-              ))}
+              {(league.teams || []).map(tm => {
+                const isCurrent = tm.id === currentOwnerId;
+                const isOrigin = entry && tm.id === entry.teamId && entry.tradedToTeamId;
+                return (
+                  <div key={tm.id}
+                    onClick={() => handlePick(tm.id)}
+                    style={{
+                      padding: '6px 12px', fontSize: 12,
+                      color: isCurrent ? t.textMuted : t.textBody,
+                      cursor: isCurrent ? 'default' : 'pointer',
+                      fontStyle: isCurrent ? 'italic' : 'normal',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8,
+                    }}
+                    onMouseEnter={e => { if (!isCurrent) { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = accentColor; } }}
+                    onMouseLeave={e => { if (!isCurrent) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textBody; } }}
+                  >
+                    <span>{tm.name}</span>
+                    {isCurrent && <span style={{ fontSize: 10 }}>current</span>}
+                    {isOrigin && <span style={{ fontSize: 10, color: t.textMuted }}>origin</span>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </span>

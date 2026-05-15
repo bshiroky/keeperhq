@@ -39,28 +39,45 @@ export function normalizeName(s) {
     .trim();
 }
 
-// Build a name → {teamName, status} map from the league. Status priority:
-// keeper > rostered > available. Keeper covers both current-season keepers
-// and active (non-expired) prior keeper contracts.
+// Build a name → {teamId, teamName, status, …} map from the league. Status
+// priority: keeper > rostered > available. For keepers, tracks whether the
+// entry came from the current-season `keepers` list or historical
+// `priorKeepers`, plus the index for downstream mutations. If the keeper has
+// been traded, exposes the destination team too.
 export function buildStatusIndex(league) {
   const idx = new Map();
   const teams = league.teams || [];
+  const teamById = new Map(teams.map(t => [t.id, t]));
 
   for (const t of teams) {
-    for (const r of (t.roster || [])) {
+    (t.roster || []).forEach((r, ri) => {
       const k = normalizeName(r.player);
-      if (k && !idx.has(k)) idx.set(k, { teamName: t.name, status: 'rostered' });
-    }
+      if (k && !idx.has(k)) idx.set(k, {
+        teamId: t.id, teamName: t.name, status: 'rostered',
+        rosterIdx: ri,
+      });
+    });
   }
   for (const t of teams) {
-    for (const k of (t.keepers || [])) {
-      const key = normalizeName(k.player);
-      if (key) idx.set(key, { teamName: t.name, status: 'keeper' });
-    }
-    for (const pk of (t.priorKeepers || [])) {
-      if (pk.expired) continue;
-      const key = normalizeName(pk.player);
-      if (key) idx.set(key, { teamName: t.name, status: 'keeper' });
+    const keeperSets = [
+      { list: 'keepers', entries: t.keepers || [] },
+      { list: 'priorKeepers', entries: t.priorKeepers || [] },
+    ];
+    for (const { list, entries } of keeperSets) {
+      entries.forEach((kp, ki) => {
+        if (kp.expired) return;
+        const key = normalizeName(kp.player);
+        if (!key) return;
+        const entry = {
+          teamId: t.id, teamName: t.name, status: 'keeper',
+          keeperList: list, keeperIdx: ki,
+        };
+        if (kp.tradedTo && teamById.has(kp.tradedTo)) {
+          entry.tradedToTeamId = kp.tradedTo;
+          entry.tradedToTeamName = teamById.get(kp.tradedTo).name;
+        }
+        idx.set(key, entry);
+      });
     }
   }
   return idx;
