@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, formatDate, getLeagueStats } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
@@ -264,34 +264,20 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
     ...lockedRows,
     { label: 'Season', value: league.season },
     { label: 'Teams', value: league.teamCount || league.teams.length },
-    { label: 'Playoff Teams', value: league.playoffTeams },
-    { label: 'Buy-in', value: `$${league.buyIn}` },
-    { label: 'Prize Pool', value: `$${(league.totalPool || 0).toLocaleString()}` },
-    { label: 'Draft Date', value: formatDate(league.draftDate) },
   ];
   const infoDraftInitial = {
     season: league.season || '',
-    playoffTeams: league.playoffTeams || 0,
-    buyIn: league.buyIn || 0,
-    draftDate: league.draftDate || '',
   };
   function infoEdit(draft, setDraft) {
     const set = (k, v) => setDraft({ ...draft, [k]: v });
     return [
       ...lockedRows,
       { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
-      { label: 'Playoff Teams', control: <TextField type="number" value={draft.playoffTeams} onChange={v => set('playoffTeams', v)} t={t} isDark={isDark} /> },
-      { label: 'Buy-in', control: <TextField type="number" value={draft.buyIn} onChange={v => set('buyIn', v)} t={t} isDark={isDark} /> },
-      { label: 'Draft Date', control: <TextField type="date" value={draft.draftDate} onChange={v => set('draftDate', v)} t={t} isDark={isDark} /> },
+      { label: 'Teams', value: league.teamCount || league.teams.length, locked: true },
     ];
   }
   function saveInfo(draft) {
-    const teamsCount = league.teamCount || (league.teams || []).length;
-    onUpdateLeague({
-      ...league,
-      ...draft,
-      totalPool: (draft.buyIn || 0) * teamsCount,
-    });
+    onUpdateLeague({ ...league, season: draft.season });
   }
 
   // ── Keeper Rules card ─────────────────────────────────────────────────────
