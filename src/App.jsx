@@ -12,6 +12,53 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "cardStyle": "detailed"
 }/*EDITMODE-END*/;
 
+function AccountMenu({ isDark }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  const menuBg = isDark ? '#1c2130' : '#ffffff';
+  const menuBorder = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
+  const itemColor = isDark ? '#e8ecf4' : '#1a1f2e';
+  const itemHoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(59,138,230,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#3b8ae6', fontFamily: 'inherit' }}
+        title="Account"
+      >
+        C
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 180, background: menuBg, border: `1px solid ${menuBorder}`, borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 200 }}>
+          {[
+            { label: 'Account settings', onClick: () => alert('Account settings coming soon.') },
+            { label: 'Sign out', onClick: () => alert('Sign out coming soon (no login yet).') },
+          ].map((item, i, arr) => (
+            <button
+              key={item.label}
+              onClick={() => { item.onClick(); setOpen(false); }}
+              onMouseEnter={e => { e.currentTarget.style.background = itemHoverBg; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '10px 14px', fontSize: '13px', fontWeight: 500, color: itemColor, cursor: 'pointer', fontFamily: 'inherit', borderBottom: i < arr.length - 1 ? `1px solid ${menuBorder}` : 'none' }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Persistence: keep league data in localStorage so test edits survive a refresh.
 // Replace this with a real backend later.
 const STORAGE_KEY = 'keeperhq:leagues:v1';
@@ -89,33 +136,19 @@ function App() {
         backdropFilter: 'blur(12px)',
       }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 48 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={handleBack}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'inherit' }}
+            title="Home"
+          >
             <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #3b8ae6, #6b4de6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🏆</div>
-            <div>
+            <div style={{ textAlign: 'left' }}>
               <div style={{ fontSize: '15px', fontWeight: 800, color: textPrimary, letterSpacing: '-0.02em', lineHeight: 1 }}>KeeperHQ</div>
               <div style={{ fontSize: '10px', color: textSecondary, letterSpacing: '0.08em', fontWeight: 600, textTransform: 'uppercase' }}>Commissioner</div>
             </div>
-          </div>
+          </button>
 
-          <nav style={{ display: 'flex', gap: 4 }}>
-            {['home'].map(v => (
-              <button key={v} onClick={() => { setView(v); setSelectedLeague(null); }} style={{
-                background: view === v ? 'rgba(59,138,230,0.15)' : 'none',
-                border: 'none', borderRadius: 8, padding: '6px 14px',
-                fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-                color: view === v ? '#3b8ae6' : textSecondary,
-              }}>
-                Leagues
-              </button>
-            ))}
-            <button style={{ background: 'none', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: textSecondary, opacity: 0.4 }}>Standings</button>
-            <button style={{ background: 'none', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: textSecondary, opacity: 0.4 }}>Settings</button>
-          </nav>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: '12px', color: textSecondary, fontWeight: 600 }}>2026-27 Season</div>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(59,138,230,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#3b8ae6' }}>C</div>
-          </div>
+          <AccountMenu isDark={isDark} />
         </div>
       </header>
 
