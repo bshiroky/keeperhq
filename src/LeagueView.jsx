@@ -2,6 +2,7 @@ import React from 'react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
+import { PlayersTab } from './tabs/PlayersTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
@@ -570,6 +571,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
   const tabs = [
     { id: 'overview', label: 'Overview', badge: `${stats.submitted}/${totalTeams}` },
     ...(currentLeague.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
+    { id: 'players', label: 'Players' },
     { id: 'payouts', label: 'Payouts & Pay' },
     { id: 'settings', label: 'Settings' },
   ];
@@ -625,6 +627,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
 
       {tab === 'overview' && <OverviewTab league={currentLeague} accentColor={accentColor} isDark={isDark} onGoToTab={setTab} onUpdateLeague={handleUpdateLeague} />}
       {tab === 'lottery' && currentLeague.draftType === 'snake' && <LotteryTab league={currentLeague} accentColor={accentColor} isDark={isDark} onUpdateLeague={handleUpdateLeague} />}
+      {tab === 'players' && <PlayersTab league={currentLeague} isDark={isDark} accentColor={accentColor} />}
       {tab === 'payouts' && <PayoutsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
       {tab === 'settings' && <SettingsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
     </div>
