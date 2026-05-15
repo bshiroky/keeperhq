@@ -1,3 +1,7 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+import '../claudeStub.js';
+
 // Per-Team Roster Import
 // - Paste mode: parses Yahoo's roster HTML/text where player names appear twice consecutively
 //   below a position code. Tolerant of stat rows, totals, IR sections, etc.
@@ -364,3 +368,5 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 }
 
 Object.assign(window, { RosterImportModal, parseYahooRosterText });
+
+export { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText, fileToBase64, extractRosterFromImage, RosterImportModal };

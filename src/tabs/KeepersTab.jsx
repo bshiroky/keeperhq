@@ -1,3 +1,6 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+
 // Keepers Tab — full management with inline add/edit/remove
 
 function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, allTeams, autoAddOnOpen }) {
@@ -391,3 +394,5 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
 }
 
 Object.assign(window, { KeepersTab, KeeperEditModal });
+
+export { KeeperEditModal, KeepersTab };

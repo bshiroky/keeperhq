@@ -1,3 +1,5 @@
+import React from 'react';
+
 // Shared UI components — exported to window
 
 function makeTheme(isDark) {
@@ -229,3 +231,11 @@ Object.assign(window, {
   formatDate, getLeagueStats,
   HScrollRow,
 });
+
+export {
+  makeTheme,
+  SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
+  SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  formatDate, getLeagueStats,
+  HScrollRow,
+};

@@ -1,3 +1,9 @@
+import React from 'react';
+import { APP_DATA } from './data.js';
+import { HomeView } from './HomeView.jsx';
+import { LeagueView } from './LeagueView.jsx';
+import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel.jsx';
+
 // Root App + Tweaks
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -6,9 +12,31 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "cardStyle": "detailed"
 }/*EDITMODE-END*/;
 
+// Persistence: keep league data in localStorage so test edits survive a refresh.
+// Replace this with a real backend later.
+const STORAGE_KEY = 'keeperhq:leagues:v1';
+
+function loadLeagues() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn('[KeeperHQ] Failed to read leagues from localStorage:', e);
+  }
+  return APP_DATA.leagues;
+}
+
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [leagues, setLeagues] = React.useState(window.APP_DATA.leagues);
+  const [leagues, setLeagues] = React.useState(loadLeagues);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(leagues));
+    } catch (e) {
+      console.warn('[KeeperHQ] Failed to persist leagues to localStorage:', e);
+    }
+  }, [leagues]);
   const [selectedLeague, setSelectedLeague] = React.useState(null);
   const [view, setView] = React.useState('home'); // 'home' | 'league'
 
@@ -33,6 +61,20 @@ function App() {
 
   function handleAddLeague() {
     alert('Add League flow coming soon!');
+  }
+
+  function handleUpdateLeague(updated) {
+    setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+    setSelectedLeague(updated);
+  }
+
+  function handleResetData() {
+    if (confirm('Reset all league data back to the demo defaults? This clears anything you\'ve changed.')) {
+      localStorage.removeItem(STORAGE_KEY);
+      setLeagues(APP_DATA.leagues);
+      setSelectedLeague(null);
+      setView('home');
+    }
   }
 
   return (
@@ -112,6 +154,7 @@ function App() {
             league={selectedLeague}
             onBack={handleBack}
             isDark={isDark}
+            onUpdateLeague={handleUpdateLeague}
           />
         )}
       </main>
@@ -139,10 +182,17 @@ function App() {
             onChange={v => setTweak('cardStyle', v)}
           />
         </TweakSection>
+        <TweakSection label="Data">
+          <button
+            onClick={handleResetData}
+            style={{ background: 'rgba(232,82,82,0.15)', color: '#e85252', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Reset to demo data
+          </button>
+        </TweakSection>
       </TweaksPanel>
     </div>
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App />);
+export default App;

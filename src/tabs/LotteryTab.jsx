@@ -1,3 +1,6 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+
 // Lottery Tab — bottom 4 teams compete for picks 1-4; top 8 get 5-12 in reverse standings.
 // Supports traded pick reassignment before AND after the draw.
 
@@ -304,3 +307,5 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
 }
 
 Object.assign(window, { LotteryTab });
+
+export { LotteryTab };

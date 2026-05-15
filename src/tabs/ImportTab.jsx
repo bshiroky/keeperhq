@@ -1,3 +1,6 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+
 // Import Last Year's Draft — paste tool for auction draft results
 // Format parsed: lines like "1.   (22)   Cooper Flagg (DAL - PG,SG,SF)   $30"
 // Multiple team blocks separated by "Team Name" headers + "Budget $200" markers + "Unused $X" trailers.
@@ -162,3 +165,5 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
 }
 
 Object.assign(window, { DraftImportModal, parseDraftResults });
+
+export { parseDraftResults, DraftImportModal };

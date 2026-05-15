@@ -1,3 +1,8 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+import { DraftImportModal } from './ImportTab.jsx';
+import { RosterImportModal } from './RosterImportTab.jsx';
+
 // Centralized "Data Sources" panel — used inside the season setup step.
 // Shows progress on all the imports a commissioner needs to do before assigning keepers:
 //   - Snake: pre-playoff rosters + prior contracts
@@ -344,3 +349,5 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
 }
 
 Object.assign(window, { DataSourcesPanel, PrevContractsPasteModal });
+
+export { PrevContractsPasteModal, DataSourcesPanel };

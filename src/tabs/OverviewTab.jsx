@@ -1,3 +1,7 @@
+import React from 'react';
+import { makeTheme } from '../components.jsx';
+import { SeasonSetupWizard } from './SetupTab.jsx';
+
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
 function ChecklistCard({ icon, title, subtitle, value, total, status, accentColor, isDark, action }) {
@@ -444,3 +448,5 @@ function OverviewTab({ league, accentColor, isDark, onGoToTab, onUpdateLeague })
 }
 
 Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard, SubmittedIcon });
+
+export { ChecklistCard, SubmittedIcon, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };

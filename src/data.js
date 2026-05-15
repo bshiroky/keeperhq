@@ -1,5 +1,5 @@
 // Fantasy Keeper Commissioner — Mock Data
-window.APP_DATA = {
+export const APP_DATA = {
   leagues: [
     {
       id: 'hockey-1',

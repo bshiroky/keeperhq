@@ -1,3 +1,9 @@
+import React from 'react';
+import { makeTheme, getLeagueStats, HScrollRow } from '../components.jsx';
+import { RosterImportModal } from './RosterImportTab.jsx';
+import { DataSourcesPanel } from './SourcesTab.jsx';
+import '../claudeStub.js';
+
 // Season Setup Wizard
 
 const SETUP_STEPS_SNAKE = ['keepers', 'done'];
@@ -1030,3 +1036,10 @@ function SeasonSetupWizard({ league, accentColor, isDark, onUpdateLeague, onComp
 }
 
 Object.assign(window, { SeasonSetupWizard });
+
+export {
+  SETUP_STEPS_SNAKE, SETUP_STEPS_AUCTION, STEP_META,
+  WizardProgress, ConfirmModal, StepIntro, PlayerSearch,
+  StepReviewKeepers, StepAddNewKeepers, StepPayments, StepDone,
+  SeasonSetupWizard,
+};

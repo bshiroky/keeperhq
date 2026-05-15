@@ -1,3 +1,4 @@
+import React from 'react';
 
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
@@ -423,3 +424,10 @@ Object.assign(window, {
   TweakSlider, TweakToggle, TweakRadio, TweakSelect,
   TweakText, TweakNumber, TweakColor, TweakButton,
 });
+
+export {
+  useTweaks, TweaksPanel,
+  TweakSection, TweakRow,
+  TweakSlider, TweakToggle, TweakRadio, TweakSelect,
+  TweakText, TweakNumber, TweakColor, TweakButton,
+};

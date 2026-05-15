@@ -1,3 +1,6 @@
+import React from 'react';
+import { SPORT_CONFIG, SportBadge, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, formatDate, getLeagueStats } from './components.jsx';
+
 // Home View — Commissioner Dashboard
 
 function LeagueCard({ league, onClick, sportColors, isDark }) {
@@ -237,3 +240,5 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, sportColors, isDark })
 }
 
 Object.assign(window, { HomeView, LeagueCard, SummaryBar });
+
+export { LeagueCard, AddLeagueCard, SummaryBar, HomeView };

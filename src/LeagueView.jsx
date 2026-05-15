@@ -1,3 +1,10 @@
+import React from 'react';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, formatDate, getLeagueStats } from './components.jsx';
+import { OverviewTab } from './tabs/OverviewTab.jsx';
+import { LotteryTab } from './tabs/LotteryTab.jsx';
+import { DraftImportModal } from './tabs/ImportTab.jsx';
+import { RosterImportModal } from './tabs/RosterImportTab.jsx';
+
 // League Detail — shell + PayoutsTab + SettingsTab
 
 function TabBar({ tabs, active, onChange, accentColor, isDark }) {
@@ -276,7 +283,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
   );
 }
 
-function LeagueView({ league, onBack, isDark }) {
+function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const accentColor = sport.color;
@@ -285,8 +292,13 @@ function LeagueView({ league, onBack, isDark }) {
   const stats = getLeagueStats(currentLeague);
   const totalTeams = currentLeague.teamCount || currentLeague.teams.length;
 
+  // Keep local state in sync when the parent passes a refreshed copy
+  // (e.g. after persisting to localStorage and re-selecting).
+  React.useEffect(() => { setCurrentLeague(league); }, [league.id]);
+
   function handleUpdateLeague(updated) {
     setCurrentLeague(updated);
+    if (onUpdateLeague) onUpdateLeague(updated);
   }
 
   const tabs = [
@@ -340,3 +352,5 @@ function LeagueView({ league, onBack, isDark }) {
 }
 
 Object.assign(window, { LeagueView });
+
+export { TabBar, PayoutsTab, SettingsTab, LeagueView };
