@@ -1,5 +1,6 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
+import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 
 // Keepers Tab — full management with inline add/edit/remove
 
@@ -118,12 +119,15 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
             <div key={i} style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 10, padding: '12px 14px' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                 <div style={{ flex: 1 }}>
-                  <input
-                    placeholder="Player name"
+                  <PlayerAutocomplete
                     value={k.player}
-                    onChange={e => updateKeeper(i, 'player', e.target.value)}
-                    style={{
-                      width: '100%', background: isDark ? '#161a22' : '#f7f9fc',
+                    onChange={name => updateKeeper(i, 'player', name)}
+                    sport={league.sport}
+                    isDark={isDark}
+                    placeholder="Player name"
+                    inputStyle={{
+                      width: '100%', boxSizing: 'border-box',
+                      background: isDark ? '#161a22' : '#f7f9fc',
                       border: `1px solid ${t.border}`, borderRadius: 8,
                       padding: '8px 12px', fontSize: '14px', color: t.textPrimary,
                       outline: 'none', fontFamily: 'inherit',

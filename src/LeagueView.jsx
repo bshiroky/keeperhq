@@ -627,7 +627,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
 
       {tab === 'overview' && <OverviewTab league={currentLeague} accentColor={accentColor} isDark={isDark} onGoToTab={setTab} onUpdateLeague={handleUpdateLeague} />}
       {tab === 'lottery' && currentLeague.draftType === 'snake' && <LotteryTab league={currentLeague} accentColor={accentColor} isDark={isDark} onUpdateLeague={handleUpdateLeague} />}
-      {tab === 'players' && <PlayersTab league={currentLeague} isDark={isDark} accentColor={accentColor} />}
+      {tab === 'players' && <PlayersTab league={currentLeague} isDark={isDark} accentColor={accentColor} onUpdateLeague={handleUpdateLeague} />}
       {tab === 'payouts' && <PayoutsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
       {tab === 'settings' && <SettingsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
     </div>

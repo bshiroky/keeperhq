@@ -1,6 +1,7 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
+import { posForRoster } from '../PlayerAutocomplete.jsx';
 
 const SKATER_COLS = [
   { key: 'name',   label: 'Player', align: 'left',  sortable: true,  width: 200 },
@@ -29,8 +30,7 @@ const GOALIE_COLS = [
 ];
 
 function StatusPill({ entry, t }) {
-  if (!entry) return <span style={{ fontSize: 11, color: t.textMuted }}>Available</span>;
-  const isKeeper = entry.status === 'keeper';
+  const isKeeper = entry?.status === 'keeper';
   const bg = isKeeper ? 'rgba(107,77,230,0.14)' : 'rgba(76,175,125,0.12)';
   const fg = isKeeper ? '#9d8cf0' : '#6dd4a8';
   const label = isKeeper ? `Keeper · ${entry.teamName}` : entry.teamName;
@@ -46,7 +46,7 @@ function fmtSvPct(v) {
   return v.toFixed(3).replace(/^0/, '');
 }
 
-export function PlayersTab({ league, isDark, accentColor }) {
+export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const sport = league.sport;
 
@@ -68,7 +68,28 @@ export function PlayersTab({ league, isDark, accentColor }) {
   const [sortKey, setSortKey] = React.useState('p');
   const [sortDir, setSortDir] = React.useState('desc');
   const [page, setPage] = React.useState(0);
+  const [assigningId, setAssigningId] = React.useState(null);
   const PAGE_SIZE = 50;
+
+  React.useEffect(() => {
+    function onDoc(e) {
+      // Close any open team picker on outside click
+      if (!e.target.closest?.('[data-assign-popover]')) setAssigningId(null);
+    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  function assignToTeam(player, teamId) {
+    if (!onUpdateLeague) return;
+    const teams = (league.teams || []).map(tm => {
+      if (tm.id !== teamId) return tm;
+      const roster = tm.roster || [];
+      return { ...tm, roster: [...roster, { player: player.name, pos: posForRoster(player.pos) }] };
+    });
+    onUpdateLeague({ ...league, teams });
+    setAssigningId(null);
+  }
 
   // Reset to page 1 whenever the visible set changes
   React.useEffect(() => { setPage(0); }, [kind, query, statusFilter, sortKey, sortDir]);
@@ -123,7 +144,48 @@ export function PlayersTab({ league, isDark, accentColor }) {
   function renderCell(p, c) {
     if (c.key === 'status') {
       const entry = statusIndex.get(normalizeName(p.name));
-      return <StatusPill entry={entry} t={t} />;
+      if (entry) return <StatusPill entry={entry} t={t} />;
+      const isOpen = assigningId === p.id;
+      return (
+        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6 }} data-assign-popover>
+          <span style={{ fontSize: 11, color: t.textMuted }}>Free Agent</span>
+          {onUpdateLeague && (
+            <button
+              onClick={e => { e.stopPropagation(); setAssigningId(isOpen ? null : p.id); }}
+              title="Assign to a team"
+              style={{
+                background: isOpen ? accentColor : 'transparent',
+                color: isOpen ? '#fff' : accentColor,
+                border: `1px solid ${accentColor}55`,
+                borderRadius: 5, padding: '1px 7px', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', fontFamily: 'inherit', lineHeight: 1.4,
+              }}>
+              + Assign
+            </button>
+          )}
+          {isOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 25,
+              background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 8,
+              boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minWidth: 180, padding: '4px 0',
+            }}>
+              <div style={{ padding: '4px 12px 6px', fontSize: 10, fontWeight: 700, color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${t.dividerFaint}`, marginBottom: 4 }}>
+                Add {p.name} to…
+              </div>
+              {(league.teams || []).map(tm => (
+                <div key={tm.id}
+                  onClick={() => assignToTeam(p, tm.id)}
+                  style={{ padding: '6px 12px', fontSize: 12, color: t.textBody, cursor: 'pointer' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = accentColor; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textBody; }}
+                >
+                  {tm.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </span>
+      );
     }
     if (c.key === 'svPct') return fmtSvPct(p.svPct);
     if (c.key === 'gaa') return p.gaa ? p.gaa.toFixed(2) : '—';
@@ -189,7 +251,7 @@ export function PlayersTab({ league, isDark, accentColor }) {
           style={{ ...inputStyle, flex: 1, minWidth: 180 }} />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={inputStyle}>
           <option value="all">All statuses</option>
-          <option value="available">Available</option>
+          <option value="available">Free Agents</option>
           <option value="rostered">Rostered</option>
           <option value="keeper">Keepers</option>
         </select>
