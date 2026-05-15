@@ -3,7 +3,7 @@ const memCache = {};
 
 export async function loadPlayers(sport) {
   if (memCache[sport]) return memCache[sport];
-  const key = `khq_players_${sport}_v1`;
+  const key = `khq_players_${sport}_v2`;
 
   try {
     const raw = localStorage.getItem(key);

@@ -44,8 +44,9 @@ function lastTeam(teamAbbrevs) {
   return parts[parts.length - 1] || '';
 }
 
-function headshotUrl(playerId) {
-  return `https://assets.nhle.com/mugs/nhl/${SEASON_ID}/${playerId}.png`;
+function headshotUrl(playerId, team) {
+  if (!team) return null;
+  return `https://assets.nhle.com/mugs/nhl/${SEASON_ID}/${team}/${playerId}.png`;
 }
 
 async function fetchSkaters() {
@@ -65,7 +66,7 @@ async function fetchSkaters() {
       name: s.skaterFullName || '',
       pos: s.positionCode || '',
       team: lastTeam(s.teamAbbrevs),
-      headshot: headshotUrl(s.playerId),
+      headshot: headshotUrl(s.playerId, lastTeam(s.teamAbbrevs)),
       kind: 'skater',
       gp: s.gamesPlayed || 0,
       g: s.goals || 0,

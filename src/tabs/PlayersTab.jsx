@@ -129,7 +129,13 @@ export function PlayersTab({ league, isDark, accentColor }) {
     if (c.key === 'name') {
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {p.headshot ? <img src={p.headshot} alt="" width={26} height={26} style={{ borderRadius: '50%', background: t.sectionBg, objectFit: 'cover' }} /> : <span style={{ width: 26, height: 26, borderRadius: '50%', background: t.sectionBg, display: 'inline-block' }} />}
+          {p.headshot ? (
+            <img src={p.headshot} alt="" width={26} height={26}
+              style={{ borderRadius: '50%', background: t.sectionBg, objectFit: 'cover' }}
+              onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+          ) : (
+            <span style={{ width: 26, height: 26, borderRadius: '50%', background: t.sectionBg, display: 'inline-block' }} />
+          )}
           <span style={{ color: t.textPrimary, fontWeight: 600 }}>{p.name}</span>
         </span>
       );
