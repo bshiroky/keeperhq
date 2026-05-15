@@ -4,6 +4,7 @@ import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
+import { startNewSeason } from './lib/season.js';
 
 // League Detail — shell + PayoutsTab + SettingsTab
 
@@ -150,66 +151,241 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   );
 }
 
+// ─── Small input primitives styled to match the existing cards ──────────────
+function FieldLabel({ children, t }) {
+  return <span style={{ fontSize: '13px', color: t.textSecondary, flex: '0 0 200px' }}>{children}</span>;
+}
+
+function inputStyle(t, isDark) {
+  return {
+    background: isDark ? '#161a22' : '#f7f9fc',
+    border: `1px solid ${t.border}`,
+    borderRadius: 6,
+    padding: '6px 10px',
+    fontSize: '13px',
+    color: t.textPrimary,
+    fontFamily: 'inherit',
+    outline: 'none',
+    width: 180,
+    textAlign: 'right',
+  };
+}
+
+function TextField({ value, onChange, t, isDark, type = 'text', width }) {
+  return <input type={type} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} style={{ ...inputStyle(t, isDark), width: width || 180 }} />;
+}
+
+function SelectField({ value, onChange, options, t, isDark }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle(t, isDark), cursor: 'pointer' }}>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function ToggleField({ value, onChange, t, isDark }) {
+  return (
+    <button type="button" onClick={() => onChange(!value)} style={{
+      width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
+      background: value ? '#6dd4a8' : (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.18)'),
+      position: 'relative', transition: 'background 0.15s', padding: 0,
+    }}>
+      <span style={{ position: 'absolute', top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+    </button>
+  );
+}
+
+// EditableCard: header with title + Edit (or Save/Cancel). Body switches between
+// the supplied viewRows (read-only) and editRows (form inputs).
+function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSave, initialDraft }) {
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(initialDraft);
+
+  function startEdit() { setDraft(initialDraft); setIsEditing(true); }
+  function cancel() { setIsEditing(false); }
+  function save() { onSave(draft); setIsEditing(false); }
+
+  const rows = isEditing ? editRows(draft, setDraft) : viewRows;
+
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{title}</div>
+        {isEditing ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={cancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+            <button onClick={save} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
+          </div>
+        ) : (
+          <button onClick={startEdit} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
+        )}
+      </div>
+      <div style={{ padding: '0 20px' }}>
+        {rows.map((row, i) => (
+          <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: i < rows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', gap: 12 }}>
+            <FieldLabel t={t}>{row.label}</FieldLabel>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', minHeight: 22 }}>
+              {row.control || <span style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary, textAlign: 'right' }}>{row.value}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const [showImport, setShowImport] = React.useState(false);
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
+  const [showRolloverConfirm, setShowRolloverConfirm] = React.useState(false);
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
 
-  const infoRows = [
+  function rolloverSeason() {
+    onUpdateLeague(startNewSeason(league));
+    setShowRolloverConfirm(false);
+  }
+
+  // ── League Info card ──────────────────────────────────────────────────────
+  const infoView = [
     { label: 'Sport', value: sport.label },
     { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType },
     { label: 'Season', value: league.season },
     { label: 'Teams', value: league.teamCount || league.teams.length },
     { label: 'Playoff Teams', value: league.playoffTeams },
     { label: 'Buy-in', value: `$${league.buyIn}` },
-    { label: 'Prize Pool', value: `$${league.totalPool.toLocaleString()}` },
+    { label: 'Prize Pool', value: `$${(league.totalPool || 0).toLocaleString()}` },
     { label: 'Draft Date', value: formatDate(league.draftDate) },
   ];
+  const infoDraftInitial = {
+    sport: league.sport,
+    draftType: league.draftType,
+    season: league.season || '',
+    playoffTeams: league.playoffTeams || 0,
+    buyIn: league.buyIn || 0,
+    draftDate: league.draftDate || '',
+  };
+  function infoEdit(draft, setDraft) {
+    const set = (k, v) => setDraft({ ...draft, [k]: v });
+    return [
+      { label: 'Sport', control: <SelectField value={draft.sport} onChange={v => set('sport', v)} t={t} isDark={isDark}
+          options={[{value:'hockey',label:'Hockey'},{value:'basketball',label:'Basketball'},{value:'football',label:'Football'},{value:'baseball',label:'Baseball'}]} /> },
+      { label: 'Draft Type', control: <SelectField value={draft.draftType} onChange={v => set('draftType', v)} t={t} isDark={isDark}
+          options={[{value:'snake',label:'Snake (contracts)'},{value:'auction',label:'Auction'}]} /> },
+      { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
+      { label: 'Playoff Teams', control: <TextField type="number" value={draft.playoffTeams} onChange={v => set('playoffTeams', v)} t={t} isDark={isDark} /> },
+      { label: 'Buy-in', control: <TextField type="number" value={draft.buyIn} onChange={v => set('buyIn', v)} t={t} isDark={isDark} /> },
+      { label: 'Draft Date', control: <TextField type="date" value={draft.draftDate} onChange={v => set('draftDate', v)} t={t} isDark={isDark} /> },
+    ];
+  }
+  function saveInfo(draft) {
+    const teamsCount = league.teamCount || (league.teams || []).length;
+    onUpdateLeague({
+      ...league,
+      ...draft,
+      totalPool: (draft.buyIn || 0) * teamsCount,
+    });
+  }
+
+  // ── Keeper Rules card ─────────────────────────────────────────────────────
+  const isSnake = league.draftType === 'snake';
+  const isAuction = league.draftType === 'auction';
+  const ar = league.auctionRules || {};
+
+  const rulesView = [
+    { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0–' : ''}${league.keeperSlots} per team` },
+    { label: 'Min Keepers Required', value: league.minKeepers || 0 },
+    ...(isSnake ? [
+      { label: 'Contract Length', value: `${league.contractYears} years` },
+      { label: 'Contracts Required', value: league.contractsRequired ? 'All slots must be filled' : 'Optional' },
+      { label: 'Contracts on Trade', value: (league.contractsFollowTrade ?? true) ? 'Travel with the player' : 'Renewable by new owner' },
+    ] : []),
+    ...(isAuction ? [
+      { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}` },
+      { label: 'Undrafted Player Cost', value: `$${ar.undraftedStartCost || 0} first year` },
+      ...(ar.lastPlacePenalty ? [{ label: 'Last Place Penalty', value: `$${ar.lastPlacePenalty}` }] : []),
+    ] : []),
+    { label: 'No Playoff Pickup Keepers', value: league.noPlayoffPickupKeepers ? 'Enforced' : 'Not enforced' },
+  ];
+  const rulesDraftInitial = {
+    keeperSlots: league.keeperSlots || 0,
+    minKeepers: league.minKeepers || 0,
+    contractYears: league.contractYears || 3,
+    contractsRequired: !!league.contractsRequired,
+    contractsFollowTrade: league.contractsFollowTrade ?? true,
+    noPlayoffPickupKeepers: !!league.noPlayoffPickupKeepers,
+    costIncreasePerYear: ar.costIncreasePerYear || 0,
+    undraftedStartCost: ar.undraftedStartCost || 0,
+    lastPlacePenalty: ar.lastPlacePenalty || 0,
+  };
+  function rulesEdit(draft, setDraft) {
+    const set = (k, v) => setDraft({ ...draft, [k]: v });
+    return [
+      { label: 'Keeper Slots', control: <TextField type="number" value={draft.keeperSlots} onChange={v => set('keeperSlots', v)} t={t} isDark={isDark} /> },
+      { label: 'Min Keepers Required', control: <TextField type="number" value={draft.minKeepers} onChange={v => set('minKeepers', v)} t={t} isDark={isDark} /> },
+      ...(isSnake ? [
+        { label: 'Contract Length (years)', control: <TextField type="number" value={draft.contractYears} onChange={v => set('contractYears', v)} t={t} isDark={isDark} /> },
+        { label: 'Contracts Required', control: <ToggleField value={draft.contractsRequired} onChange={v => set('contractsRequired', v)} t={t} isDark={isDark} /> },
+        { label: 'Contracts on Trade', control: <SelectField value={draft.contractsFollowTrade ? 'follow' : 'renewable'} onChange={v => set('contractsFollowTrade', v === 'follow')} t={t} isDark={isDark}
+            options={[{value:'follow',label:'Travel with player'},{value:'renewable',label:'Renewable by new owner'}]} /> },
+      ] : []),
+      ...(isAuction ? [
+        { label: 'Cost Increase per Year ($)', control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
+        { label: 'Undrafted Player Cost ($)', control: <TextField type="number" value={draft.undraftedStartCost} onChange={v => set('undraftedStartCost', v)} t={t} isDark={isDark} /> },
+        { label: 'Last Place Penalty ($)', control: <TextField type="number" value={draft.lastPlacePenalty} onChange={v => set('lastPlacePenalty', v)} t={t} isDark={isDark} /> },
+      ] : []),
+      { label: 'No Playoff Pickup Keepers', control: <ToggleField value={draft.noPlayoffPickupKeepers} onChange={v => set('noPlayoffPickupKeepers', v)} t={t} isDark={isDark} /> },
+    ];
+  }
+  function saveRules(draft) {
+    const next = {
+      ...league,
+      keeperSlots: draft.keeperSlots,
+      minKeepers: draft.minKeepers,
+      noPlayoffPickupKeepers: draft.noPlayoffPickupKeepers,
+    };
+    if (isSnake) {
+      next.contractYears = draft.contractYears;
+      next.contractsRequired = draft.contractsRequired;
+      next.contractsFollowTrade = draft.contractsFollowTrade;
+    }
+    if (isAuction) {
+      next.auctionRules = {
+        ...ar,
+        costIncreasePerYear: draft.costIncreasePerYear,
+        undraftedStartCost: draft.undraftedStartCost,
+        lastPlacePenalty: draft.lastPlacePenalty,
+      };
+    }
+    onUpdateLeague(next);
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>League Info</div>
-        </div>
-        <div style={{ padding: '0 20px' }}>
-          {infoRows.map((row, i) => (
-            <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 0', borderBottom: i < infoRows.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-              <span style={{ fontSize: '13px', color: t.textSecondary }}>{row.label}</span>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{row.value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <EditableCard title="League Info" t={t} isDark={isDark} accentColor={accentColor}
+        viewRows={infoView} initialDraft={infoDraftInitial} editRows={infoEdit} onSave={saveInfo} />
 
+      <EditableCard title="Keeper Rules" t={t} isDark={isDark} accentColor={accentColor}
+        viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} />
+
+      {/* Season rollover */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keeper Rules</div>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Season</div>
         </div>
-        <div style={{ padding: '0 20px' }}>
-          {[
-            { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0–' : ''}${league.keeperSlots} per team` },
-            ...(league.draftType === 'snake' ? [
-              { label: 'Contract Length', value: `${league.contractYears} years` },
-              { label: 'Contracts Required', value: league.contractsRequired ? 'Yes — all slots must be filled' : 'No' },
-              { label: 'Contracts Follow Trades', value: 'Yes — travels with the player' },
-            ] : []),
-            ...(league.draftType === 'auction' && league.auctionRules ? [
-              { label: 'Cost Increase per Year', value: `+$${league.auctionRules.costIncreasePerYear}` },
-              { label: 'Undrafted Player Cost', value: `$${league.auctionRules.undraftedStartCost} first year` },
-              ...(league.auctionRules.lastPlacePenalty ? [{ label: 'Last Place Penalty', value: `$${league.auctionRules.lastPlacePenalty}` }] : []),
-            ] : []),
-            { label: 'No Playoff Pickup Keepers', value: league.noPlayoffPickupKeepers ? 'Enforced' : 'Not enforced' },
-            ...(league.bottomLotteryTeams ? [{ label: 'Draft Lottery', value: `Bottom ${league.bottomLotteryTeams} teams` }] : []),
-          ].map((row, i, arr) => (
-            <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '11px 0', borderBottom: i < arr.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-              <span style={{ fontSize: '13px', color: t.textSecondary, flex: '0 0 200px' }}>{row.label}</span>
-              <span style={{ fontSize: '13px', fontWeight: 500, color: t.textPrimary, textAlign: 'right' }}>{row.value}</span>
+        <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 18 }}>🔄</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Start New Season</div>
+            <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
+              Advances {league.season} to {/* show next */}the next year. Current keepers move to last-season history (contract years +1, expired contracts dropped). Keeper submissions reset.
             </div>
-          ))}
+          </div>
+          <button onClick={() => setShowRolloverConfirm(true)} style={{ flexShrink: 0, background: accentColor, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: '12px', fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+            Start New Season
+          </button>
         </div>
       </div>
 
@@ -264,21 +440,54 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
         </div>
       </div>
 
-      <div style={{ background: t.noteBg, border: `1px solid ${t.border}`, borderRadius: 10, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 18 }}>🔗</span>
-        <div>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: t.textSecondary }}>Yahoo Fantasy Integration</div>
-          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Connect your Yahoo league to auto-import rosters, keeper eligibility, and standings. Coming soon.</div>
-        </div>
-        <button style={{ marginLeft: 'auto', flexShrink: 0, background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '7px 14px', fontSize: '12px', fontWeight: 600, color: t.textMuted, cursor: 'not-allowed', opacity: 0.5 }}>Connect Yahoo</button>
-      </div>
-
       {showImport && <DraftImportModal league={league} accentColor={accentColor} isDark={isDark} onImport={onUpdateLeague} onClose={() => setShowImport(false)} />}
       {showRosterImport && <RosterImportModal
         league={league}
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}
         accentColor={accentColor} isDark={isDark}
         onImport={onUpdateLeague} onClose={() => setShowRosterImport(null)} />}
+
+      {showRolloverConfirm && (
+        <RolloverConfirmModal league={league} accentColor={accentColor} isDark={isDark}
+          onConfirm={rolloverSeason} onCancel={() => setShowRolloverConfirm(false)} />
+      )}
+    </div>
+  );
+}
+
+function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel }) {
+  const t = makeTheme(isDark);
+  // Count what would happen
+  const carriedCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(k => {
+    if (league.draftType !== 'snake') return true;
+    const length = k.contractLength || league.contractYears || 3;
+    return (k.contractYear || 0) + 1 <= length;
+  }).length, 0);
+  const expiredCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(k => {
+    if (league.draftType !== 'snake') return false;
+    const length = k.contractLength || league.contractYears || 3;
+    return (k.contractYear || 0) + 1 > length;
+  }).length, 0);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, maxWidth: 480, width: '100%', padding: 24 }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: t.textPrimary }}>Start a new season?</h3>
+        <p style={{ margin: '10px 0 0', fontSize: 13, color: t.textBody, lineHeight: 1.5 }}>
+          This will roll <strong>{league.name}</strong> from <strong>{league.season}</strong> into the next season.
+        </p>
+        <ul style={{ margin: '14px 0 0', paddingLeft: 18, fontSize: 13, color: t.textBody, lineHeight: 1.7 }}>
+          <li><strong>{carriedCount}</strong> keeper contract{carriedCount === 1 ? '' : 's'} will carry forward to next-season history with their year advanced.</li>
+          {league.draftType === 'snake' && <li><strong>{expiredCount}</strong> contract{expiredCount === 1 ? ' has' : 's have'} expired and will return to the draft pool.</li>}
+          <li>Every team's keeper submissions and paid-status will reset.</li>
+          <li>The league status returns to <em>pre-draft</em> and the draft date is cleared.</li>
+        </ul>
+        <p style={{ margin: '14px 0 0', fontSize: 12, color: t.textMuted }}>You can't undo this from inside the app, but your previous data still lives in browser storage until you make further changes.</p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onCancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={onConfirm} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Start New Season</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -313,6 +522,20 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
       <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, padding: '0 0 10px', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
         ← All Leagues
       </button>
+
+      {/* Season-complete banner — prompts the commissioner to roll forward */}
+      {currentLeague.status === 'completed' && (
+        <div style={{ background: 'linear-gradient(135deg, rgba(59,138,230,0.18), rgba(107,77,230,0.12))', border: `1px solid ${accentColor}55`, borderRadius: 10, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 22 }}>🔄</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {currentLeague.season} season is complete</div>
+            <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Roll the league forward to set up next season's keepers.</div>
+          </div>
+          <button onClick={() => setTab('settings')} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+            Go to Settings
+          </button>
+        </div>
+      )}
 
       {/* League header card with tabs integrated */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: '0 0 12px 12px', boxShadow: t.cardShadow, marginBottom: 16 }}>
