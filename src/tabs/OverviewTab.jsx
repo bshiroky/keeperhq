@@ -1,6 +1,7 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
+import { KeeperEditModal } from './KeepersTab.jsx';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
