@@ -4,11 +4,65 @@ import { createPortal } from 'react-dom';
 // Shared UI components — exported to window
 
 // Design tokens. Two namespaces, two concerns:
-//   text* = color values for text  (textPrimary, textMuted, etc.)
-//   type* = typography style objects  (font-size, weight, letter-spacing, transform)
+//   text* = color values for text  (textPrimary, textMuted, etc.) — theme-dependent
+//   type* = typography style objects  (font-size, weight, letter-spacing, transform) — theme-invariant
 // Do NOT merge these — textBody is a color, typeBody is a size+weight spec.
-// New surfaces consume tokens; they do not introduce values. If a new role is
-// genuinely needed, add a token here first.
+//
+// Theme-invariant tokens (type, space, radius, semantic color) live in the
+// module-scope `tokens` constant. Components that don't have isDark in
+// scope can use `tokens.typePill` directly. `makeTheme(isDark)` spreads
+// the same values back in, so existing call sites of `t.typePill` etc.
+// continue to work.
+//
+// New surfaces consume tokens; they do not introduce values. If a new role
+// is genuinely needed, add a token here first.
+const tokens = {
+  // ── typography (style objects; spread into inline styles) ─
+  //   <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary }}>
+  typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
+  typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
+  typeHeadingSection: { fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  typeLabelEyebrow:   { fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  typePill:           { fontSize: '11px', fontWeight: 600, letterSpacing: '0.03em' },
+  typePillEmphatic:   { fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' },
+  typeBody:           { fontSize: '13px', fontWeight: 400 },
+  typeBodyMeta:       { fontSize: '12px', fontWeight: 400 },
+  typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
+  typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
+  typeNumericInline:  { fontSize: '17px', fontWeight: 700 },
+
+  // ── spacing (numbers; inline styles auto-px) ──────────────
+  //   padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`   gap: tokens.spaceMd
+  space2xs: 4,
+  spaceXs:  8,
+  spaceSm:  12,
+  spaceMd:  16,
+  spaceLg:  20,
+  spaceXl:  24,
+  space2xl: 32,
+
+  // ── radius ────────────────────────────────────────────────
+  radiusSm:   6,    // chips, small badges
+  radiusMd:   8,    // buttons, inputs
+  radiusLg:   12,   // cards, modals, nested stat blocks
+  radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
+
+  // ── semantic color ────────────────────────────────────────
+  success:       '#6dd4a8',
+  successBg:     'rgba(109,212,168,0.14)',
+  successBorder: 'rgba(109,212,168,0.33)',
+  warning:       '#e8832a',
+  warningBg:     'rgba(232,131,42,0.12)',
+  warningBorder: 'rgba(232,131,42,0.33)',
+  danger:        '#e85252',
+  dangerBg:      'rgba(232,82,82,0.12)',
+  dangerBorder:  'rgba(232,82,82,0.33)',
+  info:          '#3b8ae6',
+  infoBg:        'rgba(59,138,230,0.12)',
+  infoBorder:    'rgba(59,138,230,0.33)',
+  brand:         '#3ca96b',
+};
+
 function makeTheme(isDark) {
   return {
     // ── surface ───────────────────────────────────────────────
@@ -30,50 +84,8 @@ function makeTheme(isDark) {
     badgeBg:      isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     badgeColor:   isDark ? '#9aa3b5' : '#6b7489',
 
-    // ── typography (style objects; spread into inline styles) ─
-    //   <h1 style={{ ...t.typeHeadingPage, color: t.textPrimary }}>
-    typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
-    typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
-    typeHeadingSection: { fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
-    typeLabelEyebrow:   { fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
-    typePill:           { fontSize: '11px', fontWeight: 600, letterSpacing: '0.03em' },
-    typePillEmphatic:   { fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' },
-    typeBody:           { fontSize: '13px', fontWeight: 400 },
-    typeBodyMeta:       { fontSize: '12px', fontWeight: 400 },
-    typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
-    typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
-    typeNumericInline:  { fontSize: '17px', fontWeight: 700 },
-
-    // ── spacing (numbers; inline styles auto-px) ──────────────
-    //   padding: `${t.spaceSm}px ${t.spaceMd}px`   gap: t.spaceMd
-    space2xs: 4,
-    spaceXs:  8,
-    spaceSm:  12,
-    spaceMd:  16,
-    spaceLg:  20,
-    spaceXl:  24,
-    space2xl: 32,
-
-    // ── radius ────────────────────────────────────────────────
-    radiusSm:   6,    // chips, small badges
-    radiusMd:   8,    // buttons, inputs
-    radiusLg:   12,   // cards, modals, nested stat blocks
-    radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
-
-    // ── semantic color ────────────────────────────────────────
-    success:       '#6dd4a8',
-    successBg:     'rgba(109,212,168,0.14)',
-    successBorder: 'rgba(109,212,168,0.33)',
-    warning:       '#e8832a',
-    warningBg:     'rgba(232,131,42,0.12)',
-    warningBorder: 'rgba(232,131,42,0.33)',
-    danger:        '#e85252',
-    dangerBg:      'rgba(232,82,82,0.12)',
-    dangerBorder:  'rgba(232,82,82,0.33)',
-    info:          '#3b8ae6',
-    infoBg:        'rgba(59,138,230,0.12)',
-    infoBorder:    'rgba(59,138,230,0.33)',
-    brand:         '#3ca96b',
+    // theme-invariants (also available via the `tokens` constant)
+    ...tokens,
   };
 }
 
@@ -354,7 +366,7 @@ function Tooltip({ children, content, isDark, position = 'top', style = {} }) {
 }
 
 Object.assign(window, {
-  makeTheme,
+  makeTheme, tokens,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
@@ -363,7 +375,7 @@ Object.assign(window, {
 });
 
 export {
-  makeTheme,
+  makeTheme, tokens,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
