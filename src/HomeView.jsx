@@ -8,7 +8,6 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
   const stats = getLeagueStats(league);
   const accentColor = sportColors ? sport.color : '#3b8ae6';
   const totalTeams = league.teamCount || league.teams.length;
-  const keeperTotal = totalTeams * league.keeperSlots;
 
   const cardBg = isDark ? '#161a22' : '#ffffff';
   const cardBgHover = isDark ? '#1c2130' : '#f7f9fc';
@@ -16,7 +15,6 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
   const cardShadow = isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)';
   const cardShadowHover = isDark ? `0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px ${accentColor}22` : `0 4px 20px rgba(0,0,0,0.12), 0 0 0 1px ${accentColor}22`;
   const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)';
-  const dividerColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
 
   return (
     <div
@@ -26,10 +24,10 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         border: `1px solid ${borderColor}`,
         borderTop: `3px solid ${accentColor}`,
         borderRadius: 12,
-        padding: '14px 18px 16px',
+        padding: '16px 18px 18px',
         cursor: 'pointer',
         transition: 'all 0.18s ease',
-        display: 'flex', flexDirection: 'column', gap: 0,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
         position: 'relative', overflow: 'hidden',
         boxShadow: cardShadow,
       }}
@@ -44,51 +42,45 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         e.currentTarget.style.boxShadow = cardShadow;
       }}
     >
-      {/* Sport sprite watermark behind content */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: `${accentColor}22`,
+          border: `1.5px solid ${accentColor}55`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, overflow: 'hidden',
+        }}>
+          <SportLogo sport={league.sport} height={44} />
+        </div>
+        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {league.name}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
+        <DraftBadge draftType={league.draftType} />
+        <StatusPill status={league.status} />
+      </div>
+
       <div style={{
-        position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)',
-        opacity: isDark ? 0.14 : 0.18, pointerEvents: 'none', zIndex: 0,
+        width: '100%',
+        background: sectionBg,
+        border: `1px solid ${borderColor}`,
+        borderRadius: 10,
+        padding: '14px 18px',
+        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
       }}>
-        <SportLogo sport={league.sport} height={110} />
+        <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
+        <StatBox label="Keepers" value={league.keeperSlots || '—'} isDark={isDark} />
+        <StatBox label="Buy-in" value={league.buyIn ? `$${league.buyIn}` : '—'} isDark={isDark} />
       </div>
 
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Header row — title + season inline */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <div style={{ fontSize: '19px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
-            {league.name}
-          </div>
-          <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
+      {league.draftType === 'snake' && stats.expiring > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+          <ExpiringDot count={stats.expiring} />
+          <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-          <DraftBadge draftType={league.draftType} />
-          <StatusPill status={league.status} />
-        </div>
-
-        {/* Stats row — flat, no card-within-a-card, no sub-text */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: league.draftType === 'snake' && stats.expiring > 0 ? 12 : 0 }}>
-          <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
-          <StatBox
-            label="Keepers"
-            value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
-            accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-            isDark={isDark}
-          />
-          <StatBox
-            label="Rosters"
-            value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
-            accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-            isDark={isDark}
-          />
-        </div>
-
-        {league.draftType === 'snake' && stats.expiring > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <ExpiringDot count={stats.expiring} />
-            <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

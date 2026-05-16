@@ -135,14 +135,14 @@ function App() {
         position: 'sticky', top: 0, zIndex: 100,
         backdropFilter: 'blur(12px)',
       }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 104 }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 80 }}>
           <button
             onClick={handleBack}
             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', fontFamily: 'inherit' }}
             title="Home"
           >
-            <img src="/nav-logo.png" alt="KeeperHQ" height={88}
-              style={{ height: 88, width: 'auto', display: 'block', imageRendering: 'pixelated' }} />
+            <img src="/nav-logo.png" alt="KeeperHQ" height={104}
+              style={{ height: 104, width: 'auto', display: 'block', imageRendering: 'pixelated' }} />
           </button>
 
           <AccountMenu isDark={isDark} />

@@ -580,14 +580,14 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
       {/* League header card with tabs integrated */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: 12, boxShadow: t.cardShadow, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
         <div style={{
-          position: 'absolute', top: '50%', left: 220, transform: 'translateY(-50%)',
-          opacity: isDark ? 0.12 : 0.16, pointerEvents: 'none', zIndex: 0,
+          position: 'absolute', top: '50%', left: 200, transform: 'translateY(-50%)',
+          opacity: isDark ? 0.10 : 0.14, pointerEvents: 'none', zIndex: 0,
         }}>
-          <SportLogo sport={currentLeague.sport} height={140} />
+          <SportLogo sport={currentLeague.sport} height={130} />
         </div>
         <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
-            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{currentLeague.name}</h1>
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{currentLeague.name}</h1>
             <SportBadge sport={currentLeague.sport} />
             <DraftBadge draftType={currentLeague.draftType} />
             <StatusPill status={currentLeague.status} />
