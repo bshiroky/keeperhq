@@ -73,6 +73,30 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
 
+  // Horizontal-scroll state for the keeper table — shows chevrons when the
+  // grid is wider than the visible area (e.g. leagues with more than ~4 slots).
+  const tableScrollRef = React.useRef(null);
+  const [scrollCanLeft, setScrollCanLeft] = React.useState(false);
+  const [scrollCanRight, setScrollCanRight] = React.useState(false);
+  React.useEffect(() => {
+    function update() {
+      const el = tableScrollRef.current;
+      if (!el) return;
+      setScrollCanLeft(el.scrollLeft > 1);
+      setScrollCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+    }
+    update();
+    const el = tableScrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
+  }, [maxKeepers, teams.length]);
+  function scrollTable(dir) {
+    tableScrollRef.current?.scrollBy({ left: dir * 280, behavior: 'smooth' });
+  }
+
   // Look up keeper headshots from the static player directory (NHL only for now).
   React.useEffect(() => {
     if (league.sport !== 'hockey' && league.sport !== 'nhl') return;
@@ -147,13 +171,22 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
             {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
           </div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div style={{ position: 'relative' }}>
+        {scrollCanLeft && (
+          <button onClick={() => scrollTable(-1)} aria-label="Scroll left"
+            style={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', zIndex: 5, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
+        )}
+        {scrollCanRight && (
+          <button onClick={() => scrollTable(1)} aria-label="Scroll right"
+            style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', zIndex: 5, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
+        )}
+        <div ref={tableScrollRef} style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
                 <th style={{ padding: '9px 16px 9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 130 }}>Team</th>
                 {Array.from({ length: maxKeepers }, (_, i) => (
-                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap' }}>
+                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 200, minWidth: 200 }}>
                     K{i + 1}
                   </th>
                 ))}
@@ -225,8 +258,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                               content={expiring && !slot.isOutgoing
                                 ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
                                 : null}>
-                            <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
                                 {(() => {
                                   const p = playerMap?.get(normalizeName(slot.player));
                                   return p?.headshot ? (
@@ -240,21 +273,23 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textPrimary),
                                   fontWeight: slot.isOutgoing ? 500 : 700,
                                   textDecoration: slot.isOutgoing ? 'line-through' : 'none',
-                                }}>
+                                  flex: 1, minWidth: 0,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }} title={slot.player}>
                                   {slot.player}
                                 </span>
                                 {league.draftType === 'snake' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textMuted), textDecoration: slot.isOutgoing ? 'line-through' : 'none' }}>
+                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textMuted), textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>
                                     Y{slot.contractYear}/{slot.contractLength}
                                   </span>
                                 )}
                                 {league.draftType === 'auction' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : accentColor, fontWeight: 700, textDecoration: slot.isOutgoing ? 'line-through' : 'none' }}>${slot.keptFor}</span>
+                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : accentColor, fontWeight: 700, textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>${slot.keptFor}</span>
                                 )}
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
                                   title="Reassign to another team (mid-season trade)"
-                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '10px', color: t.textMuted, opacity: 0.5, lineHeight: 1, fontFamily: 'inherit' }}
+                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '10px', color: t.textMuted, opacity: 0.5, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
                                   onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = accentColor; }}
                                   onMouseLeave={e => { e.currentTarget.style.opacity = 0.5; e.currentTarget.style.color = t.textMuted; }}
                                 >✎</button>
@@ -334,6 +369,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
               })}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </>
