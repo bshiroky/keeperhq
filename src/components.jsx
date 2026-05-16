@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 // Shared UI components — exported to window
 
@@ -224,12 +225,66 @@ function HScrollRow({ children, isDark, t: theme, gap = 5 }) {
   );
 }
 
+// Hover tooltip. Wraps any element, attaches mouseenter/leave listeners, and
+// renders the bubble via a portal so it isn't clipped by overflow:hidden
+// parents. Triggers immediately (no browser-default 1s delay), positions
+// above the trigger by default. Pass `null` content to disable.
+function Tooltip({ children, content, isDark, position = 'top', style = {} }) {
+  const [shown, setShown] = React.useState(false);
+  const [coords, setCoords] = React.useState({ top: 0, left: 0 });
+  const triggerRef = React.useRef(null);
+
+  if (!content) return children;
+
+  function show() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setCoords({
+        top: position === 'top' ? rect.top : rect.bottom,
+        left: rect.left + rect.width / 2,
+      });
+    }
+    setShown(true);
+  }
+
+  return (
+    <>
+      <span ref={triggerRef} style={{ display: 'inline-block', ...style }}
+        onMouseEnter={show}
+        onMouseLeave={() => setShown(false)}>
+        {children}
+      </span>
+      {shown && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: coords.top, left: coords.left,
+          transform: position === 'top' ? 'translate(-50%, calc(-100% - 8px))' : 'translate(-50%, 8px)',
+          background: isDark ? '#252a36' : '#2d3340',
+          color: '#fff',
+          padding: '7px 10px',
+          fontSize: 11, fontWeight: 500,
+          borderRadius: 6,
+          width: 'max-content', maxWidth: 260,
+          whiteSpace: 'normal', lineHeight: 1.45,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          zIndex: 10000,
+          pointerEvents: 'none',
+          fontFamily: 'inherit',
+        }}>
+          {content}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 Object.assign(window, {
   makeTheme,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
-  HScrollRow,
+  HScrollRow, Tooltip,
 });
 
 export {
@@ -237,5 +292,5 @@ export {
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
-  HScrollRow,
+  HScrollRow, Tooltip,
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, Tooltip } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 
@@ -205,6 +205,11 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       return (
                         <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'top' }}>
                           {slot ? (
+                            <Tooltip
+                              isDark={isDark}
+                              content={expiring && !slot.isOutgoing
+                                ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
+                                : null}>
                             <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
                               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                                 <span style={{
@@ -271,6 +276,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                 </div>
                               )}
                             </div>
+                            </Tooltip>
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
                               background: needsMore ? `${accentColor}10` : 'none',
