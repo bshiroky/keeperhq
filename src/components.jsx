@@ -24,11 +24,23 @@ function makeTheme(isDark) {
 }
 
 const SPORT_CONFIG = {
-  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', colorDim: 'rgba(59,138,230,0.12)' },
-  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', colorDim: 'rgba(232,131,42,0.12)' },
-  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', colorDim: 'rgba(76,175,125,0.12)' },
-  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', colorDim: 'rgba(232,82,82,0.12)' },
+  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', colorDim: 'rgba(59,138,230,0.12)', logo: '/sport-hockey.png' },
+  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', colorDim: 'rgba(232,131,42,0.12)', logo: '/sport-basketball.png' },
+  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', colorDim: 'rgba(76,175,125,0.12)', logo: '/sport-football.png' },
+  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', colorDim: 'rgba(232,82,82,0.12)', logo: '/sport-baseball.png' },
 };
+
+// Renders the sport's badge logo if available, falling back to the emoji.
+// Height controls vertical size; width auto-scales to preserve the shield
+// aspect ratio.
+function SportLogo({ sport, height = 32 }) {
+  const cfg = SPORT_CONFIG[sport];
+  if (cfg?.logo) {
+    return <img src={cfg.logo} alt={cfg.label} height={height}
+      style={{ height, width: 'auto', display: 'block', flexShrink: 0, imageRendering: 'pixelated' }} />;
+  }
+  return <span style={{ fontSize: height * 0.7, flexShrink: 0 }}>{cfg?.icon || '🏆'}</span>;
+}
 
 const DRAFT_LABEL = { snake: 'Contract Snake', auction: 'Auction' };
 const STATUS_CONFIG = {
@@ -282,7 +294,7 @@ function Tooltip({ children, content, isDark, position = 'top', style = {} }) {
 Object.assign(window, {
   makeTheme,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
-  SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
 });
@@ -290,7 +302,7 @@ Object.assign(window, {
 export {
   makeTheme,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
-  SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
 };

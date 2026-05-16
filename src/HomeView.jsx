@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, SportBadge, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, formatDate, getLeagueStats } from './components.jsx';
+import { SPORT_CONFIG, SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, formatDate, getLeagueStats } from './components.jsx';
 
 // Home View — Commissioner Dashboard
 
@@ -54,7 +54,7 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
       {/* Header section */}
       <div style={{ padding: '0 0 16px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, width: '100%', overflow: 'hidden' }}>
-          <span style={{ fontSize: 20, flexShrink: 0 }}>{sport.icon}</span>
+          <SportLogo sport={league.sport} height={40} />
           <span style={{ fontSize: '18px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
             {league.name}
           </span>
