@@ -51,14 +51,17 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         pointerEvents: 'none',
       }}></div>
 
-      {/* Header section */}
-      <div style={{ padding: '0 0 16px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, width: '100%', overflow: 'hidden' }}>
-          <SportLogo sport={league.sport} height={140} />
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <span style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {/* Two-column layout: sport badge on the left, all content stacked on the right */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'stretch' }}>
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <SportLogo sport={league.sport} height={170} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Title + status pills */}
+          <div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 8 }}>
               {league.name}
-            </span>
+            </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap', alignItems: 'center', overflow: 'hidden' }}>
               <SportBadge sport={league.sport} />
               <DraftBadge draftType={league.draftType} />
@@ -66,57 +69,54 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
               <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', marginLeft: 'auto', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Divider */}
-      <div style={{ height: 1, background: dividerColor, margin: '0 0 16px' }}></div>
-
-      {/* Stats section */}
-      <div style={{ background: sectionBg, borderRadius: 8, padding: '14px 16px', marginBottom: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-          <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
-          <StatBox
-            label="Keepers"
-            value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
-            sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams with keepers') : 'not set up'}
-            accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-            isDark={isDark}
-          />
-          <StatBox
-            label="Payments"
-            value={league.status === 'setup' ? '—' : `${stats.paid}/${totalTeams}`}
-            sub={league.status !== 'setup' ? `$${stats.collectedPool.toLocaleString()} in` : ''}
-            accent={stats.paid === totalTeams && totalTeams > 0 ? '#6dd4a8' : stats.paid < totalTeams ? '#e8832a' : undefined}
-            isDark={isDark}
-          />
-          <StatBox
-            label="Prize Pool"
-            value={league.totalPool > 0 ? `$${league.totalPool.toLocaleString()}` : '—'}
-            sub={`$${league.buyIn} buy-in`}
-            isDark={isDark}
-          />
-        </div>
-      </div>
-
-      {/* Footer row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4 }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {league.draftType === 'snake' && stats.expiring > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <ExpiringDot count={stats.expiring} />
-              <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
+          {/* Stats */}
+          <div style={{ background: sectionBg, borderRadius: 8, padding: '12px 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
+              <StatBox
+                label="Keepers"
+                value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
+                sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams with keepers') : 'not set up'}
+                accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+                isDark={isDark}
+              />
+              <StatBox
+                label="Payments"
+                value={league.status === 'setup' ? '—' : `${stats.paid}/${totalTeams}`}
+                sub={league.status !== 'setup' ? `$${stats.collectedPool.toLocaleString()} in` : ''}
+                accent={stats.paid === totalTeams && totalTeams > 0 ? '#6dd4a8' : stats.paid < totalTeams ? '#e8832a' : undefined}
+                isDark={isDark}
+              />
+              <StatBox
+                label="Prize Pool"
+                value={league.totalPool > 0 ? `$${league.totalPool.toLocaleString()}` : '—'}
+                sub={`$${league.buyIn} buy-in`}
+                isDark={isDark}
+              />
             </div>
-          )}
-          {league.draftType === 'auction' && (
-            <Tag color={accentColor}>+${league.auctionRules?.costIncreasePerYear}/yr keeper cost</Tag>
-          )}
-          {league.keeperSlots && (
-            <Tag>{league.draftType === 'auction' ? `Up to ${league.keeperSlots}` : `${league.keeperSlots}`} keepers</Tag>
-          )}
-        </div>
-        <div style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4' }}>
-          {league.draftDate ? `Draft ${formatDate(league.draftDate)}` : 'Draft TBD'}
+          </div>
+
+          {/* Footer */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {league.draftType === 'snake' && stats.expiring > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <ExpiringDot count={stats.expiring} />
+                  <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
+                </div>
+              )}
+              {league.draftType === 'auction' && (
+                <Tag color={accentColor}>+${league.auctionRules?.costIncreasePerYear}/yr keeper cost</Tag>
+              )}
+              {league.keeperSlots && (
+                <Tag>{league.draftType === 'auction' ? `Up to ${league.keeperSlots}` : `${league.keeperSlots}`} keepers</Tag>
+              )}
+            </div>
+            <div style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>
+              {league.draftDate ? `Draft ${formatDate(league.draftDate)}` : 'Draft TBD'}
+            </div>
+          </div>
         </div>
       </div>
     </div>
