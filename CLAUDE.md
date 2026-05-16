@@ -133,9 +133,10 @@ The full token vocabulary lives in `makeTheme(isDark)` in
 | `typeHeadingCard` | 18/700/-0.01em | Card and modal titles |
 | `typeHeadingSection` | 13/600/0.06em UPPERCASE | "KEEPERS", "Prize Structure", section dividers |
 | `typeLabelEyebrow` | 11/600/0.06em UPPERCASE | StatBox labels, KPI labels, column headers |
-| `typePill` | 11/700/0.04em | Internal text in StatusPill/DraftBadge/SportBadge/Tag |
-| `typeBody` | 13/500 | Table cells, body copy, form input text |
-| `typeBodyMeta` | 12/500 | Helper / secondary / footer text |
+| `typePill` | 11/600/0.03em | Soft pills: DraftBadge, SportBadge, Tag (the "label" pills) |
+| `typePillEmphatic` | 11/700/0.05em UPPERCASE | StatusPill ("announcer" pills) |
+| `typeBody` | 13/400 | Table cells, body copy, form input text |
+| `typeBodyMeta` | 12/400 | Helper / secondary / footer text |
 | `typeNumericHero` | 26/700 | SummaryBar values (dashboard hero metrics) |
 | `typeNumericCard` | 22/700 | StatBox value (card-level stats) |
 | `typeNumericInline` | 17/700 | League header inline counters |
