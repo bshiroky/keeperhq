@@ -26,7 +26,7 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         border: `1px solid ${borderColor}`,
         borderTop: `3px solid ${accentColor}`,
         borderRadius: '0 0 12px 12px',
-        padding: '20px',
+        padding: '14px 18px 16px',
         cursor: 'pointer',
         transition: 'all 0.18s ease',
         display: 'flex', flexDirection: 'column', gap: 0,
@@ -51,38 +51,34 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         pointerEvents: 'none',
       }}></div>
 
-      {/* Header row — small sport sprite as an inline accent next to the title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <SportLogo sport={league.sport} height={44} />
-        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+      {/* Header row — small sport sprite + title + season inline */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+        <SportLogo sport={league.sport} height={48} />
+        <div style={{ fontSize: '19px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
           {league.name}
         </div>
+        <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
         <DraftBadge draftType={league.draftType} />
         <StatusPill status={league.status} />
-        <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{league.season}</span>
       </div>
 
-      {/* Roster-management stats row */}
-      <div style={{ background: sectionBg, borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
-          <StatBox
-            label="Keepers"
-            value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
-            sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams started') : 'not set up'}
-            accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-            isDark={isDark}
-          />
-          <StatBox
-            label="Rosters"
-            value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
-            sub={league.status !== 'setup' ? (stats.rostersLoaded === totalTeams ? 'all imported ✓' : 'last season imported') : ''}
-            accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-            isDark={isDark}
-          />
-        </div>
+      {/* Stats row — flat, no card-within-a-card, no sub-text */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+        <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
+        <StatBox
+          label="Keepers"
+          value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
+          accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+          isDark={isDark}
+        />
+        <StatBox
+          label="Rosters"
+          value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
+          accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+          isDark={isDark}
+        />
       </div>
 
       {/* Footer: keeper-focused tags + draft date */}
