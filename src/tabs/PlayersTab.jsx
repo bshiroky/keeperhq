@@ -77,11 +77,15 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [managing]);
 
-  function assignToTeam(player, teamId) {
+  function makeKeeper(player, teamId) {
+    const isSnake = league.draftType === 'snake';
+    const ar = league.auctionRules || {};
+    const entry = isSnake
+      ? { player: player.name, contractYear: 1, contractLength: league.contractYears || 3 }
+      : { player: player.name, keptFor: ar.undraftedStartCost || 0, yearsKept: 1 };
     const teams = (league.teams || []).map(tm => {
       if (tm.id !== teamId) return tm;
-      const roster = tm.roster || [];
-      return { ...tm, roster: [...roster, { player: player.name, pos: posForRoster(player.pos) }] };
+      return { ...tm, keepers: [...(tm.keepers || []), entry] };
     });
     onUpdateLeague({ ...league, teams });
   }
@@ -130,7 +134,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
     const { player, entry } = managing;
     const currentOwner = entry?.tradedToTeamId || entry?.teamId;
     if (targetTeamId === currentOwner) { closeManage(); return; }
-    if (!entry) assignToTeam(player, targetTeamId);
+    if (!entry) makeKeeper(player, targetTeamId);
     else if (entry.status === 'rostered') moveRostered(player, entry.teamId, targetTeamId);
     else tradeKeeper(player, entry, targetTeamId);
     closeManage();
@@ -405,9 +409,18 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
   else if (entry.tradedToTeamName) currentText = `Keeper · ${entry.teamName} → traded to ${entry.tradedToTeamName}`;
   else currentText = `Keeper · ${entry.teamName}`;
 
+  const isSnake = league.draftType === 'snake';
+  const ar = league.auctionRules || {};
+  let contractPreview = null;
+  if (!entry) {
+    contractPreview = isSnake
+      ? `Year 1 of a ${league.contractYears || 3}-year contract`
+      : `$${ar.undraftedStartCost || 0} for year 1 · +$${ar.costIncreasePerYear || 0}/year thereafter`;
+  }
+
   let confirmLabel = 'Confirm';
   if (noChange) confirmLabel = 'No change';
-  else if (!entry) confirmLabel = 'Add to roster';
+  else if (!entry) confirmLabel = 'Make keeper';
   else if (entry.status === 'rostered') confirmLabel = 'Move';
   else if (entry.status === 'keeper' && targetTeamId === entry.teamId) confirmLabel = 'Cancel trade';
   else confirmLabel = 'Confirm trade';
@@ -453,7 +466,7 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
 
         <div style={{ padding: '14px 18px' }}>
           <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 6 }}>
-            {!entry ? 'Assign to team' : entry.status === 'rostered' ? 'Move to team' : 'Trade to team'}
+            {!entry ? 'Add as keeper for' : entry.status === 'rostered' ? 'Move to team' : 'Trade to team'}
           </label>
           <select value={targetTeamId} onChange={e => setTargetTeamId(e.target.value)}
             style={{
@@ -471,6 +484,12 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
               return <option key={tm.id} value={tm.id}>{tm.name}{suffix}</option>;
             })}
           </select>
+          {contractPreview && (
+            <div style={{ marginTop: 8, padding: '8px 10px', background: `${accentColor}12`, border: `1px solid ${accentColor}33`, borderRadius: 6, fontSize: 12, color: t.textSecondary }}>
+              <span style={{ color: t.textMuted, marginRight: 6 }}>Contract:</span>
+              <span style={{ fontWeight: 600, color: t.textPrimary }}>{contractPreview}</span>
+            </div>
+          )}
         </div>
 
         <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${t.divider}`, background: t.sectionBg, gap: 8, flexWrap: 'wrap' }}>

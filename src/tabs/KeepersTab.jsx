@@ -18,7 +18,6 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
     }
     return initial;
   });
-  const [submitted, setSubmitted] = React.useState(team.keepersSubmitted);
   const [tradingIdx, setTradingIdx] = React.useState(null);
   const [tradeForm, setTradeForm] = React.useState({ toTeamId: '', note: '' });
 
@@ -247,15 +246,10 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '13px', color: t.textSecondary, fontWeight: 600 }}>
-            <input type="checkbox" checked={submitted} onChange={e => setSubmitted(e.target.checked)}
-              style={{ width: 16, height: 16, cursor: 'pointer', accentColor }} />
-            Mark as submitted
-          </label>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: t.textSecondary }}>Cancel</button>
-            <button onClick={() => onSave({ ...team, keepers, keepersSubmitted: submitted })} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Save</button>
+            <button onClick={() => onSave({ ...team, keepers })} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Save</button>
           </div>
         </div>
       </div>
@@ -301,7 +295,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{team.name}</div>
                   <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
-                    {team.keepersSubmitted ? `${(team.keepers||[]).length}/${league.keeperSlots} keepers` : 'Not yet submitted'}
+                    {`${(team.keepers||[]).length}/${league.keeperSlots} keepers`}
                     {expiring > 0 && <span style={{ color: '#e85252', marginLeft: 8 }}>· {expiring} expiring</span>}
                   </div>
                 </div>
@@ -361,7 +355,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{team.name}</div>
               <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
-                {team.keepersSubmitted ? `${(team.keepers||[]).length} of ${league.keeperSlots} keeper slots used` : 'Not yet submitted'}
+                {`${(team.keepers||[]).length} of ${league.keeperSlots} keeper slots used`}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>

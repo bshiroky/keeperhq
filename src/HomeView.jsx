@@ -76,9 +76,9 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
           <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
           <StatBox
             label="Keepers"
-            value={league.status === 'setup' ? '—' : `${stats.submitted}/${totalTeams}`}
-            sub={league.status !== 'setup' ? (stats.submitted === totalTeams ? 'all submitted ✓' : 'teams submitted') : 'not set up'}
-            accent={stats.submitted === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+            value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
+            sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams with keepers') : 'not set up'}
+            accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
             isDark={isDark}
           />
           <StatBox

@@ -63,27 +63,6 @@ function ChecklistCard({ icon, title, subtitle, value, total, status, accentColo
   );
 }
 
-function SubmittedIcon({ submitted, size = 18, isDark }) {
-  if (submitted) {
-    return (
-      <span title="Keepers submitted" style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: size, height: size, borderRadius: '50%',
-        background: 'rgba(76,175,125,0.2)', color: '#6dd4a8',
-        fontSize: size * 0.6, fontWeight: 700, flexShrink: 0,
-      }}>✓</span>
-    );
-  }
-  return (
-    <span title="Not yet submitted" style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: size, height: size, borderRadius: '50%',
-      border: `2px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
-      background: 'transparent', flexShrink: 0,
-    }}></span>
-  );
-}
-
 function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const [teams, setTeams] = React.useState(league.teams || []);
@@ -134,7 +113,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
     if (onUpdateLeague) onUpdateLeague({ ...league, teams: newTeams });
     setEditingTeam(null);
   }
-  const submittedCount = teams.filter(tm => tm.keepersSubmitted).length;
+  const withKeepersCount = teams.filter(tm => (tm.keepers || []).length > 0).length;
 
   return (
     <>
@@ -147,16 +126,9 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
       )}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keeper Submissions</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '11px', color: t.textMuted }}>
-              <SubmittedIcon submitted={true} size={14} isDark={isDark} />
-              <span>= submitted</span>
-              <SubmittedIcon submitted={false} size={14} isDark={isDark} />
-              <span>= pending</span>
-            </div>
-            <span style={{ color: t.divider }}>|</span>
-            <span style={{ fontSize: '12px', color: t.textMuted }}>{submittedCount}/{teams.length} submitted</span>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keepers</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '12px', color: t.textMuted }}>{withKeepersCount}/{teams.length} teams started</span>
             {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
           </div>
         </div>
@@ -164,8 +136,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
-                <th style={{ padding: '9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 32 }}></th>
-                <th style={{ padding: '9px 8px 9px 0', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 130 }}>Team</th>
+                <th style={{ padding: '9px 16px 9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 130 }}>Team</th>
                 {Array.from({ length: maxKeepers }, (_, i) => (
                   <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap' }}>
                     K{i + 1}
@@ -210,12 +181,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                     onMouseEnter={e => e.currentTarget.style.background = t.sectionBg}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
-                    {/* Submitted icon */}
-                    <td style={{ padding: '12px 8px 12px 16px', textAlign: 'center' }}>
-                      <SubmittedIcon submitted={team.keepersSubmitted} isDark={isDark} />
-                    </td>
                     {/* Team name */}
-                    <td style={{ padding: '12px 8px 12px 0', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '12px 8px 12px 16px', whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <div style={{ width: 24, height: 24, borderRadius: 6, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: accentColor, flexShrink: 0 }}>
                           {team.name[0]}
@@ -448,6 +415,6 @@ function OverviewTab({ league, accentColor, isDark, onGoToTab, onUpdateLeague })
   );
 }
 
-Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard, SubmittedIcon });
+Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard });
 
-export { ChecklistCard, SubmittedIcon, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };
+export { ChecklistCard, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };

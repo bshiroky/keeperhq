@@ -324,39 +324,23 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
     setShowRolloverConfirm(false);
   }
 
-  // ── League Info card ──────────────────────────────────────────────────────
-  // Sport and Draft Type are locked: they're foundational decisions set when the
-  // league is created. Changing them mid-league would invalidate keeper records.
-  const lockedRows = [
-    { label: 'Sport', value: sport.label, locked: true },
-    { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType, locked: true },
-  ];
-  const infoView = [
-    ...lockedRows,
-    { label: 'Season', value: league.season },
-    { label: 'Teams', value: league.teamCount || league.teams.length },
-  ];
-  const infoDraftInitial = {
-    season: league.season || '',
-  };
-  function infoEdit(draft, setDraft) {
-    const set = (k, v) => setDraft({ ...draft, [k]: v });
-    return [
-      ...lockedRows,
-      { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
-      { label: 'Teams', value: league.teamCount || league.teams.length, locked: true },
-    ];
-  }
-  function saveInfo(draft) {
-    onUpdateLeague({ ...league, season: draft.season });
-  }
-
-  // ── Keeper Rules card ─────────────────────────────────────────────────────
+  // ── Keeper Rules card (also surfaces league-level identity at the top) ─────
   const isSnake = league.draftType === 'snake';
   const isAuction = league.draftType === 'auction';
   const ar = league.auctionRules || {};
 
+  // Sport and Draft Type are foundational decisions set at league creation and
+  // can't be edited mid-league — keeper records would be invalidated. Teams is
+  // a structural property that's also locked.
+  const leagueIdentityRows = [
+    { label: 'Sport', value: sport.label, locked: true },
+    { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType, locked: true },
+    { label: 'Teams', value: league.teamCount || league.teams.length, locked: true },
+  ];
+
   const rulesView = [
+    ...leagueIdentityRows,
+    { label: 'Season', value: league.season },
     { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0–' : ''}${league.keeperSlots} per team` },
     { label: 'Min Keepers Required', value: league.minKeepers || 0, help: 'Minimum number of keepers each team must declare. 0 = optional.' },
     ...(isSnake ? [
@@ -368,21 +352,22 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
       { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}`, help: "How much a keeper's salary increases each year you keep them." },
       { label: 'Undrafted Player Cost', value: `$${ar.undraftedStartCost || 0} first year`, help: "First-year cost for keeping a player who wasn't drafted last season." },
     ] : []),
-    { label: 'No Playoff Pickup Keepers', value: league.noPlayoffPickupKeepers ? 'Enforced' : 'Not enforced', help: 'Block keeping players added after the playoff start date.' },
   ];
   const rulesDraftInitial = {
+    season: league.season || '',
     keeperSlots: league.keeperSlots || 0,
     minKeepers: league.minKeepers || 0,
     contractYears: league.contractYears || 3,
     contractsRequired: !!league.contractsRequired,
     contractsFollowTrade: league.contractsFollowTrade ?? true,
-    noPlayoffPickupKeepers: !!league.noPlayoffPickupKeepers,
     costIncreasePerYear: ar.costIncreasePerYear || 0,
     undraftedStartCost: ar.undraftedStartCost || 0,
   };
   function rulesEdit(draft, setDraft) {
     const set = (k, v) => setDraft({ ...draft, [k]: v });
     return [
+      ...leagueIdentityRows,
+      { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
       { label: 'Keeper Slots', control: <TextField type="number" value={draft.keeperSlots} onChange={v => set('keeperSlots', v)} t={t} isDark={isDark} /> },
       { label: 'Min Keepers Required', help: 'Minimum number of keepers each team must declare. 0 = optional.', control: <TextField type="number" value={draft.minKeepers} onChange={v => set('minKeepers', v)} t={t} isDark={isDark} /> },
       ...(isSnake ? [
@@ -395,15 +380,14 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
         { label: 'Cost Increase per Year ($)', help: "How much a keeper's salary increases each year you keep them.", control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
         { label: 'Undrafted Player Cost ($)', help: "First-year cost for keeping a player who wasn't drafted last season.", control: <TextField type="number" value={draft.undraftedStartCost} onChange={v => set('undraftedStartCost', v)} t={t} isDark={isDark} /> },
       ] : []),
-      { label: 'No Playoff Pickup Keepers', help: 'Block keeping players added after the playoff start date.', control: <ToggleField value={draft.noPlayoffPickupKeepers} onChange={v => set('noPlayoffPickupKeepers', v)} t={t} isDark={isDark} /> },
     ];
   }
   function saveRules(draft) {
     const next = {
       ...league,
+      season: draft.season,
       keeperSlots: draft.keeperSlots,
       minKeepers: draft.minKeepers,
-      noPlayoffPickupKeepers: draft.noPlayoffPickupKeepers,
     };
     if (isSnake) {
       next.contractYears = draft.contractYears;
@@ -422,9 +406,6 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <EditableCard title="League Info" t={t} isDark={isDark} accentColor={accentColor}
-        viewRows={infoView} initialDraft={infoDraftInitial} editRows={infoEdit} onSave={saveInfo} />
-
       <EditableCard title="Keeper Rules" t={t} isDark={isDark} accentColor={accentColor}
         viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} />
 
@@ -569,7 +550,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview', badge: `${stats.submitted}/${totalTeams}` },
+    { id: 'overview', label: 'Overview', badge: `${stats.withKeepers}/${totalTeams}` },
     ...(currentLeague.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
     { id: 'players', label: 'Players' },
     { id: 'payouts', label: 'Payouts & Pay' },
@@ -609,7 +590,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
           <div style={{ display: 'flex', gap: 22, alignItems: 'center', textAlign: 'center' }}>
             {[
               { label: 'Teams', value: totalTeams },
-              { label: 'Submitted', value: `${stats.submitted}/${totalTeams}`, accent: stats.submitted === totalTeams ? '#6dd4a8' : undefined },
+              { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? '#6dd4a8' : undefined },
               { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? '#e8832a' : '#6dd4a8' },
               { label: currentLeague.draftType === 'snake' ? 'Expiring' : 'Pool', value: currentLeague.draftType === 'snake' ? (stats.expiring || '—') : `$${currentLeague.totalPool.toLocaleString()}`, accent: currentLeague.draftType === 'snake' && stats.expiring > 0 ? '#e85252' : undefined },
             ].map(s => (
