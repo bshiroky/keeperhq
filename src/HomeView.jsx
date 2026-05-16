@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, getLeagueStats } from './components.jsx';
+import { SPORT_CONFIG, SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, formatDate, getLeagueStats } from './components.jsx';
 
 // Home View — Commissioner Dashboard
 
@@ -8,6 +8,8 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
   const stats = getLeagueStats(league);
   const accentColor = sportColors ? sport.color : '#3b8ae6';
   const totalTeams = league.teamCount || league.teams.length;
+  const isSetup = league.status === 'setup';
+  const collected = (stats.paid || 0) * (league.buyIn || 0);
 
   const cardBg = isDark ? '#161a22' : '#ffffff';
   const cardBgHover = isDark ? '#1c2130' : '#f7f9fc';
@@ -15,6 +17,13 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
   const cardShadow = isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)';
   const cardShadowHover = isDark ? `0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px ${accentColor}22` : `0 4px 20px rgba(0,0,0,0.12), 0 0 0 1px ${accentColor}22`;
   const sectionBg = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)';
+  const subColor = isDark ? '#6b7489' : '#8892a4';
+  const titleColor = isDark ? '#e8ecf4' : '#1a1f2e';
+  const warnColor = '#e8832a';
+
+  const yearlyCost = league.auctionRules?.costIncreasePerYear;
+  const modifier = yearlyCost ? `+$${yearlyCost}/yr keeper cost` : null;
+  const paymentsAccent = !isSetup && stats.paid < totalTeams ? warnColor : undefined;
 
   return (
     <div
@@ -24,10 +33,10 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         border: `1px solid ${borderColor}`,
         borderTop: `3px solid ${accentColor}`,
         borderRadius: 12,
-        padding: '16px 18px 18px',
+        padding: '12px 16px 14px',
         cursor: 'pointer',
         transition: 'all 0.18s ease',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+        display: 'flex', flexDirection: 'column', gap: 10,
         position: 'relative', overflow: 'hidden',
         boxShadow: cardShadow,
       }}
@@ -42,43 +51,76 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         e.currentTarget.style.boxShadow = cardShadow;
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+      {/* Header: avatar + name + year */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{
-          width: 56, height: 56, borderRadius: '50%',
-          background: `${accentColor}22`,
-          border: `1.5px solid ${accentColor}55`,
+          width: 40, height: 40, borderRadius: '50%',
+          background: `${accentColor}1f`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0, overflow: 'hidden',
         }}>
-          <SportLogo sport={league.sport} height={44} />
+          <SportLogo sport={league.sport} height={32} />
         </div>
-        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: '18px', fontWeight: 700, color: titleColor, letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
           {league.name}
         </div>
+        <span style={{ fontSize: '12px', color: subColor, whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center' }}>
-        <DraftBadge draftType={league.draftType} />
+      {/* Secondary: type + status */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '12px', color: subColor }}>
+          {league.draftType === 'snake' ? 'Contract Snake' : league.draftType === 'auction' ? 'Auction' : league.draftType}
+        </span>
         <StatusPill status={league.status} />
       </div>
 
+      {/* Data row */}
       <div style={{
-        width: '100%',
         background: sectionBg,
         border: `1px solid ${borderColor}`,
         borderRadius: 10,
-        padding: '14px 18px',
-        display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
+        padding: '12px 14px',
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
       }}>
         <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
-        <StatBox label="Keepers" value={league.keeperSlots || '—'} isDark={isDark} />
-        <StatBox label="Buy-in" value={league.buyIn ? `$${league.buyIn}` : '—'} isDark={isDark} />
+        <StatBox
+          label="Keepers"
+          value={isSetup ? '—' : `${stats.withKeepers}/${totalTeams}`}
+          sub={isSetup ? undefined : 'teams submitted'}
+          accent={!isSetup && stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+          isDark={isDark}
+        />
+        <StatBox
+          label="Payments"
+          value={isSetup ? '—' : `${stats.paid}/${totalTeams}`}
+          sub={isSetup ? undefined : `$${collected.toLocaleString()} in`}
+          accent={paymentsAccent}
+          isDark={isDark}
+        />
+        <StatBox
+          label="Prize Pool"
+          value={league.totalPool ? `$${league.totalPool.toLocaleString()}` : '—'}
+          sub={league.buyIn ? `$${league.buyIn} buy-in` : undefined}
+          isDark={isDark}
+        />
       </div>
 
-      {league.draftType === 'snake' && stats.expiring > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <ExpiringDot count={stats.expiring} />
-          <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
+      {/* Footer: modifier + draft date */}
+      {(modifier || league.draftDate) && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <div>
+            {modifier && (
+              <span style={{
+                fontSize: '11px', fontWeight: 600,
+                padding: '3px 8px', borderRadius: 4,
+                background: `${warnColor}1a`, color: warnColor,
+              }}>{modifier}</span>
+            )}
+          </div>
+          <div style={{ fontSize: '12px', color: subColor, whiteSpace: 'nowrap' }}>
+            {league.draftDate ? `Draft ${formatDate(league.draftDate)}` : 'Draft TBD'}
+          </div>
         </div>
       )}
     </div>
@@ -112,33 +154,29 @@ function AddLeagueCard({ onClick, isDark }) {
 }
 
 function SummaryBar({ leagues, isDark }) {
-  const totalLeagues = leagues.filter(l => l.status !== 'setup').length;
+  const active = leagues.filter(l => l.status !== 'setup');
+  const totalLeagues = active.length;
 
-  let totalTeams = 0, totalStarted = 0, totalRosters = 0;
-  leagues.forEach(l => {
+  let totalPotential = 0, collected = 0, unpaidTeams = 0;
+  active.forEach(l => {
     const teams = l.teams || [];
-    totalTeams += (l.teamCount || teams.length);
-    const s = getLeagueStats(l);
-    totalStarted += s.withKeepers;
-    totalRosters += s.rostersLoaded;
+    const teamCount = l.teamCount || teams.length;
+    const buyIn = l.buyIn || 0;
+    const paid = teams.filter(t => t.paid).length;
+    totalPotential += teamCount * buyIn;
+    collected += paid * buyIn;
+    unpaidTeams += teamCount - paid;
   });
-
-  // Soonest upcoming draft across all leagues
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const upcoming = leagues
-    .map(l => l.draftDate)
-    .filter(d => d && d >= todayStr)
-    .sort();
-  const nextDraft = upcoming[0];
-  const nextDraftLabel = nextDraft
-    ? new Date(nextDraft + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : 'TBD';
+  const outstanding = totalPotential - collected;
 
   const barBg = isDark ? '#161a22' : '#ffffff';
   const barBorder = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
   const divBg = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
   const labelColor = isDark ? '#6b7489' : '#8892a4';
   const valueColor = isDark ? '#e8ecf4' : '#1a1f2e';
+  const warnColor = '#e8832a';
+
+  const fmt = n => `$${n.toLocaleString()}`;
 
   return (
     <div style={{
@@ -149,9 +187,9 @@ function SummaryBar({ leagues, isDark }) {
     }}>
       {[
         { label: 'Active Leagues', value: totalLeagues },
-        { label: 'Teams Started', value: `${totalStarted}/${totalTeams}`, sub: 'with keepers', accent: totalStarted === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined },
-        { label: 'Rosters Loaded', value: `${totalRosters}/${totalTeams}`, sub: 'last-season imports', accent: totalRosters === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined },
-        { label: 'Next Draft', value: nextDraftLabel, sub: upcoming.length > 1 ? `+${upcoming.length - 1} more` : undefined },
+        { label: 'Collected', value: fmt(collected), sub: `of ${fmt(totalPotential)}` },
+        { label: 'Outstanding', value: fmt(outstanding), sub: 'still to collect', accent: outstanding > 0 ? warnColor : undefined },
+        { label: 'Unpaid Teams', value: unpaidTeams, accent: unpaidTeams > 0 ? warnColor : undefined },
       ].map((s, i, arr) => (
         <React.Fragment key={s.label}>
           <div style={{ flex: 1, padding: '18px 24px', textAlign: 'center' }}>

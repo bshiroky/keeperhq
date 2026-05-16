@@ -135,18 +135,30 @@ function App() {
         position: 'sticky', top: 0, zIndex: 100,
         backdropFilter: 'blur(12px)',
       }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 80 }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
           <button
             onClick={handleBack}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', fontFamily: 'inherit' }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}
             title="Home"
           >
-            <img src="/nav-logo.png" alt="KeeperHQ" height={104}
-              style={{ height: 104, width: 'auto', display: 'block', imageRendering: 'pixelated' }} />
+            <img className="kh-nav-icon" src="/keeper-hq-logo.png" alt="KeeperHQ" height={32}
+              style={{ height: 32, width: 'auto', display: 'none', imageRendering: 'pixelated' }} />
+            <span className="kh-nav-wordmark" style={{
+              fontSize: 24, fontWeight: 800, letterSpacing: '0.02em',
+              color: textPrimary, lineHeight: 1,
+            }}>
+              KEEPER<span style={{ color: '#3ca96b', marginLeft: 4 }}>HQ</span>
+            </span>
           </button>
 
           <AccountMenu isDark={isDark} />
         </div>
+        <style>{`
+          @media (max-width: 640px) {
+            .kh-nav-wordmark { display: none !important; }
+            .kh-nav-icon { display: block !important; }
+          }
+        `}</style>
       </header>
 
       {/* Page title bar */}

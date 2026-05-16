@@ -578,15 +578,17 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
       )}
 
       {/* League header card with tabs integrated */}
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: 12, boxShadow: t.cardShadow, marginBottom: 16, position: 'relative', overflow: 'hidden' }}>
-        <div style={{
-          position: 'absolute', top: '50%', left: 200, transform: 'translateY(-50%)',
-          opacity: isDark ? 0.10 : 0.14, pointerEvents: 'none', zIndex: 0,
-        }}>
-          <SportLogo sport={currentLeague.sport} height={130} />
-        </div>
-        <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, position: 'relative', zIndex: 1 }}>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: 12, boxShadow: t.cardShadow, marginBottom: 16 }}>
+        <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: '50%',
+              background: `${accentColor}1f`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, overflow: 'hidden',
+            }}>
+              <SportLogo sport={currentLeague.sport} height={32} />
+            </div>
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{currentLeague.name}</h1>
             <SportBadge sport={currentLeague.sport} />
             <DraftBadge draftType={currentLeague.draftType} />
@@ -606,7 +608,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
             ))}
           </div>
         </div>
-        <div style={{ borderTop: `1px solid ${t.divider}`, padding: '0 20px', position: 'relative', zIndex: 1 }}>
+        <div style={{ borderTop: `1px solid ${t.divider}`, padding: '0 20px' }}>
           <TabBar tabs={tabs} active={tab} onChange={setTab} accentColor={accentColor} isDark={isDark} />
         </div>
       </div>
