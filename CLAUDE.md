@@ -107,17 +107,76 @@ single-device by design (see "Backend deferred" below).
 - Inline styles only (no Tailwind, no CSS modules). `makeTheme(isDark)` in
   `src/components.jsx` is the design-token source.
 
-### Design tokens (in addition to `makeTheme`)
+## Design system
 
-- Sport accent color from `SPORT_CONFIG[sport].color`. Applied as
-  `${color}1f` for subtle backgrounds (e.g. avatar circle tint),
-  `${color}22`/`${color}55` for stronger tints/borders.
-- Warning / orange: `#e8832a` — used for non-zero Outstanding, Unpaid
-  Teams, Payments-not-complete states, and the auction-modifier pill.
-- Success / green: `#6dd4a8` — used when a tracked count hits its
-  target (e.g. all keepers submitted).
-- Brand wordmark green: `#3ca96b` — the "HQ" half of the
-  nav wordmark.
+The full token vocabulary lives in `makeTheme(isDark)` in
+`src/components.jsx`. Two non-negotiable rules:
+
+1. **New surfaces consume tokens. They do not introduce values.**
+   If a font size, padding, radius, or color isn't already in
+   `makeTheme` or `SPORT_CONFIG`, the answer is *add it as a token
+   first*, not *inline a value*. The whole point of the system is
+   that values can't drift if values can't be introduced.
+2. **Two namespaces, two concerns.** `text*` tokens are *colors*
+   (`textPrimary`, `textBody`, `textMuted`, etc.). `type*` tokens
+   are *typography style objects* (font-size + weight + letter-spacing
+   + transform). Do not merge them. `textBody` is a color string;
+   `typeBody` is `{ fontSize: '13px', fontWeight: 500 }`. They are
+   combined at the call site: `style={{ ...t.typeBody, color: t.textBody }}`.
+
+### Token reference
+
+**Typography (style objects, spread-friendly)**:
+| Token | Spec | Role |
+|---|---|---|
+| `typeHeadingPage` | 20/800/-0.01em | Page-level title (league detail h1) |
+| `typeHeadingCard` | 18/700/-0.01em | Card and modal titles |
+| `typeHeadingSection` | 13/600/0.06em UPPERCASE | "KEEPERS", "Prize Structure", section dividers |
+| `typeLabelEyebrow` | 11/600/0.06em UPPERCASE | StatBox labels, KPI labels, column headers |
+| `typePill` | 11/700/0.04em | Internal text in StatusPill/DraftBadge/SportBadge/Tag |
+| `typeBody` | 13/500 | Table cells, body copy, form input text |
+| `typeBodyMeta` | 12/500 | Helper / secondary / footer text |
+| `typeNumericHero` | 26/700 | SummaryBar values (dashboard hero metrics) |
+| `typeNumericCard` | 22/700 | StatBox value (card-level stats) |
+| `typeNumericInline` | 17/700 | League header inline counters |
+
+**Spacing (numbers, auto-px in inline styles)**:
+`space2xs: 4 · spaceXs: 8 · spaceSm: 12 · spaceMd: 16 · spaceLg: 20 · spaceXl: 24 · space2xl: 32`.
+Cards default to `spaceMd × spaceLg` padding. KPI bar uses `spaceLg × spaceXl`.
+
+**Radius**:
+`radiusSm: 6` (chips) · `radiusMd: 8` (buttons, inputs) ·
+`radiusLg: 12` (cards, modals, nested stat blocks — match parent) ·
+`radiusPill: 999` (true pills).
+
+**Semantic color**:
+| Token | Hex | Usage |
+|---|---|---|
+| `success` / `successBg` / `successBorder` | `#6dd4a8` | Completed/secured states (all keepers submitted, paid, Keeper status) |
+| `warning` / `warningBg` / `warningBorder` | `#e8832a` | Needs-attention states (Outstanding, Unpaid, incomplete payments) |
+| `danger` / `dangerBg` / `dangerBorder` | `#e85252` | Expired, destructive actions, negative payouts |
+| `info` / `infoBg` / `infoBorder` | `#3b8ae6` | Informational badges (Rostered status), default accent |
+| `brand` | `#3ca96b` | The "HQ" half of the nav wordmark. Singular use. |
+
+**Sport accents** (`SPORT_CONFIG[sport]`):
+Each sport carries pre-baked `tint` (~12% alpha) and `border` (~33%
+alpha) alongside its `color`. Use those instead of inlining
+`${color}1f` or `${color}55`. For surfaces with a raw accent hex but
+no sport object, use the `sportTint(color)` / `sportBorder(color)`
+helpers exported from `components.jsx`.
+
+### Spotting drift
+
+When reviewing a new surface, the smell tests are:
+- Inline hex (`'#e8832a'`, `'rgba(...)'`) instead of token reference
+- Font size that isn't in the type-token list above
+- Card padding that doesn't decompose to `spaceX × spaceY`
+- `${color}` followed by a 2-char alpha suffix (use the sport helpers)
+- `outline: 'none'` on an input with no focus replacement (TODO: focus
+  ring token still pending)
+
+If one of these is unavoidable, the next step is *add a token*, not
+*inline an exception*.
 
 ### Asset inventory (`public/`)
 
