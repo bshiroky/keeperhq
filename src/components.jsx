@@ -3,8 +3,15 @@ import { createPortal } from 'react-dom';
 
 // Shared UI components — exported to window
 
+// Design tokens. Two namespaces, two concerns:
+//   text* = color values for text  (textPrimary, textMuted, etc.)
+//   type* = typography style objects  (font-size, weight, letter-spacing, transform)
+// Do NOT merge these — textBody is a color, typeBody is a size+weight spec.
+// New surfaces consume tokens; they do not introduce values. If a new role is
+// genuinely needed, add a token here first.
 function makeTheme(isDark) {
   return {
+    // ── surface ───────────────────────────────────────────────
     cardBg:       isDark ? '#1c2130' : '#ffffff',
     cardBg2:      isDark ? '#161a22' : '#ffffff',
     cardShadow:   isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)',
@@ -14,21 +21,74 @@ function makeTheme(isDark) {
     sectionBg:    isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)',
     noteBg:       isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
     progressBg:   isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
+
+    // ── text color ────────────────────────────────────────────
     textPrimary:  isDark ? '#e8ecf4' : '#1a1f2e',
     textBody:     isDark ? '#c8d0e0' : '#3a4255',
     textSecondary:isDark ? '#9aa3b5' : '#6b7489',
     textMuted:    isDark ? '#6b7489' : '#8892a4',
     badgeBg:      isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     badgeColor:   isDark ? '#9aa3b5' : '#6b7489',
+
+    // ── typography (style objects; spread into inline styles) ─
+    //   <h1 style={{ ...t.typeHeadingPage, color: t.textPrimary }}>
+    typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
+    typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
+    typeHeadingSection: { fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+    typeLabelEyebrow:   { fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+    typePill:           { fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' },
+    typeBody:           { fontSize: '13px', fontWeight: 500 },
+    typeBodyMeta:       { fontSize: '12px', fontWeight: 500 },
+    typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
+    typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
+    typeNumericInline:  { fontSize: '17px', fontWeight: 700 },
+
+    // ── spacing (numbers; inline styles auto-px) ──────────────
+    //   padding: `${t.spaceSm}px ${t.spaceMd}px`   gap: t.spaceMd
+    space2xs: 4,
+    spaceXs:  8,
+    spaceSm:  12,
+    spaceMd:  16,
+    spaceLg:  20,
+    spaceXl:  24,
+    space2xl: 32,
+
+    // ── radius ────────────────────────────────────────────────
+    radiusSm:   6,    // chips, small badges
+    radiusMd:   8,    // buttons, inputs
+    radiusLg:   12,   // cards, modals, nested stat blocks
+    radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
+
+    // ── semantic color ────────────────────────────────────────
+    success:       '#6dd4a8',
+    successBg:     'rgba(109,212,168,0.14)',
+    successBorder: 'rgba(109,212,168,0.33)',
+    warning:       '#e8832a',
+    warningBg:     'rgba(232,131,42,0.12)',
+    warningBorder: 'rgba(232,131,42,0.33)',
+    danger:        '#e85252',
+    dangerBg:      'rgba(232,82,82,0.12)',
+    dangerBorder:  'rgba(232,82,82,0.33)',
+    info:          '#3b8ae6',
+    infoBg:        'rgba(59,138,230,0.12)',
+    infoBorder:    'rgba(59,138,230,0.33)',
+    brand:         '#3ca96b',
   };
 }
 
+// Each sport carries pre-baked tint (≈12% alpha) and border (≈33% alpha)
+// variants alongside its base color. Use these instead of inlining
+// `${color}1f` or similar. For surfaces that have a raw accent hex but not
+// the sport object, use the sportTint / sportBorder helpers exported below.
 const SPORT_CONFIG = {
-  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', colorDim: 'rgba(59,138,230,0.12)', logo: '/sport-hockey.png' },
-  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', colorDim: 'rgba(232,131,42,0.12)', logo: '/sport-basketball.png' },
-  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', colorDim: 'rgba(76,175,125,0.12)', logo: '/sport-football.png' },
-  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', colorDim: 'rgba(232,82,82,0.12)', logo: '/sport-baseball.png' },
+  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', tint: 'rgba(59,138,230,0.12)', border: 'rgba(59,138,230,0.33)', logo: '/sport-hockey.png' },
+  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', tint: 'rgba(232,131,42,0.12)', border: 'rgba(232,131,42,0.33)', logo: '/sport-basketball.png' },
+  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', tint: 'rgba(76,175,125,0.12)', border: 'rgba(76,175,125,0.33)', logo: '/sport-football.png' },
+  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', tint: 'rgba(232,82,82,0.12)',  border: 'rgba(232,82,82,0.33)',  logo: '/sport-baseball.png' },
 };
+
+function sportTint(color)   { return color + '1f'; }  // ≈ 12% alpha
+function sportBorder(color) { return color + '55'; }  // ≈ 33% alpha
 
 // Renders the sport's badge logo if available, falling back to the emoji.
 // Height controls vertical size; width auto-scales to preserve the shield
@@ -57,7 +117,7 @@ function SportBadge({ sport, size = 'sm' }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: cfg.colorDim, color: cfg.color,
+      background: cfg.tint, color: cfg.color,
       border: `1px solid ${cfg.color}33`,
       borderRadius: 20, padding: pad, fontSize: fs,
       fontWeight: 600, letterSpacing: '0.03em', whiteSpace: 'nowrap', flexShrink: 0,
@@ -298,6 +358,7 @@ Object.assign(window, {
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
+  sportTint, sportBorder,
 });
 
 export {
@@ -306,4 +367,5 @@ export {
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
+  sportTint, sportBorder,
 };
