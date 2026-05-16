@@ -73,8 +73,16 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
 
-  // Horizontal-scroll state for the keeper table — shows chevrons when the
-  // grid is wider than the visible area (e.g. leagues with more than ~4 slots).
+  // Column-width constants — Team & Edit are pinned (sticky), only the K
+  // columns scroll. PAGE_COLS controls how many K columns fit per visible
+  // page; chevrons advance one page (so partial columns never linger on
+  // screen) and scroll-snap on each K column keeps drag-scrolling aligned.
+  const TEAM_W = 140;
+  const COL_W = 180;
+  const EDIT_W = 60;
+  const PAGE_COLS = 4;
+  const PAGE_W = PAGE_COLS * COL_W;
+
   const tableScrollRef = React.useRef(null);
   const [scrollCanLeft, setScrollCanLeft] = React.useState(false);
   const [scrollCanRight, setScrollCanRight] = React.useState(false);
@@ -94,7 +102,12 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
     return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
   }, [maxKeepers, teams.length]);
   function scrollTable(dir) {
-    tableScrollRef.current?.scrollBy({ left: dir * 280, behavior: 'smooth' });
+    const el = tableScrollRef.current;
+    if (!el) return;
+    // Snap to the nearest page boundary so we never end on a partial column.
+    const next = Math.round(el.scrollLeft / PAGE_W) + dir;
+    const target = Math.max(0, next * PAGE_W);
+    el.scrollTo({ left: target, behavior: 'smooth' });
   }
 
   // Look up keeper headshots from the static player directory (NHL only for now).
@@ -173,24 +186,24 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
         </div>
         <div style={{ position: 'relative' }}>
         {scrollCanLeft && (
-          <button onClick={() => scrollTable(-1)} aria-label="Scroll left"
-            style={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', zIndex: 5, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
+          <button onClick={() => scrollTable(-1)} aria-label="Previous keepers"
+            style={{ position: 'absolute', left: TEAM_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
         )}
         {scrollCanRight && (
-          <button onClick={() => scrollTable(1)} aria-label="Scroll right"
-            style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', zIndex: 5, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
+          <button onClick={() => scrollTable(1)} aria-label="More keepers"
+            style={{ position: 'absolute', right: EDIT_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
         )}
-        <div ref={tableScrollRef} style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
+        <div ref={tableScrollRef} style={{ overflowX: 'auto', scrollSnapType: 'x mandatory' }}>
+          <table style={{ width: 'max-content', borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
-                <th style={{ padding: '9px 16px 9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 130 }}>Team</th>
+                <th style={{ position: 'sticky', left: 0, zIndex: 3, background: t.sectionBg, padding: '9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>Team</th>
                 {Array.from({ length: maxKeepers }, (_, i) => (
-                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 200, minWidth: 200 }}>
+                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: COL_W, minWidth: COL_W, scrollSnapAlign: 'start' }}>
                     K{i + 1}
                   </th>
                 ))}
-                <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, width: 60 }}></th>
+                <th style={{ position: 'sticky', right: 0, zIndex: 3, background: t.sectionBg, padding: '9px 12px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, width: EDIT_W, minWidth: EDIT_W, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -225,12 +238,10 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                 const needsMore = isPreseason && activeCount < requiredCount;
                 return (
                   <tr key={team.id}
-                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s', verticalAlign: 'middle' }}
-                    onMouseEnter={e => e.currentTarget.style.background = t.sectionBg}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', verticalAlign: 'middle' }}
                   >
-                    {/* Team name */}
-                    <td style={{ padding: '12px 8px 12px 16px', whiteSpace: 'nowrap' }}>
+                    {/* Team name — sticky pinned to left edge while K columns scroll */}
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <div style={{ width: 24, height: 24, borderRadius: 6, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: accentColor, flexShrink: 0 }}>
                           {team.name[0]}
@@ -352,8 +363,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                         </td>
                       );
                     })}
-                    {/* Edit button */}
-                    <td style={{ padding: '12px 16px 12px 12px', textAlign: 'center' }}>
+                    {/* Edit button — sticky pinned to right edge while K columns scroll */}
+                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 16px 12px 12px', textAlign: 'center', width: EDIT_W, minWidth: EDIT_W, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <button onClick={() => setEditingTeam({ team, autoAdd: false })} style={{
                         background: 'none', border: `1px solid ${t.border}`, borderRadius: 6,
                         padding: '4px 10px', fontSize: '11px', fontWeight: 600,
