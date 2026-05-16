@@ -54,7 +54,7 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
       {/* Header section */}
       <div style={{ padding: '0 0 16px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, width: '100%', overflow: 'hidden' }}>
-          <SportLogo sport={league.sport} height={88} />
+          <SportLogo sport={league.sport} height={140} />
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <span style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {league.name}

@@ -581,7 +581,7 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: '0 0 12px 12px', boxShadow: t.cardShadow, marginBottom: 16 }}>
         <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
-            <SportLogo sport={currentLeague.sport} height={64} />
+            <SportLogo sport={currentLeague.sport} height={96} />
             <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{currentLeague.name}</h1>
             <SportBadge sport={currentLeague.sport} />
             <DraftBadge draftType={currentLeague.draftType} />
