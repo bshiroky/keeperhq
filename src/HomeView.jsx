@@ -44,59 +44,53 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         e.currentTarget.style.boxShadow = cardShadow;
       }}
     >
-      {/* Subtle sport glow */}
+      {/* Sport-tinted glow in top-right behind the badge */}
       <div style={{
-        position: 'absolute', top: 0, right: 0, width: 120, height: 120,
-        background: `radial-gradient(circle at top right, ${accentColor}0d, transparent 70%)`,
+        position: 'absolute', top: 0, right: 0, width: 180, height: 180,
+        background: `radial-gradient(circle at top right, ${accentColor}14, transparent 70%)`,
         pointerEvents: 'none',
       }}></div>
 
-      {/* Hero badge */}
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 16px', borderBottom: `1px solid ${dividerColor}`, marginBottom: 14 }}>
-        <SportLogo sport={league.sport} height={220} />
+      {/* Sport badge as a corner accent — sized to be eye-catching but not dominant */}
+      <div style={{ position: 'absolute', top: 14, right: 14, pointerEvents: 'none' }}>
+        <SportLogo sport={league.sport} height={110} />
       </div>
 
-      {/* Title */}
-      <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 10 }}>
-        {league.name}
+      {/* Content — reserve right padding so it doesn't run under the badge */}
+      <div style={{ paddingRight: 124 }}>
+        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 8 }}>
+          {league.name}
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+          <DraftBadge draftType={league.draftType} />
+          <StatusPill status={league.status} />
+          <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>{league.season}</span>
+        </div>
       </div>
 
-      {/* Status pills */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap', alignItems: 'center', overflow: 'hidden', marginBottom: 14 }}>
-        <SportBadge sport={league.sport} />
-        <DraftBadge draftType={league.draftType} />
-        <StatusPill status={league.status} />
-        <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', marginLeft: 'auto', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
-      </div>
-
-      {/* Stats */}
-      <div style={{ background: sectionBg, borderRadius: 8, padding: '14px 16px', marginBottom: 12 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      {/* Roster-management stats row */}
+      <div style={{ background: sectionBg, borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
           <StatBox
             label="Keepers"
             value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
-            sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams with keepers') : 'not set up'}
+            sub={league.status !== 'setup' ? (stats.withKeepers === totalTeams ? 'all teams started ✓' : 'teams started') : 'not set up'}
             accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
             isDark={isDark}
           />
           <StatBox
-            label="Payments"
-            value={league.status === 'setup' ? '—' : `${stats.paid}/${totalTeams}`}
-            sub={league.status !== 'setup' ? `$${stats.collectedPool.toLocaleString()} in` : ''}
-            accent={stats.paid === totalTeams && totalTeams > 0 ? '#6dd4a8' : stats.paid < totalTeams ? '#e8832a' : undefined}
-            isDark={isDark}
-          />
-          <StatBox
-            label="Prize Pool"
-            value={league.totalPool > 0 ? `$${league.totalPool.toLocaleString()}` : '—'}
-            sub={`$${league.buyIn} buy-in`}
+            label="Rosters"
+            value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
+            sub={league.status !== 'setup' ? (stats.rostersLoaded === totalTeams ? 'all imported ✓' : 'last season imported') : ''}
+            accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
             isDark={isDark}
           />
         </div>
       </div>
 
-      {/* Footer */}
+      {/* Footer: keeper-focused tags + draft date */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {league.draftType === 'snake' && stats.expiring > 0 && (
@@ -104,12 +98,6 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
               <ExpiringDot count={stats.expiring} />
               <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
             </div>
-          )}
-          {league.draftType === 'auction' && (
-            <Tag color={accentColor}>+${league.auctionRules?.costIncreasePerYear}/yr keeper cost</Tag>
-          )}
-          {league.keeperSlots && (
-            <Tag>{league.draftType === 'auction' ? `Up to ${league.keeperSlots}` : `${league.keeperSlots}`} keepers</Tag>
           )}
         </div>
         <div style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>
@@ -148,16 +136,26 @@ function AddLeagueCard({ onClick, isDark }) {
 
 function SummaryBar({ leagues, isDark }) {
   const totalLeagues = leagues.filter(l => l.status !== 'setup').length;
-  const totalPool = leagues.reduce((a, l) => a + (l.totalPool || 0), 0);
-  const totalCollected = leagues.reduce((a, l) => {
+
+  let totalTeams = 0, totalStarted = 0, totalRosters = 0;
+  leagues.forEach(l => {
+    const teams = l.teams || [];
+    totalTeams += (l.teamCount || teams.length);
     const s = getLeagueStats(l);
-    return a + s.collectedPool;
-  }, 0);
-  const unpaid = leagues.reduce((a, l) => {
-    const s = getLeagueStats(l);
-    return a + ((l.teamCount || l.teams.length) - s.paid);
-  }, 0);
-  const outstanding = totalPool - totalCollected;
+    totalStarted += s.withKeepers;
+    totalRosters += s.rostersLoaded;
+  });
+
+  // Soonest upcoming draft across all leagues
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcoming = leagues
+    .map(l => l.draftDate)
+    .filter(d => d && d >= todayStr)
+    .sort();
+  const nextDraft = upcoming[0];
+  const nextDraftLabel = nextDraft
+    ? new Date(nextDraft + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : 'TBD';
 
   const barBg = isDark ? '#161a22' : '#ffffff';
   const barBorder = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
@@ -174,9 +172,9 @@ function SummaryBar({ leagues, isDark }) {
     }}>
       {[
         { label: 'Active Leagues', value: totalLeagues },
-        { label: 'Collected', value: `$${totalCollected.toLocaleString()}`, sub: `of $${totalPool.toLocaleString()}`, accent: totalCollected >= totalPool ? '#6dd4a8' : undefined },
-        { label: 'Outstanding', value: `$${outstanding.toLocaleString()}`, sub: 'still to collect', accent: outstanding > 0 ? '#e8832a' : '#6dd4a8' },
-        { label: 'Unpaid Teams', value: unpaid, accent: unpaid > 0 ? '#e8832a' : '#6dd4a8' },
+        { label: 'Teams Started', value: `${totalStarted}/${totalTeams}`, sub: 'with keepers', accent: totalStarted === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined },
+        { label: 'Rosters Loaded', value: `${totalRosters}/${totalTeams}`, sub: 'last-season imports', accent: totalRosters === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined },
+        { label: 'Next Draft', value: nextDraftLabel, sub: upcoming.length > 1 ? `+${upcoming.length - 1} more` : undefined },
       ].map((s, i, arr) => (
         <React.Fragment key={s.label}>
           <div style={{ flex: 1, padding: '18px 24px', textAlign: 'center' }}>

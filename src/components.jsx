@@ -145,11 +145,12 @@ function getLeagueStats(league) {
   const teams = league.teams || [];
   const paid = teams.filter(t => t.paid).length;
   const withKeepers = teams.filter(t => (t.keepers || []).length > 0).length;
+  const rostersLoaded = teams.filter(t => (t.roster || []).length > 0).length;
   const expiring = league.draftType === 'snake'
     ? teams.flatMap(t => (t.keepers || []).filter(k => k.expiresAfter === '2025-26')).length
     : 0;
   const collectedPool = paid * league.buyIn;
-  return { paid, withKeepers, expiring, collectedPool };
+  return { paid, withKeepers, rostersLoaded, expiring, collectedPool };
 }
 
 // Horizontal-scrolling row with chevron arrows that appear when overflow exists.
