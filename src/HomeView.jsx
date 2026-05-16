@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, formatDate, getLeagueStats } from './components.jsx';
+import { SPORT_CONFIG, SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Tag, ExpiringDot, getLeagueStats } from './components.jsx';
 
 // Home View — Commissioner Dashboard
 
@@ -25,7 +25,7 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         background: cardBg,
         border: `1px solid ${borderColor}`,
         borderTop: `3px solid ${accentColor}`,
-        borderRadius: '0 0 12px 12px',
+        borderRadius: 12,
         padding: '14px 18px 16px',
         cursor: 'pointer',
         transition: 'all 0.18s ease',
@@ -44,56 +44,50 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         e.currentTarget.style.boxShadow = cardShadow;
       }}
     >
-      {/* Sport-tinted glow in top-right */}
+      {/* Sport sprite watermark behind content */}
       <div style={{
-        position: 'absolute', top: 0, right: 0, width: 160, height: 160,
-        background: `radial-gradient(circle at top right, ${accentColor}10, transparent 70%)`,
-        pointerEvents: 'none',
-      }}></div>
-
-      {/* Header row — small sport sprite + title + season inline */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <SportLogo sport={league.sport} height={48} />
-        <div style={{ fontSize: '19px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
-          {league.name}
-        </div>
-        <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-        <DraftBadge draftType={league.draftType} />
-        <StatusPill status={league.status} />
+        position: 'absolute', top: '50%', right: 12, transform: 'translateY(-50%)',
+        opacity: isDark ? 0.14 : 0.18, pointerEvents: 'none', zIndex: 0,
+      }}>
+        <SportLogo sport={league.sport} height={110} />
       </div>
 
-      {/* Stats row — flat, no card-within-a-card, no sub-text */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
-        <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
-        <StatBox
-          label="Keepers"
-          value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
-          accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-          isDark={isDark}
-        />
-        <StatBox
-          label="Rosters"
-          value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
-          accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
-          isDark={isDark}
-        />
-      </div>
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Header row — title + season inline */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <div style={{ fontSize: '19px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+            {league.name}
+          </div>
+          <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', flexShrink: 0 }}>{league.season}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+          <DraftBadge draftType={league.draftType} />
+          <StatusPill status={league.status} />
+        </div>
 
-      {/* Footer: keeper-focused tags + draft date */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          {league.draftType === 'snake' && stats.expiring > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <ExpiringDot count={stats.expiring} />
-              <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
-            </div>
-          )}
+        {/* Stats row — flat, no card-within-a-card, no sub-text */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: league.draftType === 'snake' && stats.expiring > 0 ? 12 : 0 }}>
+          <StatBox label="Teams" value={totalTeams || '—'} isDark={isDark} />
+          <StatBox
+            label="Keepers"
+            value={league.status === 'setup' ? '—' : `${stats.withKeepers}/${totalTeams}`}
+            accent={stats.withKeepers === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+            isDark={isDark}
+          />
+          <StatBox
+            label="Rosters"
+            value={league.status === 'setup' ? '—' : `${stats.rostersLoaded}/${totalTeams}`}
+            accent={stats.rostersLoaded === totalTeams && totalTeams > 0 ? '#6dd4a8' : undefined}
+            isDark={isDark}
+          />
         </div>
-        <div style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>
-          {league.draftDate ? `Draft ${formatDate(league.draftDate)}` : 'Draft TBD'}
-        </div>
+
+        {league.draftType === 'snake' && stats.expiring > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <ExpiringDot count={stats.expiring} />
+            <span style={{ fontSize: '12px', color: isDark ? '#9aa3b5' : '#6b7489' }}>expiring contracts</span>
+          </div>
+        )}
       </div>
     </div>
   );
