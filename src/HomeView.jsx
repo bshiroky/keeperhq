@@ -44,28 +44,25 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         e.currentTarget.style.boxShadow = cardShadow;
       }}
     >
-      {/* Sport-tinted glow in top-right behind the badge */}
+      {/* Sport-tinted glow in top-right */}
       <div style={{
-        position: 'absolute', top: 0, right: 0, width: 180, height: 180,
-        background: `radial-gradient(circle at top right, ${accentColor}14, transparent 70%)`,
+        position: 'absolute', top: 0, right: 0, width: 160, height: 160,
+        background: `radial-gradient(circle at top right, ${accentColor}10, transparent 70%)`,
         pointerEvents: 'none',
       }}></div>
 
-      {/* Sport badge as a corner accent — sized to be eye-catching but not dominant */}
-      <div style={{ position: 'absolute', top: 14, right: 14, pointerEvents: 'none' }}>
-        <SportLogo sport={league.sport} height={110} />
-      </div>
-
-      {/* Content — reserve right padding so it doesn't run under the badge */}
-      <div style={{ paddingRight: 124 }}>
-        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 8 }}>
-          {league.name}
-        </div>
-
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
-          <DraftBadge draftType={league.draftType} />
-          <StatusPill status={league.status} />
-          <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>{league.season}</span>
+      {/* Header row: sport sprite on the left, league name + status pills stacked on the right */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <SportLogo sport={league.sport} height={68} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 6 }}>
+            {league.name}
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <DraftBadge draftType={league.draftType} />
+            <StatusPill status={league.status} />
+            <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>{league.season}</span>
+          </div>
         </div>
       </div>
 
