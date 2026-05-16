@@ -138,14 +138,12 @@ function App() {
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 48 }}>
           <button
             onClick={handleBack}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'inherit' }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}
             title="Home"
           >
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'linear-gradient(135deg, #3b8ae6, #6b4de6)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🏆</div>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ fontSize: '15px', fontWeight: 800, color: textPrimary, letterSpacing: '-0.02em', lineHeight: 1 }}>KeeperHQ</div>
-              <div style={{ fontSize: '10px', color: textSecondary, letterSpacing: '0.08em', fontWeight: 600, textTransform: 'uppercase' }}>Commissioner</div>
-            </div>
+            <img src="/keeper-hq-logo.png" alt="KeeperHQ" height={44}
+              style={{ height: 44, width: 'auto', display: 'block', imageRendering: 'pixelated' }} />
+            <div style={{ fontSize: '10px', color: textSecondary, letterSpacing: '0.08em', fontWeight: 600, textTransform: 'uppercase' }}>Commissioner</div>
           </button>
 
           <AccountMenu isDark={isDark} />
