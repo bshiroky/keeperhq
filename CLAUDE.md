@@ -5,6 +5,35 @@ deployed via Vercel from `bshiroky/keeperhq`. Active development branch:
 `claude/import-claude-design-project-N35i9` (already merged into `main`
 once; keep iterating on the branch and PR/merge when ready).
 
+## Resume here
+
+**Branch tip:** `7fdec25` (clean working tree).
+
+**Mid design-system rollout.** Token vocabulary lives in `makeTheme` +
+the module-scope `tokens` constant in `src/components.jsx` (see the
+Design system section below for the full reference). Three
+self-correction passes during the rollout caught real token errors;
+that pattern should continue — pixel shifts during a migration mean
+the token is wrong, not the migration.
+
+**Step 1 complete:** the six leaf primitives (`StatBox`, `SportBadge`,
+`DraftBadge`, `StatusPill`, `Tag`, `ExpiringDot`) are migrated. Only
+deliberate visual change was `StatBox` sub-text 11→12px (agreed
+consolidation under `typeBodyMeta`).
+
+**Step 2 (HomeView migration) is blocked.** Before resuming, the user
+will bring a revised league card information architecture. The plan
+is to land the IA change *and* the token migration in one pass —
+don't migrate the current card layout, then re-migrate after the IA
+changes. Wait for the new card spec.
+
+**Migration order after HomeView:**
+LeagueView header → PayoutsTab → PlayersTab → OverviewTab + LotteryTab
+→ SettingsTab → modals. One commit per surface. "No visual change
+expected" is the rule per step except where the agreed system mandates
+a consolidation. Visual eyeball is on the user — this container is
+headless.
+
 ## How it runs
 
 - `npm run dev` — local Vite dev server
