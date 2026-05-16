@@ -126,14 +126,15 @@ const STATUS_CONFIG = {
 function SportBadge({ sport, size = 'sm' }) {
   const cfg = SPORT_CONFIG[sport] || SPORT_CONFIG.hockey;
   const pad = size === 'lg' ? '5px 14px' : '3px 10px';
-  const fs = size === 'lg' ? '13px' : '11px';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
       background: cfg.tint, color: cfg.color,
-      border: `1px solid ${cfg.color}33`,
-      borderRadius: 20, padding: pad, fontSize: fs,
-      fontWeight: 600, letterSpacing: '0.03em', whiteSpace: 'nowrap', flexShrink: 0,
+      border: `1px solid ${cfg.border}`,
+      borderRadius: 20, padding: pad,
+      ...tokens.typePill,
+      ...(size === 'lg' ? { fontSize: '13px' } : null),
+      whiteSpace: 'nowrap', flexShrink: 0,
     }}>
       {cfg.label}
     </span>
@@ -142,13 +143,17 @@ function SportBadge({ sport, size = 'sm' }) {
 
 function DraftBadge({ draftType }) {
   const label = DRAFT_LABEL[draftType] || draftType;
+  // NOTE: bg/border/color are theme-blind hardcodes from the original
+  // primitive — left inline by design until the LeagueView pass, when
+  // we'll revisit them in context against the surrounding chrome.
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       background: 'rgba(255,255,255,0.06)', color: '#9aa3b5',
       border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 20, padding: '3px 10px', fontSize: '11px',
-      fontWeight: 600, letterSpacing: '0.03em', whiteSpace: 'nowrap',
+      borderRadius: 20, padding: '3px 10px',
+      ...tokens.typePill,
+      whiteSpace: 'nowrap',
     }}>
       {label}
     </span>
@@ -161,8 +166,9 @@ function StatusPill({ status }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       background: cfg.bg, color: cfg.color,
-      borderRadius: 20, padding: '3px 10px', fontSize: '11px',
-      fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0,
+      borderRadius: 20, padding: '3px 10px',
+      ...tokens.typePillEmphatic,
+      whiteSpace: 'nowrap', flexShrink: 0,
     }}>
       {cfg.label}
     </span>
@@ -170,14 +176,12 @@ function StatusPill({ status }) {
 }
 
 function StatBox({ label, value, sub, accent, isDark }) {
-  const labelColor = isDark ? '#6b7489' : '#8892a4';
-  const valueColor = isDark ? '#e8ecf4' : '#1a1f2e';
-  const subColor = isDark ? '#6b7489' : '#8892a4';
+  const t = makeTheme(isDark);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <div style={{ fontSize: '11px', color: labelColor, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: '22px', fontWeight: 700, color: accent || valueColor, lineHeight: 1.1 }}>{value}</div>
-      {sub && <div style={{ fontSize: '11px', color: subColor }}>{sub}</div>}
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{label}</div>
+      <div style={{ ...tokens.typeNumericCard, color: accent || t.textPrimary, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{sub}</div>}
     </div>
   );
 }
@@ -190,19 +194,22 @@ function Divider({ vertical }) {
 function Tag({ children, color }) {
   return (
     <span style={{
-      fontSize: '11px', fontWeight: 600, padding: '2px 8px',
+      ...tokens.typePill,
+      padding: '2px 8px',
       borderRadius: 4, background: color ? `${color}22` : 'rgba(255,255,255,0.08)',
       color: color || '#9aa3b5', border: `1px solid ${color ? color + '33' : 'transparent'}`,
     }}>{children}</span>
   );
 }
 
+// Leaf primitive: 10px / 700 doesn't fit the type-token system. Counter
+// dots are a distinct atomic role; tokenizing it now would be premature.
 function ExpiringDot({ count }) {
   if (!count) return null;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: '#e85252', color: '#fff', borderRadius: 20,
+      background: tokens.danger, color: '#fff', borderRadius: 20,
       fontSize: '10px', fontWeight: 700, padding: '1px 6px', minWidth: 18,
     }}>{count}</span>
   );
