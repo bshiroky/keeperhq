@@ -40,8 +40,9 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
 
   if (sport !== 'hockey' && sport !== 'nhl') {
     return (
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, padding: '40px 24px', textAlign: 'center', boxShadow: t.cardShadow }}>
-        <div style={{ fontSize: 22, marginBottom: 6 }}>🚧</div>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, padding: '36px 24px 28px', textAlign: 'center', boxShadow: t.cardShadow }}>
+        <img src="/mascot-soon.png" alt="" height={140}
+          style={{ height: 140, width: 'auto', display: 'block', margin: '0 auto 10px', imageRendering: 'pixelated' }} />
         <div style={{ fontSize: 15, fontWeight: 700, color: t.textPrimary, marginBottom: 4 }}>Coming soon</div>
         <div style={{ fontSize: 13, color: t.textSecondary }}>Player directory for {sport.toUpperCase()} is on the roadmap. NHL ships first.</div>
       </div>

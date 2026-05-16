@@ -138,12 +138,11 @@ function App() {
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 48 }}>
           <button
             onClick={handleBack}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', fontFamily: 'inherit' }}
             title="Home"
           >
-            <img src="/keeper-hq-logo.png" alt="KeeperHQ" height={44}
+            <img src="/nav-logo.png" alt="KeeperHQ" height={44}
               style={{ height: 44, width: 'auto', display: 'block', imageRendering: 'pixelated' }} />
-            <div style={{ fontSize: '10px', color: textSecondary, letterSpacing: '0.08em', fontWeight: 600, textTransform: 'uppercase' }}>Commissioner</div>
           </button>
 
           <AccountMenu isDark={isDark} />

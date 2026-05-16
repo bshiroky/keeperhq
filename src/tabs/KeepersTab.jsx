@@ -113,7 +113,11 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
         {/* Keeper list */}
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {keepers.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: t.textMuted, fontSize: '13px' }}>No keepers yet. Add one below.</div>
+            <div style={{ textAlign: 'center', padding: '12px 0 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <img src="/mascot-empty.png" alt="" height={100}
+                style={{ height: 100, width: 'auto', display: 'block', imageRendering: 'pixelated', opacity: 0.95 }} />
+              <div style={{ color: t.textMuted, fontSize: '13px' }}>No keepers yet. Add one below.</div>
+            </div>
           )}
           {keepers.map((k, i) => {
             // Disable any player already kept anywhere in the league (other
