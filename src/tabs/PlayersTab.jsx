@@ -217,7 +217,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
               maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-            {onUpdateLeague && <span style={{ opacity: 0.7, fontSize: 9 }}>▾</span>}
+            {onUpdateLeague && <span style={{ opacity: 0.7, fontSize: 10 }}>✎</span>}
           </button>
           {entry?.tradedToTeamName && (
             <span style={{ fontSize: 10, color: '#e8832a', fontWeight: 700, whiteSpace: 'nowrap' }}>
