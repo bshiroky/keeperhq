@@ -2,6 +2,7 @@ import React from 'react';
 import { makeTheme, Tooltip } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
+import { loadPlayers, normalizeName } from '../lib/players.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
@@ -68,8 +69,22 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const [teams, setTeams] = React.useState(league.teams || []);
   const [editingTeam, setEditingTeam] = React.useState(null); // { team, autoAdd }
   const [movingKeeper, setMovingKeeper] = React.useState(null); // { teamId, keeperIdx }
+  const [playerMap, setPlayerMap] = React.useState(null); // normalized name → player record
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
+
+  // Look up keeper headshots from the static player directory (NHL only for now).
+  React.useEffect(() => {
+    if (league.sport !== 'hockey' && league.sport !== 'nhl') return;
+    let cancelled = false;
+    loadPlayers('nhl').then(d => {
+      if (cancelled) return;
+      const m = new Map();
+      for (const p of (d.players || [])) m.set(normalizeName(p.name), p);
+      setPlayerMap(m);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [league.sport]);
 
   function moveKeeperToTeam(srcTeamId, keeperIdx, destTeamId) {
     if (srcTeamId === destTeamId) { setMovingKeeper(null); return; }
@@ -211,11 +226,19 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                 ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
                                 : null}>
                             <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                                {(() => {
+                                  const p = playerMap?.get(normalizeName(slot.player));
+                                  return p?.headshot ? (
+                                    <img src={p.headshot} alt="" width={22} height={22}
+                                      style={{ borderRadius: '50%', background: t.sectionBg, objectFit: 'cover', flexShrink: 0, opacity: slot.isOutgoing ? 0.45 : 1 }}
+                                      onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+                                  ) : null;
+                                })()}
                                 <span style={{
-                                  fontSize: '12px',
-                                  color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textBody),
-                                  fontWeight: expiring && !slot.isOutgoing ? 600 : 400,
+                                  fontSize: '13px',
+                                  color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textPrimary),
+                                  fontWeight: slot.isOutgoing ? 500 : 700,
                                   textDecoration: slot.isOutgoing ? 'line-through' : 'none',
                                 }}>
                                   {slot.player}

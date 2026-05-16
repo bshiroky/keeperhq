@@ -481,10 +481,10 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
       // adding them — they go back to the draft.
       if (poolFilter === 'own')        return p.isOwn  && (p.eligible || p.source === 'roster');
       if (poolFilter === 'other')      return !p.isOwn && p.eligible;
-      // Ineligible: hide entries already shown in the Roster tab to avoid
-      // double-counting; the rest (expired, orphan contracts, other teams'
-      // off-roster contracts) stay here.
-      if (poolFilter === 'ineligible') return !p.eligible && !(p.isOwn && p.source === 'roster');
+      // Ineligible: just expired contracts going back to the draft pool.
+      // Off-roster contracts (e.g. traded mid-season) are someone else's
+      // pool problem and would show up under the new owner's Roster tab.
+      if (poolFilter === 'ineligible') return p.isExpired;
       return false;
     })
     .filter(p => !poolSearch || p.player.toLowerCase().includes(poolSearch.toLowerCase()))
@@ -514,7 +514,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
   // Counts for tab badges
   const ownCount = availablePool.filter(p => p.isOwn  && (p.eligible || p.source === 'roster')).length;
   const otherCount = availablePool.filter(p => !p.isOwn && p.eligible).length;
-  const ineligibleCount = availablePool.filter(p => !p.eligible && !(p.isOwn && p.source === 'roster')).length;
+  const ineligibleCount = availablePool.filter(p => p.isExpired).length;
 
   function addFromPool(p) {
     if (slotsLeft <= 0) return;
@@ -705,7 +705,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
         </div>
 
         {/* Sidebar: eligible players pool */}
-        <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden', maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden', minHeight: 480, maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '10px 12px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Eligible Pool</div>

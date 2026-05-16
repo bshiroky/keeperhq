@@ -412,10 +412,31 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
   const isSnake = league.draftType === 'snake';
   const ar = league.auctionRules || {};
   let contractPreview = null;
+  let contractLabel = 'Contract';
   if (!entry) {
     contractPreview = isSnake
       ? `Year 1 of a ${league.contractYears || 3}-year contract`
       : `$${ar.undraftedStartCost || 0} for year 1 · +$${ar.costIncreasePerYear || 0}/year thereafter`;
+  } else if (entry.status === 'keeper') {
+    // Surface the existing keeper's contract terms so the user can see what
+    // they're managing without having to dig through the team's Overview tab.
+    const sourceTeam = league.teams?.find(tm => tm.id === entry.teamId);
+    const kp = sourceTeam?.[entry.keeperList]?.[entry.keeperIdx];
+    if (kp) {
+      if (isSnake) {
+        const yr = kp.contractYear || 1;
+        const len = kp.contractLength || (league.contractYears || 3);
+        const remaining = Math.max(0, len - yr);
+        contractLabel = 'Current contract';
+        contractPreview = `Year ${yr} of ${len}` + (remaining === 0 ? ' · expires after this season' : ` · ${remaining} year${remaining === 1 ? '' : 's'} remaining`);
+      } else {
+        const next = (kp.keptFor != null) ? kp.keptFor + (ar.costIncreasePerYear || 0) : (ar.undraftedStartCost || 0);
+        contractLabel = 'Current contract';
+        contractPreview = kp.keptFor != null
+          ? `Kept for $${kp.keptFor} this season · would cost $${next} next year`
+          : `$${kp.keptFor || 0} · year ${kp.yearsKept || 1}`;
+      }
+    }
   }
 
   let confirmLabel = 'Confirm';
@@ -486,7 +507,7 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
           </select>
           {contractPreview && (
             <div style={{ marginTop: 8, padding: '8px 10px', background: `${accentColor}12`, border: `1px solid ${accentColor}33`, borderRadius: 6, fontSize: 12, color: t.textSecondary }}>
-              <span style={{ color: t.textMuted, marginRight: 6 }}>Contract:</span>
+              <span style={{ color: t.textMuted, marginRight: 6 }}>{contractLabel}:</span>
               <span style={{ fontWeight: 600, color: t.textPrimary }}>{contractPreview}</span>
             </div>
           )}
