@@ -40,14 +40,27 @@ export function normalizeName(s) {
 }
 
 // Build a name → {teamId, teamName, status, …} map from the league. Status
-// priority: keeper > rostered > available. For keepers, tracks whether the
-// entry came from the current-season `keepers` list or historical
-// `priorKeepers`, plus the index for downstream mutations. If the keeper has
-// been traded, exposes the destination team too.
+// priority for the primary "what is this player" answer:
+//   keeper > rostered > expired > (none = free agent)
+// Plus an isExpired flag is attached to any entry whose name appears in any
+// team's priorKeepers with expired:true — used to block keeper assignment for
+// contracts that have run their course.
 export function buildStatusIndex(league) {
   const idx = new Map();
   const teams = league.teams || [];
   const teamById = new Map(teams.map(t => [t.id, t]));
+
+  // Pre-collect expired-contract holders so we can both (a) flag entries that
+  // have other statuses and (b) create a top-level "expired" entry for players
+  // who'd otherwise be free agents.
+  const expiredHolders = new Map(); // key → { teamId, teamName }
+  for (const t of teams) {
+    for (const pk of (t.priorKeepers || [])) {
+      if (!pk.expired || !pk.player) continue;
+      const key = normalizeName(pk.player);
+      if (!expiredHolders.has(key)) expiredHolders.set(key, { teamId: t.id, teamName: t.name });
+    }
+  }
 
   for (const t of teams) {
     (t.roster || []).forEach((r, ri) => {
@@ -80,5 +93,20 @@ export function buildStatusIndex(league) {
       });
     }
   }
+
+  // Apply expired information last.
+  for (const [key, ex] of expiredHolders) {
+    if (idx.has(key)) {
+      const entry = idx.get(key);
+      entry.isExpired = true;
+      entry.expiredFromTeamName = ex.teamName;
+    } else {
+      idx.set(key, {
+        teamId: ex.teamId, teamName: ex.teamName, status: 'expired',
+        isExpired: true,
+      });
+    }
+  }
+
   return idx;
 }

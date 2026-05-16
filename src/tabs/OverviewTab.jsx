@@ -192,7 +192,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                 const needsMore = isPreseason && activeCount < requiredCount;
                 return (
                   <tr key={team.id}
-                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s', verticalAlign: 'top' }}
+                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s', verticalAlign: 'middle' }}
                     onMouseEnter={e => e.currentTarget.style.background = t.sectionBg}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
@@ -218,7 +218,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       const popoverOpen = slot && movingKeeper && movingKeeper.teamId === slot.sourceTeamId && movingKeeper.keeperIdx === slot.sourceIdx;
                       const expiring = slot && league.draftType === 'snake' && slot.contractYear >= slot.contractLength;
                       return (
-                        <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                        <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                           {slot ? (
                             <Tooltip
                               isDark={isDark}

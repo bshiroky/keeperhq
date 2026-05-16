@@ -77,30 +77,32 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
     return () => document.removeEventListener('keydown', onKey);
   }, [managing]);
 
-  function makeKeeper(player, teamId) {
+  // Append a fresh keeper entry on the target team. Caller is responsible
+  // for not invoking this when the player is already a keeper (use
+  // tradeKeeper for that case so the existing contract is preserved).
+  function makeKeeperFresh(player, toTeamId) {
     const isSnake = league.draftType === 'snake';
     const ar = league.auctionRules || {};
-    const entry = isSnake
+    const kp = isSnake
       ? { player: player.name, contractYear: 1, contractLength: league.contractYears || 3 }
       : { player: player.name, keptFor: ar.undraftedStartCost || 0, yearsKept: 1 };
     const teams = (league.teams || []).map(tm => {
-      if (tm.id !== teamId) return tm;
-      return { ...tm, keepers: [...(tm.keepers || []), entry] };
+      if (tm.id !== toTeamId) return tm;
+      return { ...tm, keepers: [...(tm.keepers || []), kp] };
     });
     onUpdateLeague({ ...league, teams });
   }
 
-  function moveRostered(player, fromTeamId, toTeamId) {
-    if (fromTeamId === toTeamId) return;
+  // Ensure the player is on `toTeamId`'s roster and not on anyone else's.
+  // Covers both "add free agent to a roster" and "move between rosters".
+  function assignToRoster(player, toTeamId) {
     const target = normalizeName(player.name);
     const teams = (league.teams || []).map(tm => {
-      if (tm.id === fromTeamId) {
-        return { ...tm, roster: (tm.roster || []).filter(r => normalizeName(r.player) !== target) };
-      }
+      const stripped = (tm.roster || []).filter(r => normalizeName(r.player) !== target);
       if (tm.id === toTeamId) {
-        return { ...tm, roster: [...(tm.roster || []), { player: player.name, pos: posForRoster(player.pos) }] };
+        return { ...tm, roster: [...stripped, { player: player.name, pos: posForRoster(player.pos) }] };
       }
-      return tm;
+      return { ...tm, roster: stripped };
     });
     onUpdateLeague({ ...league, teams });
   }
@@ -129,14 +131,17 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
     onUpdateLeague({ ...league, teams });
   }
 
-  function confirmManage() {
+  function onAddToRoster() {
+    if (!managing || !targetTeamId || !onUpdateLeague) return;
+    assignToRoster(managing.player, targetTeamId);
+    closeManage();
+  }
+
+  function onMakeKeeper() {
     if (!managing || !targetTeamId || !onUpdateLeague) return;
     const { player, entry } = managing;
-    const currentOwner = entry?.tradedToTeamId || entry?.teamId;
-    if (targetTeamId === currentOwner) { closeManage(); return; }
-    if (!entry) makeKeeper(player, targetTeamId);
-    else if (entry.status === 'rostered') moveRostered(player, entry.teamId, targetTeamId);
-    else tradeKeeper(player, entry, targetTeamId);
+    if (entry?.status === 'keeper') tradeKeeper(player, entry, targetTeamId);
+    else makeKeeperFresh(player, targetTeamId);
     closeManage();
   }
 
@@ -162,6 +167,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
       list = list.filter(p => {
         const entry = statusIndex.get(normalizeName(p.name));
         if (statusFilter === 'available') return !entry;
+        if (statusFilter === 'expired') return entry?.status === 'expired';
         if (statusFilter === 'rostered') return entry?.status === 'rostered';
         if (statusFilter === 'keeper') return entry?.status === 'keeper';
         return true;
@@ -198,6 +204,9 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
       if (!entry) {
         label = 'Free Agent';
         bg = 'transparent'; fg = t.textMuted;
+      } else if (status === 'expired') {
+        label = `Expired · ${entry.teamName}`;
+        bg = 'rgba(232,82,82,0.10)'; fg = '#e85252';
       } else if (status === 'keeper') {
         label = `Keeper · ${entry.teamName}`;
         bg = 'rgba(107,77,230,0.14)'; fg = '#9d8cf0';
@@ -298,6 +307,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
           <option value="available">Free Agents</option>
           <option value="rostered">Rostered</option>
           <option value="keeper">Keepers</option>
+          <option value="expired">Expired</option>
         </select>
         <span style={{ fontSize: 12, color: t.textMuted }}>{rows.length} shown</span>
       </div>
@@ -386,7 +396,8 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
         targetTeamId={targetTeamId}
         setTargetTeamId={setTargetTeamId}
         onClose={closeManage}
-        onConfirm={confirmManage}
+        onAddToRoster={onAddToRoster}
+        onMakeKeeper={onMakeKeeper}
         onRelease={() => {
           const { player, entry } = managing;
           if (entry?.status === 'rostered') releaseFromRoster(player, entry.teamId);
@@ -397,54 +408,67 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
   );
 }
 
-function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, setTargetTeamId, onClose, onConfirm, onRelease }) {
+function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, setTargetTeamId, onClose, onAddToRoster, onMakeKeeper, onRelease }) {
   const { player, entry } = managing;
   const teams = league.teams || [];
-  const currentOwnerId = entry?.tradedToTeamId || entry?.teamId;
-  const noChange = targetTeamId === currentOwnerId;
+  const status = entry?.status; // 'rostered' | 'keeper' | 'expired' | undefined
+  const isExpired = !!entry?.isExpired || status === 'expired';
+  const rosteredTeamId = status === 'rostered' ? entry.teamId : null;
+  const keeperCurrentOwnerId = status === 'keeper' ? (entry.tradedToTeamId || entry.teamId) : null;
 
   let currentText;
-  if (!entry) currentText = 'Free Agent — not on any roster';
-  else if (entry.status === 'rostered') currentText = `Rostered by ${entry.teamName}`;
+  if (status === 'expired') currentText = `Contract expired (was ${entry.teamName}'s keeper) — returns to the draft pool`;
+  else if (!entry) currentText = 'Free Agent — not on any roster';
+  else if (status === 'rostered' && isExpired) currentText = `Rostered by ${entry.teamName} · expired contract from ${entry.expiredFromTeamName || 'last season'}`;
+  else if (status === 'rostered') currentText = `Rostered by ${entry.teamName}`;
   else if (entry.tradedToTeamName) currentText = `Keeper · ${entry.teamName} → traded to ${entry.tradedToTeamName}`;
   else currentText = `Keeper · ${entry.teamName}`;
 
   const isSnake = league.draftType === 'snake';
   const ar = league.auctionRules || {};
+
+  // Contract preview: show the CURRENT contract for existing keepers, or what
+  // the NEW contract would be for everyone else (i.e. what "Make keeper"
+  // would grant).
   let contractPreview = null;
-  let contractLabel = 'Contract';
-  if (!entry) {
-    contractPreview = isSnake
-      ? `Year 1 of a ${league.contractYears || 3}-year contract`
-      : `$${ar.undraftedStartCost || 0} for year 1 · +$${ar.costIncreasePerYear || 0}/year thereafter`;
-  } else if (entry.status === 'keeper') {
-    // Surface the existing keeper's contract terms so the user can see what
-    // they're managing without having to dig through the team's Overview tab.
+  let contractLabel = 'New contract';
+  if (status === 'keeper') {
     const sourceTeam = league.teams?.find(tm => tm.id === entry.teamId);
     const kp = sourceTeam?.[entry.keeperList]?.[entry.keeperIdx];
     if (kp) {
+      contractLabel = 'Current contract';
       if (isSnake) {
         const yr = kp.contractYear || 1;
         const len = kp.contractLength || (league.contractYears || 3);
         const remaining = Math.max(0, len - yr);
-        contractLabel = 'Current contract';
         contractPreview = `Year ${yr} of ${len}` + (remaining === 0 ? ' · expires after this season' : ` · ${remaining} year${remaining === 1 ? '' : 's'} remaining`);
       } else {
         const next = (kp.keptFor != null) ? kp.keptFor + (ar.costIncreasePerYear || 0) : (ar.undraftedStartCost || 0);
-        contractLabel = 'Current contract';
         contractPreview = kp.keptFor != null
           ? `Kept for $${kp.keptFor} this season · would cost $${next} next year`
           : `$${kp.keptFor || 0} · year ${kp.yearsKept || 1}`;
       }
     }
+  } else if (!isExpired) {
+    contractPreview = isSnake
+      ? `Year 1 of a ${league.contractYears || 3}-year contract`
+      : `$${ar.undraftedStartCost || 0} for year 1 · +$${ar.costIncreasePerYear || 0}/year thereafter`;
   }
 
-  let confirmLabel = 'Confirm';
-  if (noChange) confirmLabel = 'No change';
-  else if (!entry) confirmLabel = 'Make keeper';
-  else if (entry.status === 'rostered') confirmLabel = 'Move';
-  else if (entry.status === 'keeper' && targetTeamId === entry.teamId) confirmLabel = 'Cancel trade';
-  else confirmLabel = 'Confirm trade';
+  // Action-button enablement + labels.
+  const hasTarget = !!targetTeamId;
+  // "Add to roster": disabled when no target, or that team already has them.
+  const rosterDisabled = !hasTarget || rosteredTeamId === targetTeamId;
+  const rosterLabel = rosteredTeamId && rosteredTeamId !== targetTeamId ? 'Move roster' : 'Add to roster';
+  // "Make keeper": disabled when no target, expired, or that team already keeps them.
+  const keeperDisabled = !hasTarget || isExpired || keeperCurrentOwnerId === targetTeamId;
+  let keeperLabel = 'Make keeper';
+  if (status === 'keeper' && targetTeamId && targetTeamId !== keeperCurrentOwnerId) {
+    keeperLabel = targetTeamId === entry.teamId ? 'Cancel trade' : 'Trade keeper';
+  }
+  const keeperTooltip = isExpired
+    ? 'Contract expired — this player goes back to the draft pool and can\'t be kept.'
+    : (keeperCurrentOwnerId === targetTeamId ? 'Already a keeper for this team.' : null);
 
   return (
     <div
@@ -487,7 +511,7 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
 
         <div style={{ padding: '14px 18px' }}>
           <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 6 }}>
-            {!entry ? 'Add as keeper for' : entry.status === 'rostered' ? 'Move to team' : 'Trade to team'}
+            Team
           </label>
           <select value={targetTeamId} onChange={e => setTargetTeamId(e.target.value)}
             style={{
@@ -499,9 +523,11 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
             }}>
             <option value="" disabled>Select team…</option>
             {teams.map(tm => {
-              const isCurrent = tm.id === currentOwnerId;
-              const isOrigin = entry?.status === 'keeper' && tm.id === entry.teamId && entry.tradedToTeamId;
-              const suffix = isCurrent ? ' (current)' : isOrigin ? ' (origin — selecting cancels trade)' : '';
+              const labels = [];
+              if (tm.id === rosteredTeamId) labels.push('rostered');
+              if (tm.id === keeperCurrentOwnerId) labels.push('keeper');
+              if (status === 'keeper' && tm.id === entry.teamId && entry.tradedToTeamId) labels.push('origin');
+              const suffix = labels.length ? ` (${labels.join(', ')})` : '';
               return <option key={tm.id} value={tm.id}>{tm.name}{suffix}</option>;
             })}
           </select>
@@ -511,30 +537,47 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
               <span style={{ fontWeight: 600, color: t.textPrimary }}>{contractPreview}</span>
             </div>
           )}
+          {isExpired && (
+            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(232,82,82,0.08)', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, fontSize: 12, color: '#e85252' }}>
+              Contract expired — this player returns to the draft and can't be kept.
+            </div>
+          )}
         </div>
 
         <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: `1px solid ${t.divider}`, background: t.sectionBg, gap: 8, flexWrap: 'wrap' }}>
           <div>
-            {entry?.status === 'rostered' && (
+            {status === 'rostered' && (
               <button onClick={onRelease}
                 style={{ background: 'none', border: 'none', color: '#e85252', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit' }}>
                 Remove from team
               </button>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button onClick={onClose}
               style={{ background: 'transparent', border: `1px solid ${t.border}`, borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>
               Cancel
             </button>
-            <button onClick={onConfirm} disabled={noChange || !targetTeamId}
+            <button onClick={onAddToRoster} disabled={rosterDisabled}
+              title={rosterDisabled && rosteredTeamId === targetTeamId ? 'Already on this team\'s roster.' : undefined}
               style={{
-                background: noChange || !targetTeamId ? t.sectionBg : accentColor,
-                color: noChange || !targetTeamId ? t.textMuted : '#fff',
-                border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 700,
-                cursor: noChange || !targetTeamId ? 'default' : 'pointer', fontFamily: 'inherit',
+                background: rosterDisabled ? t.sectionBg : 'transparent',
+                color: rosterDisabled ? t.textMuted : accentColor,
+                border: `1px solid ${rosterDisabled ? t.border : `${accentColor}88`}`,
+                borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                cursor: rosterDisabled ? 'default' : 'pointer', fontFamily: 'inherit',
               }}>
-              {confirmLabel}
+              {rosterLabel}
+            </button>
+            <button onClick={onMakeKeeper} disabled={keeperDisabled}
+              title={keeperTooltip || undefined}
+              style={{
+                background: keeperDisabled ? t.sectionBg : accentColor,
+                color: keeperDisabled ? t.textMuted : '#fff',
+                border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                cursor: keeperDisabled ? 'default' : 'pointer', fontFamily: 'inherit',
+              }}>
+              {keeperLabel}
             </button>
           </div>
         </div>
