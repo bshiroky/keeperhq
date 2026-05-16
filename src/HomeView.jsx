@@ -51,19 +51,17 @@ function LeagueCard({ league, onClick, sportColors, isDark }) {
         pointerEvents: 'none',
       }}></div>
 
-      {/* Header row: sport sprite on the left, league name + status pills stacked on the right */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-        <SportLogo sport={league.sport} height={68} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 6 }}>
-            {league.name}
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <DraftBadge draftType={league.draftType} />
-            <StatusPill status={league.status} />
-            <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap' }}>{league.season}</span>
-          </div>
+      {/* Header row — small sport sprite as an inline accent next to the title */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <SportLogo sport={league.sport} height={44} />
+        <div style={{ fontSize: '20px', fontWeight: 700, color: isDark ? '#e8ecf4' : '#1a1f2e', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0 }}>
+          {league.name}
         </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+        <DraftBadge draftType={league.draftType} />
+        <StatusPill status={league.status} />
+        <span style={{ fontSize: '12px', color: isDark ? '#6b7489' : '#8892a4', whiteSpace: 'nowrap', marginLeft: 'auto' }}>{league.season}</span>
       </div>
 
       {/* Roster-management stats row */}
@@ -223,7 +221,7 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, sportColors, isDark })
       </div>
 
       {/* League grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 20 }}>
         {filtered.map(league => (
           <LeagueCard key={league.id} league={league} onClick={onSelectLeague} sportColors={sportColors} isDark={isDark} />
         ))}
