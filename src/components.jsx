@@ -20,6 +20,7 @@ const tokens = {
   // ── typography (style objects; spread into inline styles) ─
   //   <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary }}>
   typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
+  typeHeadingHero:    { fontSize: '22px', fontWeight: 800, letterSpacing: '-0.01em' },
   typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
   typeHeadingSection: { fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
   typeLabelEyebrow:   { fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
@@ -29,6 +30,7 @@ const tokens = {
   typeBodyMeta:       { fontSize: '12px', fontWeight: 400 },
   typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
   typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
+  typeNumericCompact: { fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em' },
   typeNumericInline:  { fontSize: '17px', fontWeight: 700 },
 
   // ── spacing (numbers; inline styles auto-px) ──────────────

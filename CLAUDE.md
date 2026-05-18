@@ -159,6 +159,7 @@ The full token vocabulary lives in `makeTheme(isDark)` in
 | Token | Spec | Role |
 |---|---|---|
 | `typeHeadingPage` | 20/800/-0.01em | Page-level title (league detail h1) |
+| `typeHeadingHero` | 22/800/-0.01em | Trading-card league name on hero-style cards |
 | `typeHeadingCard` | 18/700/-0.01em | Card and modal titles |
 | `typeHeadingSection` | 13/600/0.06em UPPERCASE | "KEEPERS", "Prize Structure", section dividers |
 | `typeLabelEyebrow` | 11/600/0.06em UPPERCASE | StatBox labels, KPI labels, column headers |
@@ -168,6 +169,7 @@ The full token vocabulary lives in `makeTheme(isDark)` in
 | `typeBodyMeta` | 12/400 | Helper / secondary / footer text |
 | `typeNumericHero` | 26/700 | SummaryBar values (dashboard hero metrics) |
 | `typeNumericCard` | 22/700 | StatBox value (card-level stats) |
+| `typeNumericCompact` | 19/800/-0.01em | Stat values inside compact 3-col stat blocks (trading-card stat footer) |
 | `typeNumericInline` | 17/700 | League header inline counters |
 
 **Spacing (numbers, auto-px in inline styles)**:
