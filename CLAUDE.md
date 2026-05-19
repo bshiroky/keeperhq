@@ -7,27 +7,50 @@ once; keep iterating on the branch and PR/merge when ready).
 
 ## Resume here
 
-**Branch tip:** `7fdec25` (clean working tree).
+**Branch tip:** `4b519cc` (clean working tree).
 
-**Mid design-system rollout.** Token vocabulary lives in `makeTheme` +
-the module-scope `tokens` constant in `src/components.jsx` (see the
-Design system section below for the full reference). Three
-self-correction passes during the rollout caught real token errors;
-that pattern should continue — pixel shifts during a migration mean
-the token is wrong, not the migration.
+**Design-system rollout, paused after HomeView.** Token vocabulary
+lives in `makeTheme` + the module-scope `tokens` constant in
+`src/components.jsx` — see the Design system section below for the
+full reference. Through the rollout so far we've made four
+self-corrections to the system (typography weights, sport border
+alpha, theme-invariant token extraction, sub-pixel rounding to scale).
+That pattern continues — pixel shifts during a migration mean the
+token is wrong, not the migration.
 
-**Step 1 complete:** the six leaf primitives (`StatBox`, `SportBadge`,
-`DraftBadge`, `StatusPill`, `Tag`, `ExpiringDot`) are migrated. Only
-deliberate visual change was `StatBox` sub-text 11→12px (agreed
-consolidation under `typeBodyMeta`).
+**Steps complete:**
 
-**Step 2 (HomeView migration) is blocked.** Before resuming, the user
-will bring a revised league card information architecture. The plan
-is to land the IA change *and* the token migration in one pass —
-don't migrate the current card layout, then re-migrate after the IA
-changes. Wait for the new card spec.
+- **Step 1**: six leaf primitives (`StatBox`, `SportBadge`,
+  `DraftBadge`, `StatusPill`, `Tag`, `ExpiringDot`) consume tokens.
+  Only deliberate visual change was `StatBox` sub-text 11→12px.
+- **Step 2 (HomeView)**: full redesign to the trading-card direction
+  (`4b519cc`). Pixel-perfect to the Claude Design prototype per user
+  visual review on the Vercel preview. See Critical decision #9 for
+  the card model and #8 for the PackStats KPI strip.
 
-**Migration order after HomeView:**
+**Tokens added during step 2:**
+
+- `typeHeadingHero` (22/800/-0.01em) — trading-card league name
+- `typeNumericCompact` (19/800/-0.01em) — stat values in the back-of-
+  card 3-col stat block
+
+**Tweaks panel was trimmed in the same commit:**
+
+- Removed `sportColors` toggle (consumer deleted by the rewrite)
+- Removed `cardStyle` toggle + entire Layout section (had no consumer
+  even before this work — dead UI predating the rollout)
+- Panel now reads as Appearance (theme only) + Data (reset button)
+
+**Pending asset:** `commissioner.png` for the PackStats mascot. Not
+yet generated. PackStats currently uses `mascot-empty.png` via an
+`onError` fallback. When `commissioner.png` lands in `public/`, the
+fallback stops firing automatically — no code change needed.
+
+**Parked here.** User explicitly stopped after HomeView; the rest of
+the original migration plan is queued but not in flight.
+
+**Next step when resumed:** Step 3 = `LeagueView` header + TabBar
+migration, per the original order:
 LeagueView header → PayoutsTab → PlayersTab → OverviewTab + LotteryTab
 → SettingsTab → modals. One commit per surface. "No visual change
 expected" is the rule per step except where the agreed system mandates
@@ -113,16 +136,30 @@ single-device by design (see "Backend deferred" below).
    "Expired · {team}" pill in red.
 7. **Pre-loaded mock data lives in `src/data.js`** — used to seed
    localStorage on first run.
-8. **My Leagues KPI bar is dollar-first.** Four cells: Active Leagues ·
-   Collected (of total) · Outstanding · Unpaid Teams. Outstanding and
-   Unpaid go warning-orange when non-zero. Phase-4 (pre-draft prep)
-   commissioner workflow.
-9. **League card data shape**: header (avatar + name + season year);
-   secondary (draft-type label + status pill); 4-col stat block
-   (Teams · Keepers `X/N` "teams submitted" · Payments `X/N` "$N in"
-   · Prize Pool `$total` "$N buy-in"); footer (auction yearly-cost
-   modifier from `league.auctionRules.costIncreasePerYear` + draft
-   date).
+8. **PackStats KPI strip is dollar-first** (was "KPI bar"). Reframed
+   in the trading-card redesign as a mascot + speech-bubble + 4 mono-
+   space numerics: Leagues · Collected · Outstanding · Unpaid. The
+   speech bubble's voice line + border color react to the state
+   (green when paid up, warning-orange while chasing). PackStats sums
+   across the whole league pack, not the current filter selection.
+   Phase-4 (pre-draft prep) commissioner workflow.
+9. **League card is a trading card** (rewritten from the previous
+   compact 4-col model). Each card has a sport-tinted hero panel
+   (180px tall, gradient + film grain + sport mascot at 152px), an
+   action sticker top-left, a face below with name + meta + flavor +
+   3-col stat block. Hover: card lifts, holofoil shine sweeps, mascot
+   bobs. Stats are `Teams · Paid (X/N) · Pool ($total)`. Draft date
+   and rule modifier moved off the footer — the rule mod lives in
+   the meta line; draft date dropped. The Add League slot at grid's
+   tail is a binder-empty-slot variant (dashed outline + faded
+   greyscale mascot at 12% opacity).
+   Card-level logic lives in `HomeView.jsx` helpers:
+   - `nextAction(league)` returns `{ kind: 'action'|'waiting'|'ready', label }`
+     and drives the action sticker's copy + color
+   - `flavorLine(league, action)` returns the voice copy for the line
+     below the meta
+   - `paymentsOf(league)` returns derived payment totals
+   - `ruleMod(league)` returns the meta-line modifier string
 
 ## Visual / design language
 
@@ -217,13 +254,14 @@ If one of these is unavoidable, the next step is *add a token*, not
 | `keeper-hq-logo.png` | Shield icon — **in use** as nav fallback under 640px viewport. Do NOT delete. |
 | `nav-logo.png` | Old pixel-art horizontal lockup — no longer used (replaced by HTML wordmark). Safe to delete. |
 | `favicon.svg` | (removed; favicon now uses `nav-logo.png`? — check `index.html`) |
-| `sport-hockey.png` | Action-pose hockey character (no shield, transparent) |
+| `sport-hockey.png` | Action-pose hockey character — TradingCard hero mascot (152px) |
 | `sport-basketball.png` | Same, basketball |
 | `sport-football.png` | Same, football |
 | `sport-baseball.png` | Same, baseball |
-| `mascot-empty.png` | Puzzled everyman — empty states |
+| `mascot-empty.png` | Puzzled everyman — empty states + AddLeagueSlot silhouette + PackStats fallback |
 | `mascot-soon.png` | Construction-worker everyman — "Coming soon" |
 | `mascot-celebrate.png` | Cheering everyman — celebration banners (unused yet) |
+| `commissioner.png` | **PENDING** — target asset for PackStats mascot (72px). `mascot-empty.png` is the live `onError` fallback until this lands. Drop into `public/` and the fallback stops firing automatically. |
 | `players-nhl.json` | NHL player directory (refreshed on every Vercel build) |
 
 ### Where assets are wired
@@ -233,16 +271,26 @@ If one of these is unavoidable, the next step is *add a token*, not
   Under 640px the wordmark hides and `/keeper-hq-logo.png` shows at
   32px instead (handled via `<style>` media-query block in
   `App.jsx`). Header height 64px. Logo container vertically centered.
-- **Sport sprites**: `<SportLogo>` from `src/components.jsx` reads
-  `SPORT_CONFIG[sport].logo` → `/sport-{sport}.png`
-  - Home cards (`HomeView.jsx`): 32px sprite inside a 40px tinted circle
-    (background `${accentColor}1f`)
-  - League detail header (`LeagueView.jsx`): same 32-in-40 pattern
-    inline with title (no more watermark)
+- **Sport sprites**: `SPORT_CONFIG[sport].logo` → `/sport-{sport}.png`
+  - HomeView `TradingCard` hero panel: 152px mascot inside a 160×170px
+    hero zone, bottom-right, drop-shadowed. Hovering the parent card
+    runs the `kh-bob` keyframe (bob animation).
+  - League detail header (`LeagueView.jsx`): 32px sprite inside a 40px
+    tinted circle (background `${accentColor}1f`), inline with title.
+  - `<SportLogo>` primitive in `components.jsx` is still exported but
+    no longer used by HomeView — `TradingCard` renders `<img src={sport.logo}>`
+    directly to apply hero-specific positioning and animation classes.
   - Overview keeper-grid headshot column: NOT this — that uses real NHL
-    player headshots from the player JSON
+    player headshots from the player JSON.
+- **`commissioner.png` (pending)**: `HomeView.jsx` `PackStats` mascot,
+  72px. `onError` falls back to `/mascot-empty.png`.
+- **`mascot-empty.png`**: three live uses —
+  - `KeepersTab.jsx` `KeeperEditModal` empty state, 100px
+  - `HomeView.jsx` `PackStats` `onError` fallback, 72px (until
+    `commissioner.png` lands)
+  - `HomeView.jsx` `AddLeagueSlot` faded silhouette, 120px @ 12%
+    opacity + greyscale filter
 - **`mascot-soon`**: `PlayersTab.jsx` non-NHL empty state, 140px
-- **`mascot-empty`**: `KeepersTab.jsx` KeeperEditModal empty state, 100px
 - **`mascot-celebrate`**: not yet wired — earmarked for season-complete
   banner
 
@@ -322,6 +370,10 @@ different names (`SeasonSetupWizard`, `DataSourcesPanel`,
   delete. **Note**: `public/keeper-hq-logo.png` is the small-viewport
   nav fallback now; do NOT delete that one (this is the opposite of
   the previous note).
+- `public/commissioner.png` — **not yet generated**, will be dropped
+  in by the user. Wired via `onError` fallback in
+  `HomeView.jsx` `PackStats`; no code change needed once the asset
+  lands.
 - Several PNG duplicates at the **repo root on `main`** (uploaded by
   user via GitHub web UI before I moved them to `public/`):
   `Keeper HQ logo.png`, `Fantasy Hockey.png`, `Fantasy Basketball.png`,
