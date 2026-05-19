@@ -95,10 +95,16 @@ function makeTheme(isDark) {
 // variants alongside its base color. Use these instead of inlining
 // `${color}1f` or similar. For surfaces that have a raw accent hex but not
 // the sport object, use the sportTint / sportBorder helpers exported below.
+// `bgPosition` (optional) tunes each sport's background-position when the
+// 5:2 hero panel crops a 3:2 source image. Hockey and baseball read fine
+// at the default 'center' (their characters' feet sit near the vertical
+// middle of the image). Basketball and football have characters with feet
+// closer to the bottom edge of the source, so they need the visible band
+// shifted downward to keep the character grounded on the court/field.
 const SPORT_CONFIG = {
   hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', tint: 'rgba(59,138,230,0.12)', border: 'rgba(59,138,230,0.20)', logo: '/sport-hockey.png',     bgImage: '/hockey-bg.png' },
-  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', tint: 'rgba(232,131,42,0.12)', border: 'rgba(232,131,42,0.20)', logo: '/sport-basketball.png', bgImage: '/basketball-bg.png' },
-  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', tint: 'rgba(76,175,125,0.12)', border: 'rgba(76,175,125,0.20)', logo: '/sport-football.png',   bgImage: '/football-bg.png' },
+  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', tint: 'rgba(232,131,42,0.12)', border: 'rgba(232,131,42,0.20)', logo: '/sport-basketball.png', bgImage: '/basketball-bg.png', bgPosition: 'center 80%' },
+  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', tint: 'rgba(76,175,125,0.12)', border: 'rgba(76,175,125,0.20)', logo: '/sport-football.png',   bgImage: '/football-bg.png',   bgPosition: 'center 75%' },
   baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', tint: 'rgba(232,82,82,0.12)',  border: 'rgba(232,82,82,0.20)',  logo: '/sport-baseball.png',   bgImage: '/baseball-bg.png' },
 };
 

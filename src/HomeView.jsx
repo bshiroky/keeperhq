@@ -173,7 +173,7 @@ function TradingCard({ league, onClick, isDark }) {
         backgroundColor: sport.color,
         backgroundImage: `url(${sport.bgImage})`,
         backgroundSize: 'cover',
-        backgroundPosition: 'center',
+        backgroundPosition: sport.bgPosition || 'center',
         backgroundRepeat: 'no-repeat',
         aspectRatio: '5 / 2',
         overflow: 'hidden',
