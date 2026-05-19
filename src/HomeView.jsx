@@ -159,10 +159,18 @@ function TradingCard({ league, onClick, isDark }) {
              0 14px 32px rgba(0,0,0,0.10)`,
       }}
     >
-      {/* HERO PANEL — sport gradient + sticker + mascot + grain + shine */}
+      {/* HERO PANEL — sport scene bg + sticker + mascot + grain + shine.
+          Image is anchored bottom-right so the scene's spatial focal point
+          (rink crease / hoop / batter's box / field) aligns with the
+          right-anchored mascot below. Sport color shows briefly as the
+          fallback during image load. */}
       <div style={{
         position: 'relative',
-        background: `linear-gradient(135deg, ${sport.color}ee 0%, ${sport.color}aa 60%, ${sport.color}77 100%)`,
+        backgroundColor: sport.color,
+        backgroundImage: `url(${sport.bgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'right bottom',
+        backgroundRepeat: 'no-repeat',
         height: 180,
         overflow: 'hidden',
       }}>
