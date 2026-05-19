@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme, getLeagueStats, HScrollRow } from '../components.jsx';
+import { makeTheme, getLeagueStats, HScrollRow, Tooltip } from '../components.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
 import { DataSourcesPanel } from './SourcesTab.jsx';
 import '../claudeStub.js';
@@ -475,9 +475,16 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
 
   const filteredPool = availablePool
     .filter(p => {
-      if (poolFilter === 'own')        return p.isOwn  && p.eligible;
+      // Roster tab shows the active team's entire uploaded roster (with or
+      // without prior contracts) so the commissioner can see everyone and
+      // pick freely. Expired contracts still appear here but the row blocks
+      // adding them — they go back to the draft.
+      if (poolFilter === 'own')        return p.isOwn  && (p.eligible || p.source === 'roster');
       if (poolFilter === 'other')      return !p.isOwn && p.eligible;
-      if (poolFilter === 'ineligible') return !p.eligible;
+      // Ineligible: just expired contracts going back to the draft pool.
+      // Off-roster contracts (e.g. traded mid-season) are someone else's
+      // pool problem and would show up under the new owner's Roster tab.
+      if (poolFilter === 'ineligible') return p.isExpired;
       return false;
     })
     .filter(p => !poolSearch || p.player.toLowerCase().includes(poolSearch.toLowerCase()))
@@ -505,9 +512,9 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
     });
 
   // Counts for tab badges
-  const ownCount = availablePool.filter(p => p.isOwn  && p.eligible).length;
+  const ownCount = availablePool.filter(p => p.isOwn  && (p.eligible || p.source === 'roster')).length;
   const otherCount = availablePool.filter(p => !p.isOwn && p.eligible).length;
-  const ineligibleCount = availablePool.filter(p => !p.eligible).length;
+  const ineligibleCount = availablePool.filter(p => p.isExpired).length;
 
   function addFromPool(p) {
     if (slotsLeft <= 0) return;
@@ -698,7 +705,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
         </div>
 
         {/* Sidebar: eligible players pool */}
-        <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden', maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden', minHeight: 480, maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '10px 12px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Eligible Pool</div>
@@ -764,9 +771,9 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                   const showTeamHeader = poolFilter === 'other' && (!prev || prev.fromTeamId !== p.fromTeamId);
                   const showContractDivider = poolFilter === 'own' && p.rosterMode && prev && prev.hasContract && !p.hasContract;
 
-                  // Build the cost/contract label
+                  // Build the cost/contract label + the hover tooltip text.
                   let statusLabel = null;
-                  let chipTooltip = p.eligible ? `Add ${p.player} for ${activeTeam.name}` : null;
+                  let chipTooltip = null;
                   if (league.draftType === 'snake') {
                     if (p.hasContract && !p.isExpired) {
                       const nextYr = (p.contractYear || 0) + 1;
@@ -776,7 +783,13 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                           Y{nextYr}/{p.contractLength || 3}{isLastYr && ' ⚠'}
                         </span>
                       );
-                      if (isLastYr) chipTooltip = `Final year of contract — will go back to the draft after the ${league.season} season. Add ${p.player} for ${activeTeam.name}.`;
+                      chipTooltip = isLastYr
+                        ? `Final year of contract — ${p.player} goes back to the draft after this season.`
+                        : `${p.player} · contract Y${nextYr} of ${p.contractLength || 3}.`;
+                    } else if (p.isExpired) {
+                      chipTooltip = `Contract expired — ${p.player} returns to the draft pool and can't be kept.`;
+                    } else if (p.source === 'roster' && !p.hasContract) {
+                      chipTooltip = `${p.player} was on this roster but has no prior contract. Adding starts a Year 1 keeper contract.`;
                     }
                   } else {
                     // auction
@@ -808,19 +821,19 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                           Rostered, no contract
                         </div>
                       )}
-                      <button onClick={() => addFromPool(p)} disabled={slotsLeft <= 0}
-                        title={chipTooltip || `${reasonLabel || 'Ineligible'} — click to add anyway (admin override)`}
+                      <Tooltip content={chipTooltip} isDark={isDark} style={{ display: 'block' }}>
+                      <button onClick={() => p.isExpired ? null : addFromPool(p)} disabled={slotsLeft <= 0 || p.isExpired}
                         style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1,
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, width: '100%', boxSizing: 'border-box',
                           background: p.isOwn && p.eligible ? `${accentColor}10` : 'transparent',
                           border: `1px solid ${p.isOwn && p.eligible ? `${accentColor}55` : t.border}`,
                           borderRadius: 6, padding: '6px 9px',
-                          cursor: slotsLeft > 0 ? 'pointer' : 'not-allowed',
-                          opacity: slotsLeft <= 0 ? 0.4 : (p.eligible ? 1 : 0.6),
+                          cursor: p.isExpired ? 'not-allowed' : (slotsLeft > 0 ? 'pointer' : 'not-allowed'),
+                          opacity: slotsLeft <= 0 ? 0.4 : (p.isExpired ? 0.55 : (p.eligible ? 1 : 0.8)),
                           fontFamily: 'inherit', textAlign: 'left',
                         }}
-                        onMouseEnter={e => { if (slotsLeft > 0) { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.background = `${accentColor}18`; } }}
-                        onMouseLeave={e => { if (slotsLeft > 0) { e.currentTarget.style.borderColor = p.isOwn && p.eligible ? `${accentColor}55` : t.border; e.currentTarget.style.background = p.isOwn && p.eligible ? `${accentColor}10` : 'transparent'; } }}>
+                        onMouseEnter={e => { if (slotsLeft > 0 && !p.isExpired) { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.background = `${accentColor}18`; } }}
+                        onMouseLeave={e => { if (slotsLeft > 0 && !p.isExpired) { e.currentTarget.style.borderColor = p.isOwn && p.eligible ? `${accentColor}55` : t.border; e.currentTarget.style.background = p.isOwn && p.eligible ? `${accentColor}10` : 'transparent'; } }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%' }}>
                           {p.pos && p.pos !== '?' && (
                             <span style={{ fontSize: 9, fontWeight: 700, color: t.textMuted, background: t.sectionBg, padding: '1px 4px', borderRadius: 3, flexShrink: 0, minWidth: 18, textAlign: 'center' }}>{p.pos}</span>
@@ -842,6 +855,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                           )}
                         </div>
                       </button>
+                      </Tooltip>
                     </React.Fragment>
                   );
                 })}

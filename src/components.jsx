@@ -1,9 +1,73 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 // Shared UI components — exported to window
 
+// Design tokens. Two namespaces, two concerns:
+//   text* = color values for text  (textPrimary, textMuted, etc.) — theme-dependent
+//   type* = typography style objects  (font-size, weight, letter-spacing, transform) — theme-invariant
+// Do NOT merge these — textBody is a color, typeBody is a size+weight spec.
+//
+// Theme-invariant tokens (type, space, radius, semantic color) live in the
+// module-scope `tokens` constant. Components that don't have isDark in
+// scope can use `tokens.typePill` directly. `makeTheme(isDark)` spreads
+// the same values back in, so existing call sites of `t.typePill` etc.
+// continue to work.
+//
+// New surfaces consume tokens; they do not introduce values. If a new role
+// is genuinely needed, add a token here first.
+const tokens = {
+  // ── typography (style objects; spread into inline styles) ─
+  //   <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary }}>
+  typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
+  typeHeadingHero:    { fontSize: '22px', fontWeight: 800, letterSpacing: '-0.01em' },
+  typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
+  typeHeadingSection: { fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  typeLabelEyebrow:   { fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' },
+  typePill:           { fontSize: '11px', fontWeight: 600, letterSpacing: '0.03em' },
+  typePillEmphatic:   { fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' },
+  typeBody:           { fontSize: '13px', fontWeight: 400 },
+  typeBodyMeta:       { fontSize: '12px', fontWeight: 400 },
+  typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
+  typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
+  typeNumericCompact: { fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em' },
+  typeNumericInline:  { fontSize: '17px', fontWeight: 700 },
+
+  // ── spacing (numbers; inline styles auto-px) ──────────────
+  //   padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`   gap: tokens.spaceMd
+  space2xs: 4,
+  spaceXs:  8,
+  spaceSm:  12,
+  spaceMd:  16,
+  spaceLg:  20,
+  spaceXl:  24,
+  space2xl: 32,
+
+  // ── radius ────────────────────────────────────────────────
+  radiusSm:   6,    // chips, small badges
+  radiusMd:   8,    // buttons, inputs
+  radiusLg:   12,   // cards, modals, nested stat blocks
+  radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
+
+  // ── semantic color ────────────────────────────────────────
+  success:       '#6dd4a8',
+  successBg:     'rgba(109,212,168,0.14)',
+  successBorder: 'rgba(109,212,168,0.33)',
+  warning:       '#e8832a',
+  warningBg:     'rgba(232,131,42,0.12)',
+  warningBorder: 'rgba(232,131,42,0.33)',
+  danger:        '#e85252',
+  dangerBg:      'rgba(232,82,82,0.12)',
+  dangerBorder:  'rgba(232,82,82,0.33)',
+  info:          '#3b8ae6',
+  infoBg:        'rgba(59,138,230,0.12)',
+  infoBorder:    'rgba(59,138,230,0.33)',
+  brand:         '#3ca96b',
+};
+
 function makeTheme(isDark) {
   return {
+    // ── surface ───────────────────────────────────────────────
     cardBg:       isDark ? '#1c2130' : '#ffffff',
     cardBg2:      isDark ? '#161a22' : '#ffffff',
     cardShadow:   isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)',
@@ -13,21 +77,45 @@ function makeTheme(isDark) {
     sectionBg:    isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.025)',
     noteBg:       isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
     progressBg:   isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
+
+    // ── text color ────────────────────────────────────────────
     textPrimary:  isDark ? '#e8ecf4' : '#1a1f2e',
     textBody:     isDark ? '#c8d0e0' : '#3a4255',
     textSecondary:isDark ? '#9aa3b5' : '#6b7489',
     textMuted:    isDark ? '#6b7489' : '#8892a4',
     badgeBg:      isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     badgeColor:   isDark ? '#9aa3b5' : '#6b7489',
+
+    // theme-invariants (also available via the `tokens` constant)
+    ...tokens,
   };
 }
 
+// Each sport carries pre-baked tint (≈12% alpha) and border (≈33% alpha)
+// variants alongside its base color. Use these instead of inlining
+// `${color}1f` or similar. For surfaces that have a raw accent hex but not
+// the sport object, use the sportTint / sportBorder helpers exported below.
 const SPORT_CONFIG = {
-  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', colorDim: 'rgba(59,138,230,0.12)' },
-  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', colorDim: 'rgba(232,131,42,0.12)' },
-  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', colorDim: 'rgba(76,175,125,0.12)' },
-  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', colorDim: 'rgba(232,82,82,0.12)' },
+  hockey:     { label: 'Hockey',     icon: '🏒', color: '#3b8ae6', tint: 'rgba(59,138,230,0.12)', border: 'rgba(59,138,230,0.20)', logo: '/sport-hockey.png' },
+  basketball: { label: 'Basketball', icon: '🏀', color: '#e8832a', tint: 'rgba(232,131,42,0.12)', border: 'rgba(232,131,42,0.20)', logo: '/sport-basketball.png' },
+  football:   { label: 'Football',   icon: '🏈', color: '#4caf7d', tint: 'rgba(76,175,125,0.12)', border: 'rgba(76,175,125,0.20)', logo: '/sport-football.png' },
+  baseball:   { label: 'Baseball',   icon: '⚾', color: '#e85252', tint: 'rgba(232,82,82,0.12)',  border: 'rgba(232,82,82,0.20)',  logo: '/sport-baseball.png' },
 };
+
+function sportTint(color)   { return color + '1f'; }  // ≈ 12% alpha
+function sportBorder(color) { return color + '33'; }  // ≈ 20% alpha
+
+// Renders the sport's badge logo if available, falling back to the emoji.
+// Height controls vertical size; width auto-scales to preserve the shield
+// aspect ratio.
+function SportLogo({ sport, height = 32 }) {
+  const cfg = SPORT_CONFIG[sport];
+  if (cfg?.logo) {
+    return <img src={cfg.logo} alt={cfg.label} height={height}
+      style={{ height, width: 'auto', display: 'block', flexShrink: 0, imageRendering: 'pixelated' }} />;
+  }
+  return <span style={{ fontSize: height * 0.7, flexShrink: 0 }}>{cfg?.icon || '🏆'}</span>;
+}
 
 const DRAFT_LABEL = { snake: 'Contract Snake', auction: 'Auction' };
 const STATUS_CONFIG = {
@@ -40,14 +128,15 @@ const STATUS_CONFIG = {
 function SportBadge({ sport, size = 'sm' }) {
   const cfg = SPORT_CONFIG[sport] || SPORT_CONFIG.hockey;
   const pad = size === 'lg' ? '5px 14px' : '3px 10px';
-  const fs = size === 'lg' ? '13px' : '11px';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: cfg.colorDim, color: cfg.color,
-      border: `1px solid ${cfg.color}33`,
-      borderRadius: 20, padding: pad, fontSize: fs,
-      fontWeight: 600, letterSpacing: '0.03em', whiteSpace: 'nowrap', flexShrink: 0,
+      background: cfg.tint, color: cfg.color,
+      border: `1px solid ${cfg.border}`,
+      borderRadius: 20, padding: pad,
+      ...tokens.typePill,
+      ...(size === 'lg' ? { fontSize: '13px' } : null),
+      whiteSpace: 'nowrap', flexShrink: 0,
     }}>
       {cfg.label}
     </span>
@@ -56,13 +145,17 @@ function SportBadge({ sport, size = 'sm' }) {
 
 function DraftBadge({ draftType }) {
   const label = DRAFT_LABEL[draftType] || draftType;
+  // NOTE: bg/border/color are theme-blind hardcodes from the original
+  // primitive — left inline by design until the LeagueView pass, when
+  // we'll revisit them in context against the surrounding chrome.
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       background: 'rgba(255,255,255,0.06)', color: '#9aa3b5',
       border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: 20, padding: '3px 10px', fontSize: '11px',
-      fontWeight: 600, letterSpacing: '0.03em', whiteSpace: 'nowrap',
+      borderRadius: 20, padding: '3px 10px',
+      ...tokens.typePill,
+      whiteSpace: 'nowrap',
     }}>
       {label}
     </span>
@@ -75,8 +168,9 @@ function StatusPill({ status }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center',
       background: cfg.bg, color: cfg.color,
-      borderRadius: 20, padding: '3px 10px', fontSize: '11px',
-      fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', whiteSpace: 'nowrap', flexShrink: 0,
+      borderRadius: 20, padding: '3px 10px',
+      ...tokens.typePillEmphatic,
+      whiteSpace: 'nowrap', flexShrink: 0,
     }}>
       {cfg.label}
     </span>
@@ -84,14 +178,12 @@ function StatusPill({ status }) {
 }
 
 function StatBox({ label, value, sub, accent, isDark }) {
-  const labelColor = isDark ? '#6b7489' : '#8892a4';
-  const valueColor = isDark ? '#e8ecf4' : '#1a1f2e';
-  const subColor = isDark ? '#6b7489' : '#8892a4';
+  const t = makeTheme(isDark);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <div style={{ fontSize: '11px', color: labelColor, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: '22px', fontWeight: 700, color: accent || valueColor, lineHeight: 1.1 }}>{value}</div>
-      {sub && <div style={{ fontSize: '11px', color: subColor }}>{sub}</div>}
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{label}</div>
+      <div style={{ ...tokens.typeNumericCard, color: accent || t.textPrimary, lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{sub}</div>}
     </div>
   );
 }
@@ -104,19 +196,22 @@ function Divider({ vertical }) {
 function Tag({ children, color }) {
   return (
     <span style={{
-      fontSize: '11px', fontWeight: 600, padding: '2px 8px',
+      ...tokens.typePill,
+      padding: '2px 8px',
       borderRadius: 4, background: color ? `${color}22` : 'rgba(255,255,255,0.08)',
       color: color || '#9aa3b5', border: `1px solid ${color ? color + '33' : 'transparent'}`,
     }}>{children}</span>
   );
 }
 
+// Leaf primitive: 10px / 700 doesn't fit the type-token system. Counter
+// dots are a distinct atomic role; tokenizing it now would be premature.
 function ExpiringDot({ count }) {
   if (!count) return null;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: '#e85252', color: '#fff', borderRadius: 20,
+      background: tokens.danger, color: '#fff', borderRadius: 20,
       fontSize: '10px', fontWeight: 700, padding: '1px 6px', minWidth: 18,
     }}>{count}</span>
   );
@@ -131,12 +226,13 @@ function formatDate(dateStr) {
 function getLeagueStats(league) {
   const teams = league.teams || [];
   const paid = teams.filter(t => t.paid).length;
-  const submitted = teams.filter(t => t.keepersSubmitted).length;
+  const withKeepers = teams.filter(t => (t.keepers || []).length > 0).length;
+  const rostersLoaded = teams.filter(t => (t.roster || []).length > 0).length;
   const expiring = league.draftType === 'snake'
     ? teams.flatMap(t => (t.keepers || []).filter(k => k.expiresAfter === '2025-26')).length
     : 0;
   const collectedPool = paid * league.buyIn;
-  return { paid, submitted, expiring, collectedPool };
+  return { paid, withKeepers, rostersLoaded, expiring, collectedPool };
 }
 
 // Horizontal-scrolling row with chevron arrows that appear when overflow exists.
@@ -224,18 +320,74 @@ function HScrollRow({ children, isDark, t: theme, gap = 5 }) {
   );
 }
 
+// Hover tooltip. Wraps any element, attaches mouseenter/leave listeners, and
+// renders the bubble via a portal so it isn't clipped by overflow:hidden
+// parents. Triggers immediately (no browser-default 1s delay), positions
+// above the trigger by default. Pass `null` content to disable.
+function Tooltip({ children, content, isDark, position = 'top', style = {} }) {
+  const [shown, setShown] = React.useState(false);
+  const [coords, setCoords] = React.useState({ top: 0, left: 0 });
+  const triggerRef = React.useRef(null);
+
+  if (!content) return children;
+
+  function show() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setCoords({
+        top: position === 'top' ? rect.top : rect.bottom,
+        left: rect.left + rect.width / 2,
+      });
+    }
+    setShown(true);
+  }
+
+  return (
+    <>
+      <span ref={triggerRef} style={{ display: 'inline-block', ...style }}
+        onMouseEnter={show}
+        onMouseLeave={() => setShown(false)}>
+        {children}
+      </span>
+      {shown && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: coords.top, left: coords.left,
+          transform: position === 'top' ? 'translate(-50%, calc(-100% - 8px))' : 'translate(-50%, 8px)',
+          background: isDark ? '#252a36' : '#2d3340',
+          color: '#fff',
+          padding: '7px 10px',
+          fontSize: 11, fontWeight: 500,
+          borderRadius: 6,
+          width: 'max-content', maxWidth: 260,
+          whiteSpace: 'normal', lineHeight: 1.45,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          zIndex: 10000,
+          pointerEvents: 'none',
+          fontFamily: 'inherit',
+        }}>
+          {content}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 Object.assign(window, {
-  makeTheme,
+  makeTheme, tokens,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
-  SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
-  HScrollRow,
+  HScrollRow, Tooltip,
+  sportTint, sportBorder,
 });
 
 export {
-  makeTheme,
+  makeTheme, tokens,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
-  SportBadge, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
-  HScrollRow,
+  HScrollRow, Tooltip,
+  sportTint, sportBorder,
 };

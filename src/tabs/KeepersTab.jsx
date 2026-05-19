@@ -1,5 +1,7 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
+import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
+import { normalizeName } from '../lib/players.js';
 
 // Keepers Tab — full management with inline add/edit/remove
 
@@ -17,7 +19,6 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
     }
     return initial;
   });
-  const [submitted, setSubmitted] = React.useState(team.keepersSubmitted);
   const [tradingIdx, setTradingIdx] = React.useState(null);
   const [tradeForm, setTradeForm] = React.useState({ toTeamId: '', note: '' });
 
@@ -112,18 +113,45 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
         {/* Keeper list */}
         <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           {keepers.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '20px 0', color: t.textMuted, fontSize: '13px' }}>No keepers yet. Add one below.</div>
+            <div style={{ textAlign: 'center', padding: '12px 0 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <img src="/mascot-empty.png" alt="" height={100}
+                style={{ height: 100, width: 'auto', display: 'block', imageRendering: 'pixelated', opacity: 0.95 }} />
+              <div style={{ color: t.textMuted, fontSize: '13px' }}>No keepers yet. Add one below.</div>
+            </div>
           )}
-          {keepers.map((k, i) => (
+          {keepers.map((k, i) => {
+            // Disable any player already kept anywhere in the league (other
+            // teams' saved keepers + other slots in this modal). Allow re-
+            // selection of this slot's saved value if it had one.
+            const disabledNames = new Set();
+            (league.teams || []).forEach(tm => {
+              const isSelfTeam = tm.id === team.id;
+              (tm.keepers || []).forEach((kp, kpIdx) => {
+                if (!kp.player) return;
+                if (isSelfTeam && kpIdx === i) return; // allow re-selecting own slot's saved value
+                disabledNames.add(normalizeName(kp.player));
+              });
+            });
+            keepers.forEach((other, oi) => {
+              if (oi !== i && other.player) disabledNames.add(normalizeName(other.player));
+            });
+            // Always permit the currently-typed value to stay in the input
+            if (k.player) disabledNames.delete(normalizeName(k.player));
+            return (
             <div key={i} style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 10, padding: '12px 14px' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                 <div style={{ flex: 1 }}>
-                  <input
-                    placeholder="Player name"
+                  <PlayerAutocomplete
                     value={k.player}
-                    onChange={e => updateKeeper(i, 'player', e.target.value)}
-                    style={{
-                      width: '100%', background: isDark ? '#161a22' : '#f7f9fc',
+                    onChange={name => updateKeeper(i, 'player', name)}
+                    sport={league.sport}
+                    isDark={isDark}
+                    placeholder="Player name"
+                    league={league}
+                    disabledNames={disabledNames}
+                    inputStyle={{
+                      width: '100%', boxSizing: 'border-box',
+                      background: isDark ? '#161a22' : '#f7f9fc',
                       border: `1px solid ${t.border}`, borderRadius: 8,
                       padding: '8px 12px', fontSize: '14px', color: t.textPrimary,
                       outline: 'none', fontFamily: 'inherit',
@@ -225,7 +253,8 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
 
           {keepers.length < league.keeperSlots && (
             <button onClick={addKeeper} style={{
@@ -243,15 +272,31 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '13px', color: t.textSecondary, fontWeight: 600 }}>
-            <input type="checkbox" checked={submitted} onChange={e => setSubmitted(e.target.checked)}
-              style={{ width: 16, height: 16, cursor: 'pointer', accentColor }} />
-            Mark as submitted
-          </label>
+        <div style={{ padding: '14px 20px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: '#e85252', fontWeight: 600 }}>
+            {(() => {
+              const names = keepers.map(k => normalizeName(k.player)).filter(Boolean);
+              const seen = new Set();
+              const dups = [];
+              for (const n of names) { if (seen.has(n)) dups.push(n); seen.add(n); }
+              return dups.length ? `Duplicate keeper${dups.length > 1 ? 's' : ''} — remove before saving.` : '';
+            })()}
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={onClose} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: t.textSecondary }}>Cancel</button>
-            <button onClick={() => onSave({ ...team, keepers, keepersSubmitted: submitted })} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Save</button>
+            <button
+              onClick={() => {
+                const names = keepers.map(k => normalizeName(k.player)).filter(Boolean);
+                if (new Set(names).size !== names.length) return; // block save
+                onSave({ ...team, keepers });
+              }}
+              disabled={(() => {
+                const names = keepers.map(k => normalizeName(k.player)).filter(Boolean);
+                return new Set(names).size !== names.length;
+              })()}
+              style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#fff', opacity: 1 }}>
+              Save
+            </button>
           </div>
         </div>
       </div>
@@ -297,7 +342,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{team.name}</div>
                   <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
-                    {team.keepersSubmitted ? `${(team.keepers||[]).length}/${league.keeperSlots} keepers` : 'Not yet submitted'}
+                    {`${(team.keepers||[]).length}/${league.keeperSlots} keepers`}
                     {expiring > 0 && <span style={{ color: '#e85252', marginLeft: 8 }}>· {expiring} expiring</span>}
                   </div>
                 </div>
@@ -357,7 +402,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '14px', fontWeight: 600, color: t.textPrimary }}>{team.name}</div>
               <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
-                {team.keepersSubmitted ? `${(team.keepers||[]).length} of ${league.keeperSlots} keeper slots used` : 'Not yet submitted'}
+                {`${(team.keepers||[]).length} of ${league.keeperSlots} keeper slots used`}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>

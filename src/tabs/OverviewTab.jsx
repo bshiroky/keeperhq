@@ -1,6 +1,8 @@
 import React from 'react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, Tooltip } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
+import { KeeperEditModal } from './KeepersTab.jsx';
+import { loadPlayers, normalizeName } from '../lib/players.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
@@ -62,34 +64,64 @@ function ChecklistCard({ icon, title, subtitle, value, total, status, accentColo
   );
 }
 
-function SubmittedIcon({ submitted, size = 18, isDark }) {
-  if (submitted) {
-    return (
-      <span title="Keepers submitted" style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: size, height: size, borderRadius: '50%',
-        background: 'rgba(76,175,125,0.2)', color: '#6dd4a8',
-        fontSize: size * 0.6, fontWeight: 700, flexShrink: 0,
-      }}>✓</span>
-    );
-  }
-  return (
-    <span title="Not yet submitted" style={{
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: size, height: size, borderRadius: '50%',
-      border: `2px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'}`,
-      background: 'transparent', flexShrink: 0,
-    }}></span>
-  );
-}
-
 function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const [teams, setTeams] = React.useState(league.teams || []);
   const [editingTeam, setEditingTeam] = React.useState(null); // { team, autoAdd }
   const [movingKeeper, setMovingKeeper] = React.useState(null); // { teamId, keeperIdx }
+  const [playerMap, setPlayerMap] = React.useState(null); // normalized name → player record
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
+
+  // Column-width constants — Team & Edit are pinned (sticky), only the K
+  // columns scroll. PAGE_COLS controls how many K columns fit per visible
+  // page; chevrons advance one page (so partial columns never linger on
+  // screen) and scroll-snap on each K column keeps drag-scrolling aligned.
+  const TEAM_W = 140;
+  const COL_W = 180;
+  const EDIT_W = 60;
+  const PAGE_COLS = 4;
+  const PAGE_W = PAGE_COLS * COL_W;
+
+  const tableScrollRef = React.useRef(null);
+  const [scrollCanLeft, setScrollCanLeft] = React.useState(false);
+  const [scrollCanRight, setScrollCanRight] = React.useState(false);
+  React.useEffect(() => {
+    function update() {
+      const el = tableScrollRef.current;
+      if (!el) return;
+      setScrollCanLeft(el.scrollLeft > 1);
+      setScrollCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+    }
+    update();
+    const el = tableScrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
+  }, [maxKeepers, teams.length]);
+  function scrollTable(dir) {
+    const el = tableScrollRef.current;
+    if (!el) return;
+    // Snap to the nearest page boundary so we never end on a partial column.
+    const next = Math.round(el.scrollLeft / PAGE_W) + dir;
+    const target = Math.max(0, next * PAGE_W);
+    el.scrollTo({ left: target, behavior: 'smooth' });
+  }
+
+  // Look up keeper headshots from the static player directory (NHL only for now).
+  React.useEffect(() => {
+    if (league.sport !== 'hockey' && league.sport !== 'nhl') return;
+    let cancelled = false;
+    loadPlayers('nhl').then(d => {
+      if (cancelled) return;
+      const m = new Map();
+      for (const p of (d.players || [])) m.set(normalizeName(p.name), p);
+      setPlayerMap(m);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [league.sport]);
 
   function moveKeeperToTeam(srcTeamId, keeperIdx, destTeamId) {
     if (srcTeamId === destTeamId) { setMovingKeeper(null); return; }
@@ -133,7 +165,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
     if (onUpdateLeague) onUpdateLeague({ ...league, teams: newTeams });
     setEditingTeam(null);
   }
-  const submittedCount = teams.filter(tm => tm.keepersSubmitted).length;
+  const withKeepersCount = teams.filter(tm => (tm.keepers || []).length > 0).length;
 
   return (
     <>
@@ -146,31 +178,32 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
       )}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keeper Submissions</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '11px', color: t.textMuted }}>
-              <SubmittedIcon submitted={true} size={14} isDark={isDark} />
-              <span>= submitted</span>
-              <SubmittedIcon submitted={false} size={14} isDark={isDark} />
-              <span>= pending</span>
-            </div>
-            <span style={{ color: t.divider }}>|</span>
-            <span style={{ fontSize: '12px', color: t.textMuted }}>{submittedCount}/{teams.length} submitted</span>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keepers</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: '12px', color: t.textMuted }}>{withKeepersCount}/{teams.length} teams started</span>
             {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
           </div>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 500 }}>
+        <div style={{ position: 'relative' }}>
+        {scrollCanLeft && (
+          <button onClick={() => scrollTable(-1)} aria-label="Previous keepers"
+            style={{ position: 'absolute', left: TEAM_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
+        )}
+        {scrollCanRight && (
+          <button onClick={() => scrollTable(1)} aria-label="More keepers"
+            style={{ position: 'absolute', right: EDIT_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
+        )}
+        <div ref={tableScrollRef} style={{ overflowX: 'auto', scrollSnapType: 'x mandatory' }}>
+          <table style={{ width: 'max-content', borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
-                <th style={{ padding: '9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 32 }}></th>
-                <th style={{ padding: '9px 8px 9px 0', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: 130 }}>Team</th>
+                <th style={{ position: 'sticky', left: 0, zIndex: 3, background: t.sectionBg, padding: '9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>Team</th>
                 {Array.from({ length: maxKeepers }, (_, i) => (
-                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap' }}>
+                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: COL_W, minWidth: COL_W, scrollSnapAlign: 'start' }}>
                     K{i + 1}
                   </th>
                 ))}
-                <th style={{ padding: '9px 12px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, width: 60 }}></th>
+                <th style={{ position: 'sticky', right: 0, zIndex: 3, background: t.sectionBg, padding: '9px 12px', textAlign: 'center', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, width: EDIT_W, minWidth: EDIT_W, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -205,16 +238,10 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                 const needsMore = isPreseason && activeCount < requiredCount;
                 return (
                   <tr key={team.id}
-                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', transition: 'background 0.12s', verticalAlign: 'top' }}
-                    onMouseEnter={e => e.currentTarget.style.background = t.sectionBg}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', verticalAlign: 'middle' }}
                   >
-                    {/* Submitted icon */}
-                    <td style={{ padding: '12px 8px 12px 16px', textAlign: 'center' }}>
-                      <SubmittedIcon submitted={team.keepersSubmitted} isDark={isDark} />
-                    </td>
-                    {/* Team name */}
-                    <td style={{ padding: '12px 8px 12px 0', whiteSpace: 'nowrap' }}>
+                    {/* Team name — sticky pinned to left edge while K columns scroll */}
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <div style={{ width: 24, height: 24, borderRadius: 6, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: accentColor, flexShrink: 0 }}>
                           {team.name[0]}
@@ -235,30 +262,45 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       const popoverOpen = slot && movingKeeper && movingKeeper.teamId === slot.sourceTeamId && movingKeeper.keeperIdx === slot.sourceIdx;
                       const expiring = slot && league.draftType === 'snake' && slot.contractYear >= slot.contractLength;
                       return (
-                        <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                        <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
                           {slot ? (
-                            <div style={{ position: 'relative', display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                            <Tooltip
+                              isDark={isDark}
+                              content={expiring && !slot.isOutgoing
+                                ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
+                                : null}>
+                            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', minWidth: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
+                                {(() => {
+                                  const p = playerMap?.get(normalizeName(slot.player));
+                                  return p?.headshot ? (
+                                    <img src={p.headshot} alt="" width={22} height={22}
+                                      style={{ borderRadius: '50%', background: t.sectionBg, objectFit: 'cover', flexShrink: 0, opacity: slot.isOutgoing ? 0.45 : 1 }}
+                                      onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
+                                  ) : null;
+                                })()}
                                 <span style={{
-                                  fontSize: '12px',
-                                  color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textBody),
-                                  fontWeight: expiring && !slot.isOutgoing ? 600 : 400,
+                                  fontSize: '13px',
+                                  color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textPrimary),
+                                  fontWeight: slot.isOutgoing ? 500 : 700,
                                   textDecoration: slot.isOutgoing ? 'line-through' : 'none',
-                                }}>
+                                  flex: 1, minWidth: 0,
+                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                }} title={slot.player}>
                                   {slot.player}
                                 </span>
                                 {league.draftType === 'snake' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textMuted), textDecoration: slot.isOutgoing ? 'line-through' : 'none' }}>
+                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textMuted), textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>
                                     Y{slot.contractYear}/{slot.contractLength}
                                   </span>
                                 )}
                                 {league.draftType === 'auction' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : accentColor, fontWeight: 700, textDecoration: slot.isOutgoing ? 'line-through' : 'none' }}>${slot.keptFor}</span>
+                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : accentColor, fontWeight: 700, textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>${slot.keptFor}</span>
                                 )}
                                 <button
                                   onClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
                                   title="Reassign to another team (mid-season trade)"
-                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '10px', color: t.textMuted, opacity: 0.5, lineHeight: 1, fontFamily: 'inherit' }}
+                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '10px', color: t.textMuted, opacity: 0.5, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
                                   onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = accentColor; }}
                                   onMouseLeave={e => { e.currentTarget.style.opacity = 0.5; e.currentTarget.style.color = t.textMuted; }}
                                 >✎</button>
@@ -303,6 +345,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                 </div>
                               )}
                             </div>
+                            </Tooltip>
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
                               background: needsMore ? `${accentColor}10` : 'none',
@@ -320,8 +363,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                         </td>
                       );
                     })}
-                    {/* Edit button */}
-                    <td style={{ padding: '12px 16px 12px 12px', textAlign: 'center' }}>
+                    {/* Edit button — sticky pinned to right edge while K columns scroll */}
+                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 16px 12px 12px', textAlign: 'center', width: EDIT_W, minWidth: EDIT_W, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <button onClick={() => setEditingTeam({ team, autoAdd: false })} style={{
                         background: 'none', border: `1px solid ${t.border}`, borderRadius: 6,
                         padding: '4px 10px', fontSize: '11px', fontWeight: 600,
@@ -337,6 +380,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
               })}
             </tbody>
           </table>
+        </div>
         </div>
       </div>
     </>
@@ -447,6 +491,6 @@ function OverviewTab({ league, accentColor, isDark, onGoToTab, onUpdateLeague })
   );
 }
 
-Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard, SubmittedIcon });
+Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard });
 
-export { ChecklistCard, SubmittedIcon, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };
+export { ChecklistCard, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };
