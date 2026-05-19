@@ -146,18 +146,29 @@ single-device by design (see "Backend deferred" below).
 9. **League card is a trading card** (rewritten from the previous
    compact 4-col model). Each card has a hero panel that renders a
    per-sport pixel-art scene as the background (rink / arena / field /
-   stadium), an action sticker top-left, a face below with name + meta
-   + flavor + 3-col stat block. Hero panel is `aspectRatio: '5 / 2'`
-   (cinematic strip) with `backgroundSize: cover`; per-sport
-   `SPORT_CONFIG[sport].bgPosition` shifts the crop downward for
-   basketball (`center 80%`) and football (`center 75%`) so the
-   character's feet land on the court / field. Hockey and baseball
-   read fine at default `'center'`. Sport `color` is the fallback
-   during image load.
+   stadium), an action sticker top-left, a face below with name +
+   sport pill + season + meta + flavor + 3-col stat block. Hero panel
+   is `aspectRatio: '5 / 2'` (cinematic strip) with
+   `backgroundSize: cover`; per-sport `SPORT_CONFIG[sport].bgPosition`
+   shifts the crop downward for basketball (`center 80%`) and football
+   (`center 75%`) so the character's feet land on the court / field.
+   Hockey and baseball read fine at default `'center'`. Sport `color`
+   is the fallback during image load.
+   **Hero panel is scene-only — action sticker is the sole UI overlay.**
+   Sport label + season used to render as a "print band" inside the
+   hero panel; the busy scene backgrounds wrecked the readability of
+   white-on-photo text, so identity moved into the card body as a
+   `SportBadge` (sport-color tint + border + solid sport-color text)
+   followed by the season as plain `typeBodyMeta`.
    Hover: card lifts, holofoil shine sweeps, mascot bobs. Stats are
    `Teams · Paid (X/N) · Pool ($total)`. The Add League slot at grid's
    tail is a binder-empty-slot variant (dashed outline + faded
    greyscale mascot at 12% opacity).
+   **Sport filter pills** above the grid carry the sport's color
+   even when idle: inactive sport pill uses `cfg.tint` background +
+   `cfg.border` border + `cfg.color` text (SportBadge recipe). Active
+   pill saturates to solid `cfg.color` + white text. "All Leagues" is
+   the neutral option (gray idle, `tokens.info` blue when active).
    Card-level logic lives in `HomeView.jsx` helpers:
    - `nextAction(league)` returns `{ kind: 'action'|'waiting'|'ready', label }`
      and drives the action sticker's copy + color
