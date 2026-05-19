@@ -144,38 +144,61 @@ single-device by design (see "Backend deferred" below).
    across the whole league pack, not the current filter selection.
    Phase-4 (pre-draft prep) commissioner workflow.
 9. **League card is a trading card** (rewritten from the previous
-   compact 4-col model). Each card has a hero panel that renders a
-   per-sport pixel-art scene as the background (rink / arena / field /
-   stadium), an action sticker top-left, a face below with name +
-   sport pill + season + meta + flavor + 3-col stat block. Hero panel
-   is `aspectRatio: '5 / 2'` (cinematic strip) with
-   `backgroundSize: cover`; per-sport `SPORT_CONFIG[sport].bgPosition`
-   shifts the crop downward for basketball (`center 80%`) and football
-   (`center 75%`) so the character's feet land on the court / field.
-   Hockey and baseball read fine at default `'center'`. Sport `color`
-   is the fallback during image load.
+   compact 4-col model). Card body structure:
+   1. League name (`typeHeadingHero`)
+   2. Pills row — `SportBadge` + rule pill, side by side
+   3. Flavor text with mood-colored left rule
+   4. Stats footer (Teams · Paid · Pool)
+
+   No season label, no standalone meta line — both were redundant.
+   Year is implied by context; contract config beyond the keeper
+   count belongs on the league detail view, not the card.
+
+   Hero panel renders a per-sport pixel-art scene as the background
+   (rink / arena / field / stadium), an action sticker top-left,
+   and the mascot bottom-right. Hero is `aspectRatio: '5 / 2'`
+   (cinematic strip) with `backgroundSize: cover`; per-sport
+   `SPORT_CONFIG[sport].bgPosition` shifts the crop downward for
+   basketball (`center 80%`) and football (`center 75%`) so the
+   character's feet land on the court / field. Hockey and baseball
+   read fine at default `'center'`. Sport `color` is the fallback
+   during image load.
+
    **Hero panel is scene-only — action sticker is the sole UI overlay.**
-   Sport label + season used to render as a "print band" inside the
-   hero panel; the busy scene backgrounds wrecked the readability of
-   white-on-photo text, so identity moved into the card body as a
-   `SportBadge` (sport-color tint + border + solid sport-color text)
-   followed by the season as plain `typeBodyMeta`.
+   The old "print band" (sport + season text inside the hero) didn't
+   survive the busy scene backgrounds; identity moved into the body.
+
+   **Pills row recipe:**
+   - `SportBadge` — sport-color tint bg + border + solid sport-color text
+   - Rule pill — neutral gray (`t.badgeBg` + `t.border` + `t.textSecondary`),
+     same typography (`typePill`), same padding/radius as SportBadge
+     so the row reads as a matched pair. Pill string is built from
+     `ruleMod(league)` + keeper count.
+
+   **Rule strings (trimmed for pill density):**
+   - snake: `${contractYears}-yr contracts` (was: "max contract")
+   - auction: `+$${costIncreasePerYear}/yr keeper cost`
+   - keeper count: `${keeperSlots} keepers` (was: "Up to ${N} keepers")
+   - Combined pill: `"3-yr contracts · 4 keepers"`, `"+$5/yr keeper cost · 4 keepers"`.
+
    Hover: card lifts, holofoil shine sweeps, mascot bobs. Stats are
    `Teams · Paid (X/N) · Pool ($total)`. The Add League slot at grid's
    tail is a binder-empty-slot variant (dashed outline + faded
    greyscale mascot at 12% opacity).
+
    **Sport filter pills** above the grid carry the sport's color
    even when idle: inactive sport pill uses `cfg.tint` background +
    `cfg.border` border + `cfg.color` text (SportBadge recipe). Active
    pill saturates to solid `cfg.color` + white text. "All Leagues" is
    the neutral option (gray idle, `tokens.info` blue when active).
+
    Card-level logic lives in `HomeView.jsx` helpers:
    - `nextAction(league)` returns `{ kind: 'action'|'waiting'|'ready', label }`
      and drives the action sticker's copy + color
    - `flavorLine(league, action)` returns the voice copy for the line
-     below the meta
+     below the pills row
    - `paymentsOf(league)` returns derived payment totals
-   - `ruleMod(league)` returns the meta-line modifier string
+   - `ruleMod(league)` returns the rule-pill modifier string
 
 ## Visual / design language
 

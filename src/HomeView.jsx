@@ -75,7 +75,7 @@ function paymentsOf(league) {
 
 function ruleMod(league) {
   if (league.draftType === 'snake' && league.contractYears) {
-    return `${league.contractYears}-yr max contract`;
+    return `${league.contractYears}-yr contracts`;
   }
   if (league.draftType === 'auction' && league.auctionRules?.costIncreasePerYear) {
     return `+$${league.auctionRules.costIncreasePerYear}/yr keeper cost`;
@@ -232,12 +232,18 @@ function TradingCard({ league, onClick, isDark }) {
           <div style={{ ...tokens.typeHeadingHero, color: t.textPrimary, lineHeight: 1.1 }}>
             {league.name}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, marginTop: tokens.space2xs + 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, marginTop: tokens.space2xs + 2, flexWrap: 'wrap' }}>
             <SportBadge sport={league.sport} />
-            <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{league.season}</span>
-          </div>
-          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.space2xs }}>
-            {mod || 'Keeper league'} · Up to {league.keeperSlots || 0} keepers
+            <span style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: t.badgeBg, color: t.textSecondary,
+              border: `1px solid ${t.border}`,
+              borderRadius: 20, padding: '3px 10px',
+              ...tokens.typePill,
+              whiteSpace: 'nowrap',
+            }}>
+              {`${mod || 'Keeper league'} · ${league.keeperSlots || 0} keepers`}
+            </span>
           </div>
 
           {/* Flavor — voice line. Mood-colored rule on the left. */}
