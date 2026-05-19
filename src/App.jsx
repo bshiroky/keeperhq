@@ -2,14 +2,12 @@ import React from 'react';
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
-import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle } from './TweaksPanel.jsx';
+import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 
 // Root App + Tweaks
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
-  "theme": "light",
-  "sportColors": true,
-  "cardStyle": "detailed"
+  "theme": "light"
 }/*EDITMODE-END*/;
 
 function AccountMenu({ isDark }) {
@@ -187,7 +185,6 @@ function App() {
             leagues={leagues}
             onSelectLeague={handleSelectLeague}
             onAddLeague={handleAddLeague}
-            sportColors={tweaks.sportColors}
             isDark={isDark}
           />
         )}
@@ -209,19 +206,6 @@ function App() {
             value={tweaks.theme}
             options={[{value:'dark',label:'Dark'},{value:'light',label:'Light'}]}
             onChange={v => setTweak('theme', v)}
-          />
-          <TweakToggle
-            label="Sport accent colors"
-            value={tweaks.sportColors}
-            onChange={v => setTweak('sportColors', v)}
-          />
-        </TweakSection>
-        <TweakSection label="Layout">
-          <TweakRadio
-            label="Card density"
-            value={tweaks.cardStyle}
-            options={[{value:'detailed',label:'Detailed'},{value:'compact',label:'Compact'}]}
-            onChange={v => setTweak('cardStyle', v)}
           />
         </TweakSection>
         <TweakSection label="Data">
