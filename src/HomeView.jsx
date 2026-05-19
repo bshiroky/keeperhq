@@ -160,11 +160,14 @@ function TradingCard({ league, onClick, isDark }) {
       }}
     >
       {/* HERO PANEL — sport scene bg + sticker + mascot + grain + shine.
-          Panel takes the scene image's native 3:2 aspect ratio so the
-          whole scene shows uncropped: scoreboards at top, action zone
-          middle, ground at bottom. Mascot below is bottom-anchored so
-          it stays grounded as the panel grows with card width. Sport
-          color is the brief fallback during image load. */}
+          Panel is 5:2 (2.5:1) — wider/shorter than the image's native
+          3:2 so the scene reads as a cinematic strip rather than a
+          dominating tile. Image scales by width (cover); top and bottom
+          of each scene crop ~20% each with `center` positioning. The
+          action zone (ice/court/field/batter's box) and the scoreboards
+          both sit in the middle of each image, so both survive. Mascot
+          below is bottom-anchored. Sport color is the brief fallback
+          during image load. */}
       <div style={{
         position: 'relative',
         backgroundColor: sport.color,
@@ -172,7 +175,7 @@ function TradingCard({ league, onClick, isDark }) {
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        aspectRatio: '3 / 2',
+        aspectRatio: '5 / 2',
         overflow: 'hidden',
       }}>
         {/* Print band: sport · season */}
