@@ -144,13 +144,18 @@ single-device by design (see "Backend deferred" below).
    across the whole league pack, not the current filter selection.
    Phase-4 (pre-draft prep) commissioner workflow.
 9. **League card is a trading card** (rewritten from the previous
-   compact 4-col model). Each card has a sport-tinted hero panel
-   (180px tall, gradient + film grain + sport mascot at 152px), an
-   action sticker top-left, a face below with name + meta + flavor +
-   3-col stat block. Hover: card lifts, holofoil shine sweeps, mascot
-   bobs. Stats are `Teams · Paid (X/N) · Pool ($total)`. Draft date
-   and rule modifier moved off the footer — the rule mod lives in
-   the meta line; draft date dropped. The Add League slot at grid's
+   compact 4-col model). Each card has a hero panel that renders a
+   per-sport pixel-art scene as the background (rink / arena / field /
+   stadium), an action sticker top-left, a face below with name + meta
+   + flavor + 3-col stat block. Hero panel is `aspectRatio: '5 / 2'`
+   (cinematic strip) with `backgroundSize: cover`; per-sport
+   `SPORT_CONFIG[sport].bgPosition` shifts the crop downward for
+   basketball (`center 80%`) and football (`center 75%`) so the
+   character's feet land on the court / field. Hockey and baseball
+   read fine at default `'center'`. Sport `color` is the fallback
+   during image load.
+   Hover: card lifts, holofoil shine sweeps, mascot bobs. Stats are
+   `Teams · Paid (X/N) · Pool ($total)`. The Add League slot at grid's
    tail is a binder-empty-slot variant (dashed outline + faded
    greyscale mascot at 12% opacity).
    Card-level logic lives in `HomeView.jsx` helpers:
@@ -258,6 +263,10 @@ If one of these is unavoidable, the next step is *add a token*, not
 | `sport-basketball.png` | Same, basketball |
 | `sport-football.png` | Same, football |
 | `sport-baseball.png` | Same, baseball |
+| `hockey-bg.png` | SNES-era side-view rink scene — TradingCard hero panel background (hockey) |
+| `basketball-bg.png` | Arena scene with hoop + scorer's table — TradingCard hero panel background (basketball) |
+| `football-bg.png` | Stadium with goal post + bench — TradingCard hero panel background (football) |
+| `baseball-bg.png` | At-bat scene with catcher, umpire, backstop — TradingCard hero panel background (baseball) |
 | `mascot-empty.png` | Puzzled everyman — empty states + AddLeagueSlot silhouette + PackStats fallback |
 | `mascot-soon.png` | Construction-worker everyman — "Coming soon" |
 | `mascot-celebrate.png` | Cheering everyman — celebration banners (unused yet) |
@@ -282,6 +291,11 @@ If one of these is unavoidable, the next step is *add a token*, not
     directly to apply hero-specific positioning and animation classes.
   - Overview keeper-grid headshot column: NOT this — that uses real NHL
     player headshots from the player JSON.
+- **Sport scene backgrounds**: `SPORT_CONFIG[sport].bgImage` →
+  `/{sport}-bg.png`. Rendered as `background-image` on the TradingCard
+  hero panel (5:2 aspect, cover-fit). Optional per-sport `bgPosition`
+  tunes the crop — see Critical decision #9. Centered grain overlay
+  and shine sweep layer over the bg image.
 - **`commissioner.png` (pending)**: `HomeView.jsx` `PackStats` mascot,
   72px. `onError` falls back to `/mascot-empty.png`.
 - **`mascot-empty.png`**: three live uses —
