@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, tokens, makeTheme } from './components.jsx';
+import { SPORT_CONFIG, SportBadge, tokens, makeTheme } from './components.jsx';
 
 // Home View — Trading-Card pack.
 //
@@ -75,7 +75,7 @@ function paymentsOf(league) {
 
 function ruleMod(league) {
   if (league.draftType === 'snake' && league.contractYears) {
-    return `${league.contractYears}-yr max contract`;
+    return `${league.contractYears}-yr contracts`;
   }
   if (league.draftType === 'auction' && league.auctionRules?.costIncreasePerYear) {
     return `+$${league.auctionRules.costIncreasePerYear}/yr keeper cost`;
@@ -159,25 +159,28 @@ function TradingCard({ league, onClick, isDark }) {
              0 14px 32px rgba(0,0,0,0.10)`,
       }}
     >
-      {/* HERO PANEL — sport gradient + sticker + mascot + grain + shine */}
+      {/* HERO PANEL — sport scene bg + sticker + mascot + grain + shine.
+          Panel is 5:2 (2.5:1) — wider/shorter than the image's native
+          3:2 so the scene reads as a cinematic strip rather than a
+          dominating tile. Image scales by width (cover); top and bottom
+          of each scene crop ~20% each with `center` positioning. The
+          action zone (ice/court/field/batter's box) and the scoreboards
+          both sit in the middle of each image, so both survive. Mascot
+          below is bottom-anchored. Sport color is the brief fallback
+          during image load. */}
       <div style={{
         position: 'relative',
-        background: `linear-gradient(135deg, ${sport.color}ee 0%, ${sport.color}aa 60%, ${sport.color}77 100%)`,
-        height: 180,
+        backgroundColor: sport.color,
+        backgroundImage: `url(${sport.bgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: sport.bgPosition || 'center',
+        backgroundRepeat: 'no-repeat',
+        aspectRatio: '5 / 2',
         overflow: 'hidden',
       }}>
-        {/* Print band: sport · season */}
-        <div style={{
-          position: 'absolute', top: tokens.spaceSm, left: tokens.spaceSm, right: tokens.spaceSm,
-          color: 'rgba(255,255,255,0.92)',
-          ...tokens.typeLabelEyebrow,
-          textShadow: '0 1px 2px rgba(0,0,0,0.25)',
-          zIndex: 3,
-        }}>
-          {sport.label.toUpperCase()} · {league.season}
-        </div>
-
-        {/* Action sticker — tilted, drop-shadowed, animates on label change */}
+        {/* Action sticker — tilted, drop-shadowed, animates on label change.
+            Sole UI overlay on the hero panel; sport identity + season
+            moved to the card body once the scene backgrounds landed. */}
         <div className="kh-tcard-sticker" key={action.label} style={{
           position: 'absolute', top: 38, left: tokens.spaceSm,
           background: stickerColors.bg, color: stickerColors.fg,
@@ -229,8 +232,18 @@ function TradingCard({ league, onClick, isDark }) {
           <div style={{ ...tokens.typeHeadingHero, color: t.textPrimary, lineHeight: 1.1 }}>
             {league.name}
           </div>
-          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 3 }}>
-            {mod || 'Keeper league'} · Up to {league.keeperSlots || 0} keepers
+          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, marginTop: tokens.space2xs + 2, flexWrap: 'wrap' }}>
+            <SportBadge sport={league.sport} />
+            <span style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: t.badgeBg, color: t.textSecondary,
+              border: `1px solid ${t.border}`,
+              borderRadius: 20, padding: '3px 10px',
+              ...tokens.typePill,
+              whiteSpace: 'nowrap',
+            }}>
+              {`${mod || 'Keeper league'} · ${league.keeperSlots || 0} keepers`}
+            </span>
           </div>
 
           {/* Flavor — voice line. Mood-colored rule on the left. */}
@@ -396,15 +409,22 @@ function PackStats({ leagues, isDark }) {
 }
 
 // ── Sport filter pills ───────────────────────────────────────────────────
+// Sport-specific pills carry their sport color even when inactive (tint
+// bg + border + solid-color text — same recipe as SportBadge). Active
+// saturates to a solid sport fill with white text. "All Leagues" is the
+// neutral option: gray when idle, `info` blue when selected.
 function SportFilter({ value, onChange, isDark }) {
   const t = makeTheme(isDark);
   const opts = [
-    { id: 'all',        label: 'All Leagues', color: tokens.info },
-    { id: 'hockey',     label: 'Hockey',      color: SPORT_CONFIG.hockey.color },
-    { id: 'basketball', label: 'Basketball',  color: SPORT_CONFIG.basketball.color },
-    { id: 'football',   label: 'Football',    color: SPORT_CONFIG.football.color },
-    { id: 'baseball',   label: 'Baseball',    color: SPORT_CONFIG.baseball.color },
+    { id: 'all',        label: 'All Leagues', cfg: null },
+    { id: 'hockey',     label: 'Hockey',      cfg: SPORT_CONFIG.hockey },
+    { id: 'basketball', label: 'Basketball',  cfg: SPORT_CONFIG.basketball },
+    { id: 'football',   label: 'Football',    cfg: SPORT_CONFIG.football },
+    { id: 'baseball',   label: 'Baseball',    cfg: SPORT_CONFIG.baseball },
   ];
+  const neutralBg   = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const neutralText = isDark ? '#9aa3b5' : '#6b7489';
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
@@ -413,11 +433,20 @@ function SportFilter({ value, onChange, isDark }) {
       <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginRight: 6 }}>Filter</span>
       {opts.map(s => {
         const active = value === s.id;
+        let bg, color, border;
+        if (s.cfg) {
+          bg     = active ? s.cfg.color : s.cfg.tint;
+          color  = active ? '#fff'      : s.cfg.color;
+          border = `1px solid ${active ? s.cfg.color : s.cfg.border}`;
+        } else {
+          bg     = active ? tokens.info : neutralBg;
+          color  = active ? '#fff'      : neutralText;
+          border = `1px solid ${active ? tokens.info : 'transparent'}`;
+        }
         return (
           <button key={s.id} onClick={() => onChange(s.id)} style={{
-            padding: '5px 14px', borderRadius: tokens.radiusPill, border: 'none', cursor: 'pointer',
-            background: active ? s.color : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'),
-            color:      active ? '#fff'  : (isDark ? '#9aa3b5'                 : '#6b7489'),
+            padding: '4px 13px', borderRadius: tokens.radiusPill, border, cursor: 'pointer',
+            background: bg, color,
             ...tokens.typePill, fontWeight: 600,
             transition: 'all 0.15s', fontFamily: 'inherit', whiteSpace: 'nowrap',
           }}>
