@@ -170,30 +170,57 @@ payouts: {
 payoutNote: string,
 ```
 
-**Standings Payouts** render as a **list** in `PayoutsTab`
-(`src/LeagueView.jsx`): one row per stored line, with [Place dropdown]
-[Phase dropdown] [$ amount] [×]. Lines are grouped by phase for
-display — Regular Season group first, then Playoffs — each sorted by
-place. Empty phase groups hide their heading. A single `+ Add Payout`
-button below all groups appends a default `{place: 1, phase: 'regular',
-amount: 0}`; the commissioner picks place + phase from the dropdowns
-(no auto-increment of "next contiguous place" — supports
-non-contiguous layouts like 1st, 2nd, 3rd + last-place penalty).
+**Standings Payouts** render as a **place×phase grid** with an
+**edit/view toggle** (`PayoutsTab` in `src/LeagueView.jsx`), mirroring
+Settings' `EditableCard` pattern. Card header carries [Edit] in view
+mode; [Cancel] [Save] in edit mode. Save commits a draft to
+`onUpdateLeague`; Cancel discards.
 
-> **List vs. grid is undecided.** The current build is the list. A
-> grid version (rows = places, two columns = Regular Season / Playoffs,
-> each cell = dollar input, +Add Place extends rows) was prototyped
-> and rolled back in favor of the list because the place-picker
-> ergonomics were unclear. Either view is a pure presentation flip of
-> the same `{place, phase, amount}` data — no data migration needed
-> to switch.
+*View mode (default):*
+- Rows = only places with **at least one** payout (regular OR
+  playoffs). The all-12-rows-of-dashes version is too noisy.
+- Friendly place labels in the row column: `"Champion (1st)"`, `"2nd"`,
+  `"Last Place (Nth)"`.
+- Columns = Regular Season, Playoffs. Each cell renders the saved
+  amount as colored text (green positive, red negative) or `"—"` for
+  no stored line.
+- Read-only: no inputs, no dropdowns, no × buttons. This is also the
+  future end-user read-only view.
+
+*Edit mode (click Edit):*
+- Same grid; cells become amount inputs in place (not a modal).
+- Phase stays as the column header — there's **no per-row phase
+  dropdown** because the column already encodes the phase.
+- Row × button removes the row (clears both phase lines).
+- A `+ Add place…` `<select>` below the grid lets the commissioner
+  pick which place to add. Options are **plain ordinals** (`1st`,
+  `2nd`, …, `12th`), excluding places already shown — explicitly
+  *not* friendly labels like "Champion" or "Last Place" because you
+  pick a number, not a label. Supports non-contiguous layouts: add
+  place 12 for a last-place penalty without first adding 4–11.
+- A session-added row with no data vanishes on Cancel or Save (data
+  drives view-mode visibility).
+
+This pattern supersedes the earlier standalone grid (cells live on
+all-12-rows) and standalone list (one-row-per-line with phase
+dropdowns) — they were the same data in two presentation states; this
+is the resolved combined form. Underlying data model is still
+`{place, phase, amount}` lines with no `_state` field, so the
+edit/view distinction is purely in `PayoutsTab` rendering.
+
+The Other Payouts section and the optional `payoutNote` follow the
+same draft pattern: editable inputs in edit mode, plain text in view
+mode (and hidden entirely in view mode if empty). The Payments column
+(right side of the Payouts tab) is unrelated to the draft — it
+always reads from `league.buyIn` so the Mark Paid buttons don't shift
+mid-edit.
 
 **Place labels** are dynamic via `placeLabel(place, teamCount)`:
 place 1 → `"Champion (1st)"`, place `teamCount` → `"Last Place (Nth)"`,
 everything in between is just the ordinal (`"4th"`, `"5th"`, …).
-Ordinal handles the 11th/12th/13th English exceptions. The place
-dropdown enumerates 1..`teamCount` (or 1..20 fallback when teamCount
-is unknown).
+Ordinal handles the 11th/12th/13th English exceptions. Friendly
+labels are used **only in display** (row labels in view mode, row
+labels in edit mode). The Add Place dropdown uses plain ordinals.
 
 **Other Payouts** is the escape hatch: free-text label + dollar
 amount, for prizes that don't map cleanly to place×phase (weekly
