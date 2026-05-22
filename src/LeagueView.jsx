@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
@@ -9,18 +10,19 @@ import { startNewSeason } from './lib/season.js';
 
 // League Detail — shell + PayoutsTab + SettingsTab
 
-function TabBar({ tabs, active, onChange, accentColor, isDark }) {
+function TabBar({ tabs, active, basePath, accentColor, isDark }) {
   const t = makeTheme(isDark);
   return (
     <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${t.border}`, marginBottom: 0 }}>
       {tabs.map(tab => (
-        <button key={tab.id} onClick={() => onChange(tab.id)} style={{
+        <Link key={tab.id} to={`${basePath}/${tab.id}`} style={{
           background: 'none', border: 'none', cursor: 'pointer',
           padding: '9px 16px', fontSize: '12px', fontWeight: 600,
           color: active === tab.id ? accentColor : t.textMuted,
           borderBottom: active === tab.id ? `2px solid ${accentColor}` : '2px solid transparent',
           marginBottom: -1, transition: 'all 0.15s', letterSpacing: '0.01em',
           display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
+          textDecoration: 'none',
         }}>
           {tab.label}
           {tab.badge != null && (
@@ -31,7 +33,7 @@ function TabBar({ tabs, active, onChange, accentColor, isDark }) {
               padding: '1px 6px', minWidth: 18, textAlign: 'center',
             }}>{tab.badge}</span>
           )}
-        </button>
+        </Link>
       ))}
     </div>
   );
@@ -531,27 +533,18 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
   );
 }
 
-function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
+function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const t = makeTheme(isDark);
+  const navigate = useNavigate();
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const accentColor = sport.color;
-  const [tab, setTab] = React.useState('overview');
-  const [currentLeague, setCurrentLeague] = React.useState(league);
-  const stats = getLeagueStats(currentLeague);
-  const totalTeams = currentLeague.teamCount || currentLeague.teams.length;
-
-  // Keep local state in sync when the parent passes a refreshed copy
-  // (e.g. after persisting to localStorage and re-selecting).
-  React.useEffect(() => { setCurrentLeague(league); }, [league.id]);
-
-  function handleUpdateLeague(updated) {
-    setCurrentLeague(updated);
-    if (onUpdateLeague) onUpdateLeague(updated);
-  }
+  const stats = getLeagueStats(league);
+  const totalTeams = league.teamCount || league.teams.length;
+  const basePath = `/league/${league.id}`;
 
   const tabs = [
     { id: 'overview', label: 'Overview', badge: `${stats.withKeepers}/${totalTeams}` },
-    ...(currentLeague.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
+    ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
     { id: 'players', label: 'Players' },
     { id: 'payouts', label: 'Payouts & Pay' },
     { id: 'settings', label: 'Settings' },
@@ -559,19 +552,19 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 24px 40px' }}>
-      <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, padding: '0 0 10px', letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>
+      <Link to="/" style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, padding: '0 0 10px', letterSpacing: '0.02em', whiteSpace: 'nowrap', textDecoration: 'none' }}>
         ← All Leagues
-      </button>
+      </Link>
 
       {/* Season-complete banner — prompts the commissioner to roll forward */}
-      {currentLeague.status === 'completed' && (
+      {league.status === 'completed' && (
         <div style={{ background: 'linear-gradient(135deg, rgba(59,138,230,0.18), rgba(107,77,230,0.12))', border: `1px solid ${accentColor}55`, borderRadius: 10, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 22 }}>🔄</span>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {currentLeague.season} season is complete</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {league.season} season is complete</div>
             <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Roll the league forward to set up next season's keepers.</div>
           </div>
-          <button onClick={() => setTab('settings')} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+          <button onClick={() => navigate(`${basePath}/settings`)} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
             Go to Settings
           </button>
         </div>
@@ -587,19 +580,19 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0, overflow: 'hidden',
             }}>
-              <SportLogo sport={currentLeague.sport} height={32} />
+              <SportLogo sport={league.sport} height={32} />
             </div>
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{currentLeague.name}</h1>
-            <SportBadge sport={currentLeague.sport} />
-            <DraftBadge draftType={currentLeague.draftType} />
-            <StatusPill status={currentLeague.status} />
+            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{league.name}</h1>
+            <SportBadge sport={league.sport} />
+            <DraftBadge draftType={league.draftType} />
+            <StatusPill status={league.status} />
           </div>
           <div style={{ display: 'flex', gap: 22, alignItems: 'center', textAlign: 'center' }}>
             {[
               { label: 'Teams', value: totalTeams },
               { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? '#6dd4a8' : undefined },
               { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? '#e8832a' : '#6dd4a8' },
-              { label: currentLeague.draftType === 'snake' ? 'Expiring' : 'Pool', value: currentLeague.draftType === 'snake' ? (stats.expiring || '—') : `$${currentLeague.totalPool.toLocaleString()}`, accent: currentLeague.draftType === 'snake' && stats.expiring > 0 ? '#e85252' : undefined },
+              { label: league.draftType === 'snake' ? 'Expiring' : 'Pool', value: league.draftType === 'snake' ? (stats.expiring || '—') : `$${league.totalPool.toLocaleString()}`, accent: league.draftType === 'snake' && stats.expiring > 0 ? '#e85252' : undefined },
             ].map(s => (
               <div key={s.label}>
                 <div style={{ fontSize: '9px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
@@ -609,15 +602,15 @@ function LeagueView({ league, onBack, isDark, onUpdateLeague }) {
           </div>
         </div>
         <div style={{ borderTop: `1px solid ${t.divider}`, padding: '0 20px' }}>
-          <TabBar tabs={tabs} active={tab} onChange={setTab} accentColor={accentColor} isDark={isDark} />
+          <TabBar tabs={tabs} active={activeTab} basePath={basePath} accentColor={accentColor} isDark={isDark} />
         </div>
       </div>
 
-      {tab === 'overview' && <OverviewTab league={currentLeague} accentColor={accentColor} isDark={isDark} onGoToTab={setTab} onUpdateLeague={handleUpdateLeague} />}
-      {tab === 'lottery' && currentLeague.draftType === 'snake' && <LotteryTab league={currentLeague} accentColor={accentColor} isDark={isDark} onUpdateLeague={handleUpdateLeague} />}
-      {tab === 'players' && <PlayersTab league={currentLeague} isDark={isDark} accentColor={accentColor} onUpdateLeague={handleUpdateLeague} />}
-      {tab === 'payouts' && <PayoutsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
-      {tab === 'settings' && <SettingsTab league={currentLeague} isDark={isDark} onUpdateLeague={handleUpdateLeague} accentColor={accentColor} />}
+      {activeTab === 'overview' && <OverviewTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
+      {activeTab === 'lottery' && league.draftType === 'snake' && <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
+      {activeTab === 'players' && <PlayersTab league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />}
+      {activeTab === 'payouts' && <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />}
+      {activeTab === 'settings' && <SettingsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />}
     </div>
   );
 }

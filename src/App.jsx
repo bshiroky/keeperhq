@@ -1,4 +1,5 @@
 import React from 'react';
+import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate } from 'react-router-dom';
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
@@ -71,9 +72,71 @@ function loadLeagues() {
   return APP_DATA.leagues;
 }
 
+function PageTitleBar({ leagues, isDark, textPrimary, textSecondary, headerBorder }) {
+  const location = useLocation();
+  const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
+  const league = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
+
+  return (
+    <div style={{ background: isDark ? '#111520' : '#e8edf5', borderBottom: `1px solid ${headerBorder}`, padding: '8px 24px' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        {!league && (
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+            <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: textPrimary, letterSpacing: '-0.01em' }}>My Leagues</h2>
+            <p style={{ margin: 0, fontSize: '12px', color: textSecondary }}>Overview of all your keeper leagues</p>
+          </div>
+        )}
+        {league && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+            <Link to="/" style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSecondary, fontSize: '12px', fontWeight: 600, padding: 0, textDecoration: 'none' }}>Leagues</Link>
+            <span style={{ color: textSecondary, fontSize: '12px' }}>/</span>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: textPrimary }}>{league.name}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HomeRoute({ leagues, isDark }) {
+  const navigate = useNavigate();
+  return (
+    <HomeView
+      leagues={leagues}
+      onSelectLeague={league => navigate(`/league/${league.id}`)}
+      onAddLeague={() => alert('Add League flow coming soon!')}
+      isDark={isDark}
+    />
+  );
+}
+
+const VALID_TABS = ['overview', 'lottery', 'players', 'payouts', 'settings'];
+
+function LeagueRoute({ leagues, isDark, onUpdateLeague }) {
+  const { leagueId, tab } = useParams();
+  const league = leagues.find(l => l.id === leagueId);
+
+  if (!league) return <Navigate to="/" replace />;
+  if (!tab) return <Navigate to="overview" replace />;
+  if (!VALID_TABS.includes(tab)) return <Navigate to={`/league/${leagueId}/overview`} replace />;
+  if (tab === 'lottery' && league.draftType !== 'snake') {
+    return <Navigate to={`/league/${leagueId}/overview`} replace />;
+  }
+
+  return (
+    <LeagueView
+      league={league}
+      isDark={isDark}
+      onUpdateLeague={onUpdateLeague}
+      activeTab={tab}
+    />
+  );
+}
+
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [leagues, setLeagues] = React.useState(loadLeagues);
+  const navigate = useNavigate();
 
   React.useEffect(() => {
     try {
@@ -82,8 +145,6 @@ function App() {
       console.warn('[KeeperHQ] Failed to persist leagues to localStorage:', e);
     }
   }, [leagues]);
-  const [selectedLeague, setSelectedLeague] = React.useState(null);
-  const [view, setView] = React.useState('home'); // 'home' | 'league'
 
   const theme = tweaks.theme || 'light';
   const isDark = theme === 'dark';
@@ -94,31 +155,15 @@ function App() {
   const textPrimary = isDark ? '#e8ecf4' : '#1a1f2e';
   const textSecondary = isDark ? '#6b7489' : '#6b7489';
 
-  function handleSelectLeague(league) {
-    setSelectedLeague(league);
-    setView('league');
-  }
-
-  function handleBack() {
-    setView('home');
-    setSelectedLeague(null);
-  }
-
-  function handleAddLeague() {
-    alert('Add League flow coming soon!');
-  }
-
   function handleUpdateLeague(updated) {
     setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
-    setSelectedLeague(updated);
   }
 
   function handleResetData() {
     if (confirm('Reset all league data back to the demo defaults? This clears anything you\'ve changed.')) {
       localStorage.removeItem(STORAGE_KEY);
       setLeagues(APP_DATA.leagues);
-      setSelectedLeague(null);
-      setView('home');
+      navigate('/');
     }
   }
 
@@ -134,9 +179,9 @@ function App() {
         backdropFilter: 'blur(12px)',
       }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
-          <button
-            onClick={handleBack}
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit' }}
+          <Link
+            to="/"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit', textDecoration: 'none' }}
             title="Home"
           >
             <img className="kh-nav-icon" src="/keeper-hq-logo.png" alt="KeeperHQ" height={32}
@@ -147,7 +192,7 @@ function App() {
             }}>
               KEEPER<span style={{ color: '#3ca96b', marginLeft: 4 }}>HQ</span>
             </span>
-          </button>
+          </Link>
 
           <AccountMenu isDark={isDark} />
         </div>
@@ -159,43 +204,22 @@ function App() {
         `}</style>
       </header>
 
-      {/* Page title bar */}
-      <div style={{ background: isDark ? '#111520' : '#e8edf5', borderBottom: `1px solid ${headerBorder}`, padding: '8px 24px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          {view === 'home' && (
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-              <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: textPrimary, letterSpacing: '-0.01em' }}>My Leagues</h2>
-              <p style={{ margin: 0, fontSize: '12px', color: textSecondary }}>Overview of all your keeper leagues</p>
-            </div>
-          )}
-          {view === 'league' && selectedLeague && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-              <button onClick={handleBack} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSecondary, fontSize: '12px', fontWeight: 600, padding: 0 }}>Leagues</button>
-              <span style={{ color: textSecondary, fontSize: '12px' }}>/</span>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: textPrimary }}>{selectedLeague.name}</span>
-            </div>
-          )}
-        </div>
-      </div>
+      <PageTitleBar
+        leagues={leagues}
+        isDark={isDark}
+        textPrimary={textPrimary}
+        textSecondary={textSecondary}
+        headerBorder={headerBorder}
+      />
 
       {/* Main content */}
       <main style={{ padding: '16px 0 40px' }}>
-        {view === 'home' && (
-          <HomeView
-            leagues={leagues}
-            onSelectLeague={handleSelectLeague}
-            onAddLeague={handleAddLeague}
-            isDark={isDark}
-          />
-        )}
-        {view === 'league' && selectedLeague && (
-          <LeagueView
-            league={selectedLeague}
-            onBack={handleBack}
-            isDark={isDark}
-            onUpdateLeague={handleUpdateLeague}
-          />
-        )}
+        <Routes>
+          <Route path="/" element={<HomeRoute leagues={leagues} isDark={isDark} />} />
+          <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
+          <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
       {/* Tweaks Panel */}
