@@ -158,6 +158,63 @@ introduced.
 - The home/breadcrumb/`← All Leagues` button and the logo wordmark
   are all `<Link to="/">`.
 
+## Payouts model
+
+`league.payouts` is an **object** with two arrays:
+
+```js
+payouts: {
+  standings: [{ place: number, phase: 'regular' | 'playoffs', amount: number }, ...],
+  other:     [{ label: string, amount: number }, ...],
+},
+payoutNote: string,
+```
+
+**Standings Payouts** render as a grid (`PayoutsTab` in
+`src/LeagueView.jsx`): rows are places, columns are Regular Season
+and Playoffs. Each cell is a dollar input. An **empty cell stores no
+line**; typing a number creates or updates a `{place, phase, amount}`
+line; clearing the cell deletes the line. The grid is a rendering of
+the sparse structured data — there's no "type" discriminator on rows.
+
+**Visible places:** union of `{1, 2, 3}` defaults ∪ any place with a
+stored line ∪ session-only "+ Add Place" rows. The Add button picks
+the lowest unshown place up to `teamCount` (or 20 if teamCount is
+unknown). Session-added rows that get no data disappear on refresh.
+Rows with data persist (data drives visibility).
+
+**Place labels** are dynamic via `placeLabel(place, teamCount)`:
+place 1 → `"Champion (1st)"`, place `teamCount` → `"Last Place (Nth)"`,
+everything in between is just the ordinal (`"4th"`, `"5th"`, …).
+Ordinal handles the 11th/12th/13th English exceptions.
+
+**Other Payouts** is the escape hatch: free-text label + dollar
+amount, for prizes that don't map cleanly to place×phase (weekly
+high score, sweep bonus, etc.). The amount is the **total dollars
+allocated to the prize, not per-instance** — so weekly winners at
+$5/week × 18 weeks goes in as label `"Weekly high score — $5/week"`
+and amount `90`. This keeps the pool math honest.
+
+**Totals are combined:**
+- `allocated = sum(standings.amount) + sum(other.amount)`
+- `unallocated = totalPool − allocated`
+
+**Backwards compat:** none. The previous shape was `payouts: [{ label,
+amount }, ...]`. Old localStorage data won't crash — `payouts?.standings
+|| []` falls back to empty — but it will appear as no payouts until
+the user clicks "Reset to demo data" in the tweaks panel. Single-user
+local-first app; not worth a migration shim.
+
+**Demo data:**
+- `hockey-1` matches the user's real league: Reg 1st $750 / 2nd $150;
+  Playoffs 1st $450 / 2nd $300 / 3rd $150; Other line for the sweep
+  bonus rule (amount $0 — the label carries the conditional, $0 keeps
+  the math honest).
+- `basketball-1` and `football-1`: both phases pay top 3, with a
+  last-place penalty (-$50) in the regular column. Sums to $950
+  against a $1,200 pool ($250 unallocated).
+- `baseball-placeholder`: `{ standings: [], other: [] }`.
+
 ## Critical decisions made
 
 1. **Local-first by design (for now).** Backend deferred. README is honest:

@@ -39,18 +39,40 @@ function TabBar({ tabs, active, basePath, accentColor, isDark }) {
   );
 }
 
+function ordinal(n) {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
+function placeLabel(place, teamCount) {
+  const ord = ordinal(place);
+  if (place === 1) return `Champion (${ord})`;
+  if (teamCount && place === teamCount) return `Last Place (${ord})`;
+  return ord;
+}
+
 function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
   const buyIn = league.buyIn || 0;
-  const payouts = league.payouts || [];
+  const standings = league.payouts?.standings || [];
+  const other = league.payouts?.other || [];
   const totalPool = buyIn * teamCount;
-  const allocated = payouts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const sumStandings = standings.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const sumOther = other.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const allocated = sumStandings + sumOther;
   const remaining = totalPool - allocated;
   const paid = teams.filter(tm => tm.paid).length;
   const collected = paid * buyIn;
   const [expandedTeam, setExpandedTeam] = React.useState(null);
+  const [extraRows, setExtraRows] = React.useState([]); // session-only extra place rows
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const fmtDate = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
 
@@ -74,26 +96,77 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
       updateTeam(team.id, { paid: false, paidDate: null, paidNote: null });
     } else {
       updateTeam(team.id, { paid: true, paidDate: team.paidDate || todayStr() });
-      setExpandedTeam(team.id); // open the editor so user can add note/edit date
+      setExpandedTeam(team.id);
     }
   }
   function setBuyIn(v) {
     const next = Number(v) || 0;
     onUpdateLeague({ ...league, buyIn: next, totalPool: next * teamCount });
   }
-  function updatePayout(idx, patch) {
-    const next = payouts.map((p, i) => i === idx ? { ...p, ...patch } : p);
-    onUpdateLeague({ ...league, payouts: next });
+  function setStandingsCell(place, phase, raw) {
+    const idx = standings.findIndex(p => p.place === place && p.phase === phase);
+    let next = standings.slice();
+    if (raw === '' || raw == null) {
+      if (idx >= 0) next.splice(idx, 1);
+    } else {
+      const amount = Number(raw);
+      if (Number.isNaN(amount)) return;
+      if (idx >= 0) next[idx] = { ...next[idx], amount };
+      else next.push({ place, phase, amount });
+    }
+    onUpdateLeague({ ...league, payouts: { standings: next, other } });
   }
-  function addPayout() {
-    onUpdateLeague({ ...league, payouts: [...payouts, { label: '', amount: 0 }] });
+  function updateOther(idx, patch) {
+    const next = other.map((p, i) => i === idx ? { ...p, ...patch } : p);
+    onUpdateLeague({ ...league, payouts: { standings, other: next } });
   }
-  function removePayout(idx) {
-    onUpdateLeague({ ...league, payouts: payouts.filter((_, i) => i !== idx) });
+  function addOther() {
+    onUpdateLeague({ ...league, payouts: { standings, other: [...other, { label: '', amount: 0 }] } });
+  }
+  function removeOther(idx) {
+    onUpdateLeague({ ...league, payouts: { standings, other: other.filter((_, i) => i !== idx) } });
   }
   function setPayoutNote(v) {
     onUpdateLeague({ ...league, payoutNote: v });
   }
+
+  // Visible places: top 3 by default, plus any place with data, plus session-only "+ Add Place" rows.
+  // Capped at teamCount so the grid never exceeds league size; falls back to 20 when no teamCount.
+  const cap = teamCount || 20;
+  const placeSet = new Set([1, 2, 3]);
+  for (const p of standings) if (p.place <= cap) placeSet.add(p.place);
+  for (const p of extraRows) if (p <= cap) placeSet.add(p);
+  const visiblePlaces = [...placeSet].sort((a, b) => a - b);
+  const nextPlace = (() => {
+    for (let p = 1; p <= cap; p++) if (!placeSet.has(p)) return p;
+    return null;
+  })();
+
+  function cellAmount(place, phase) {
+    const row = standings.find(p => p.place === place && p.phase === phase);
+    return row ? row.amount : null;
+  }
+
+  function amountColor(v) {
+    if (v == null || v === 0) return t.textPrimary;
+    return v < 0 ? '#e85252' : '#6dd4a8';
+  }
+
+  function renderCell(place, phase) {
+    const v = cellAmount(place, phase);
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
+        <input type="number" value={v ?? ''}
+          onChange={e => setStandingsCell(place, phase, e.target.value)}
+          placeholder="—"
+          style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: v != null && v !== 0 ? 700 : 500, color: amountColor(v) }} />
+      </div>
+    );
+  }
+
+  const sectionHeading = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textSecondary };
+  const columnHeader = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textMuted, textAlign: 'right' };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -114,28 +187,58 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
           × {teamCount} teams = <span style={{ color: t.textSecondary, fontWeight: 700 }}>${totalPool.toLocaleString()}</span> total pool
         </div>
 
+        {/* Standings Payouts grid */}
         <div style={{ padding: '0 20px' }}>
-          {payouts.length === 0 && <div style={{ color: t.textMuted, fontSize: '13px', padding: '12px 0' }}>No payouts configured yet.</div>}
-          {payouts.map((p, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < payouts.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-              <input type="text" value={p.label} onChange={e => updatePayout(i, { label: e.target.value })} placeholder="e.g. 1st Place"
+          <div style={{ ...sectionHeading, padding: '8px 0 6px' }}>Standings Payouts</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 110px', columnGap: 8, rowGap: 6, alignItems: 'center' }}>
+            <span />
+            <span style={columnHeader}>Regular Season</span>
+            <span style={columnHeader}>Playoffs</span>
+            {visiblePlaces.map(place => (
+              <React.Fragment key={place}>
+                <span style={{ fontSize: 13, color: t.textBody }}>{placeLabel(place, teamCount)}</span>
+                <div style={{ justifySelf: 'end' }}>{renderCell(place, 'regular')}</div>
+                <div style={{ justifySelf: 'end' }}>{renderCell(place, 'playoffs')}</div>
+              </React.Fragment>
+            ))}
+          </div>
+          <div style={{ padding: '10px 0 14px' }}>
+            <button onClick={() => nextPlace != null && setExtraRows(r => [...r, nextPlace])}
+              disabled={nextPlace == null}
+              style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: nextPlace == null ? t.textMuted : accentColor, cursor: nextPlace == null ? 'default' : 'pointer', fontFamily: 'inherit', opacity: nextPlace == null ? 0.5 : 1 }}>
+              + Add Place
+            </button>
+          </div>
+        </div>
+
+        {/* Other Payouts (free-form label + amount) */}
+        <div style={{ padding: '0 20px', borderTop: `1px solid ${t.divider}` }}>
+          <div style={{ ...sectionHeading, padding: '12px 0 6px' }}>Other Payouts</div>
+          {other.length === 0 && (
+            <div style={{ color: t.textMuted, fontSize: '12px', padding: '4px 0 8px' }}>
+              For prizes that don't map to place×phase — weekly winners, sweep bonuses, etc.
+            </div>
+          )}
+          {other.map((p, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: i < other.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+              <input type="text" value={p.label} onChange={e => updateOther(i, { label: e.target.value })} placeholder="e.g. Weekly high score — $5/week"
                 style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
               <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
-              <input type="number" value={p.amount} onChange={e => updatePayout(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })}
-                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: (Number(p.amount) || 0) < 0 ? '#e85252' : '#6dd4a8' }} />
-              <button onClick={() => removePayout(i)} title="Remove payout"
+              <input type="number" value={p.amount} onChange={e => updateOther(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })}
+                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: amountColor(Number(p.amount) || 0) }} />
+              <button onClick={() => removeOther(i)} title="Remove payout"
                 style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
             </div>
           ))}
-        </div>
-        <div style={{ padding: '10px 20px 14px' }}>
-          <button onClick={addPayout}
-            style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
-            + Add Payout
-          </button>
+          <div style={{ padding: '8px 0 14px' }}>
+            <button onClick={addOther}
+              style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+              + Add Other Payout
+            </button>
+          </div>
         </div>
 
-        <div style={{ padding: '0 20px 14px' }}>
+        <div style={{ padding: '0 20px 14px', borderTop: `1px solid ${t.divider}`, paddingTop: 12 }}>
           <input type="text" value={league.payoutNote || ''} onChange={e => setPayoutNote(e.target.value)}
             placeholder="Optional note about the payout structure…"
             style={{ ...fieldStyle, width: '100%', boxSizing: 'border-box' }} />
