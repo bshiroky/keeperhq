@@ -170,23 +170,30 @@ payouts: {
 payoutNote: string,
 ```
 
-**Standings Payouts** render as a grid (`PayoutsTab` in
-`src/LeagueView.jsx`): rows are places, columns are Regular Season
-and Playoffs. Each cell is a dollar input. An **empty cell stores no
-line**; typing a number creates or updates a `{place, phase, amount}`
-line; clearing the cell deletes the line. The grid is a rendering of
-the sparse structured data — there's no "type" discriminator on rows.
+**Standings Payouts** render as a **list** in `PayoutsTab`
+(`src/LeagueView.jsx`): one row per stored line, with [Place dropdown]
+[Phase dropdown] [$ amount] [×]. Lines are grouped by phase for
+display — Regular Season group first, then Playoffs — each sorted by
+place. Empty phase groups hide their heading. A single `+ Add Payout`
+button below all groups appends a default `{place: 1, phase: 'regular',
+amount: 0}`; the commissioner picks place + phase from the dropdowns
+(no auto-increment of "next contiguous place" — supports
+non-contiguous layouts like 1st, 2nd, 3rd + last-place penalty).
 
-**Visible places:** union of `{1, 2, 3}` defaults ∪ any place with a
-stored line ∪ session-only "+ Add Place" rows. The Add button picks
-the lowest unshown place up to `teamCount` (or 20 if teamCount is
-unknown). Session-added rows that get no data disappear on refresh.
-Rows with data persist (data drives visibility).
+> **List vs. grid is undecided.** The current build is the list. A
+> grid version (rows = places, two columns = Regular Season / Playoffs,
+> each cell = dollar input, +Add Place extends rows) was prototyped
+> and rolled back in favor of the list because the place-picker
+> ergonomics were unclear. Either view is a pure presentation flip of
+> the same `{place, phase, amount}` data — no data migration needed
+> to switch.
 
 **Place labels** are dynamic via `placeLabel(place, teamCount)`:
 place 1 → `"Champion (1st)"`, place `teamCount` → `"Last Place (Nth)"`,
 everything in between is just the ordinal (`"4th"`, `"5th"`, …).
-Ordinal handles the 11th/12th/13th English exceptions.
+Ordinal handles the 11th/12th/13th English exceptions. The place
+dropdown enumerates 1..`teamCount` (or 1..20 fallback when teamCount
+is unknown).
 
 **Other Payouts** is the escape hatch: free-text label + dollar
 amount, for prizes that don't map cleanly to place×phase (weekly

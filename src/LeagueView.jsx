@@ -72,7 +72,6 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const paid = teams.filter(tm => tm.paid).length;
   const collected = paid * buyIn;
   const [expandedTeam, setExpandedTeam] = React.useState(null);
-  const [extraRows, setExtraRows] = React.useState([]); // session-only extra place rows
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const fmtDate = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
 
@@ -103,18 +102,15 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
     const next = Number(v) || 0;
     onUpdateLeague({ ...league, buyIn: next, totalPool: next * teamCount });
   }
-  function setStandingsCell(place, phase, raw) {
-    const idx = standings.findIndex(p => p.place === place && p.phase === phase);
-    let next = standings.slice();
-    if (raw === '' || raw == null) {
-      if (idx >= 0) next.splice(idx, 1);
-    } else {
-      const amount = Number(raw);
-      if (Number.isNaN(amount)) return;
-      if (idx >= 0) next[idx] = { ...next[idx], amount };
-      else next.push({ place, phase, amount });
-    }
+  function setStandingsLine(idx, patch) {
+    const next = standings.map((p, i) => i === idx ? { ...p, ...patch } : p);
     onUpdateLeague({ ...league, payouts: { standings: next, other } });
+  }
+  function addStandingsLine() {
+    onUpdateLeague({ ...league, payouts: { standings: [...standings, { place: 1, phase: 'regular', amount: 0 }], other } });
+  }
+  function removeStandingsLine(idx) {
+    onUpdateLeague({ ...league, payouts: { standings: standings.filter((_, i) => i !== idx), other } });
   }
   function updateOther(idx, patch) {
     const next = other.map((p, i) => i === idx ? { ...p, ...patch } : p);
@@ -130,43 +126,55 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
     onUpdateLeague({ ...league, payoutNote: v });
   }
 
-  // Visible places: top 3 by default, plus any place with data, plus session-only "+ Add Place" rows.
-  // Capped at teamCount so the grid never exceeds league size; falls back to 20 when no teamCount.
-  const cap = teamCount || 20;
-  const placeSet = new Set([1, 2, 3]);
-  for (const p of standings) if (p.place <= cap) placeSet.add(p.place);
-  for (const p of extraRows) if (p <= cap) placeSet.add(p);
-  const visiblePlaces = [...placeSet].sort((a, b) => a - b);
-  const nextPlace = (() => {
-    for (let p = 1; p <= cap; p++) if (!placeSet.has(p)) return p;
-    return null;
-  })();
-
-  function cellAmount(place, phase) {
-    const row = standings.find(p => p.place === place && p.phase === phase);
-    return row ? row.amount : null;
-  }
-
   function amountColor(v) {
-    if (v == null || v === 0) return t.textPrimary;
-    return v < 0 ? '#e85252' : '#6dd4a8';
+    const n = Number(v) || 0;
+    if (n === 0) return t.textPrimary;
+    return n < 0 ? '#e85252' : '#6dd4a8';
   }
 
-  function renderCell(place, phase) {
-    const v = cellAmount(place, phase);
+  // Group standings by phase for display, preserving each line's original
+  // index in the array so updates/removes target the right row.
+  const placeCap = teamCount || 20;
+  const placeOptions = Array.from({ length: placeCap }, (_, i) => i + 1);
+  const groupedStandings = { regular: [], playoffs: [] };
+  standings.forEach((p, idx) => {
+    if (groupedStandings[p.phase]) groupedStandings[p.phase].push({ ...p, _idx: idx });
+  });
+  groupedStandings.regular.sort((a, b) => a.place - b.place);
+  groupedStandings.playoffs.sort((a, b) => a.place - b.place);
+
+  const sectionHeading = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textSecondary };
+  const selectStyle = { ...fieldStyle, cursor: 'pointer', padding: '5px 6px' };
+
+  function renderStandingsLine(p) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
-        <input type="number" value={v ?? ''}
-          onChange={e => setStandingsCell(place, phase, e.target.value)}
-          placeholder="—"
-          style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: v != null && v !== 0 ? 700 : 500, color: amountColor(v) }} />
+      <div key={p._idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
+        <select value={p.place} onChange={e => setStandingsLine(p._idx, { place: Number(e.target.value) })}
+          style={{ ...selectStyle, flex: 1, minWidth: 0 }}>
+          {placeOptions.map(n => (
+            <option key={n} value={n}>{placeLabel(n, teamCount)}</option>
+          ))}
+        </select>
+        <select value={p.phase} onChange={e => setStandingsLine(p._idx, { phase: e.target.value })}
+          style={{ ...selectStyle, width: 128 }}>
+          <option value="regular">Regular Season</option>
+          <option value="playoffs">Playoffs</option>
+        </select>
+        <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
+        <input type="number" value={p.amount}
+          onChange={e => {
+            const raw = e.target.value;
+            if (raw === '') { setStandingsLine(p._idx, { amount: 0 }); return; }
+            const n = Number(raw);
+            if (Number.isNaN(n)) return;
+            setStandingsLine(p._idx, { amount: n });
+          }}
+          style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: amountColor(p.amount) }} />
+        <button onClick={() => removeStandingsLine(p._idx)} title="Remove payout"
+          style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
       </div>
     );
   }
-
-  const sectionHeading = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textSecondary };
-  const columnHeader = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textMuted, textAlign: 'right' };
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
@@ -187,26 +195,29 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
           × {teamCount} teams = <span style={{ color: t.textSecondary, fontWeight: 700 }}>${totalPool.toLocaleString()}</span> total pool
         </div>
 
-        {/* Standings Payouts grid */}
+        {/* Standings Payouts — list grouped by phase */}
         <div style={{ padding: '0 20px' }}>
-          <div style={{ ...sectionHeading, padding: '8px 0 6px' }}>Standings Payouts</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 110px', columnGap: 8, rowGap: 6, alignItems: 'center' }}>
-            <span />
-            <span style={columnHeader}>Regular Season</span>
-            <span style={columnHeader}>Playoffs</span>
-            {visiblePlaces.map(place => (
-              <React.Fragment key={place}>
-                <span style={{ fontSize: 13, color: t.textBody }}>{placeLabel(place, teamCount)}</span>
-                <div style={{ justifySelf: 'end' }}>{renderCell(place, 'regular')}</div>
-                <div style={{ justifySelf: 'end' }}>{renderCell(place, 'playoffs')}</div>
-              </React.Fragment>
-            ))}
-          </div>
+          {standings.length === 0 && (
+            <div style={{ color: t.textMuted, fontSize: '12px', padding: '10px 0 4px' }}>
+              No standings payouts yet — click + Add Payout to add one.
+            </div>
+          )}
+          {groupedStandings.regular.length > 0 && (
+            <>
+              <div style={{ ...sectionHeading, padding: '8px 0 4px' }}>Regular Season</div>
+              {groupedStandings.regular.map(renderStandingsLine)}
+            </>
+          )}
+          {groupedStandings.playoffs.length > 0 && (
+            <>
+              <div style={{ ...sectionHeading, padding: '10px 0 4px' }}>Playoffs</div>
+              {groupedStandings.playoffs.map(renderStandingsLine)}
+            </>
+          )}
           <div style={{ padding: '10px 0 14px' }}>
-            <button onClick={() => nextPlace != null && setExtraRows(r => [...r, nextPlace])}
-              disabled={nextPlace == null}
-              style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: nextPlace == null ? t.textMuted : accentColor, cursor: nextPlace == null ? 'default' : 'pointer', fontFamily: 'inherit', opacity: nextPlace == null ? 0.5 : 1 }}>
-              + Add Place
+            <button onClick={addStandingsLine}
+              style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+              + Add Payout
             </button>
           </div>
         </div>
@@ -224,7 +235,14 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
               <input type="text" value={p.label} onChange={e => updateOther(i, { label: e.target.value })} placeholder="e.g. Weekly high score — $5/week"
                 style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
               <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
-              <input type="number" value={p.amount} onChange={e => updateOther(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })}
+              <input type="number" value={p.amount}
+                onChange={e => {
+                  const raw = e.target.value;
+                  if (raw === '') { updateOther(i, { amount: 0 }); return; }
+                  const n = Number(raw);
+                  if (Number.isNaN(n)) return;
+                  updateOther(i, { amount: n });
+                }}
                 style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: amountColor(Number(p.amount) || 0) }} />
               <button onClick={() => removeOther(i)} title="Remove payout"
                 style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
