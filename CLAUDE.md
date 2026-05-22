@@ -115,6 +115,49 @@ static JSON at `public/players-nhl.json`, generated at build time by
 `scripts/fetch-players-nhl.mjs`. No backend, no auth, no DB. Single-user,
 single-device by design (see "Backend deferred" below).
 
+## Routing
+
+Real client-side routing via `react-router-dom` (v7), wired in
+`src/main.jsx` (`<BrowserRouter>`) and `src/App.jsx` (`<Routes>`).
+Vercel's `vite` framework preset already serves `index.html` for
+unmatched paths, so refresh on any deep URL works out of the box —
+no extra rewrite rule needed.
+
+**Route table:**
+
+| Path | Behavior |
+|---|---|
+| `/` | `HomeView` — My Leagues |
+| `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
+| `/league/:leagueId/overview` | `LeagueView` w/ overview tab |
+| `/league/:leagueId/lottery` | `LeagueView` w/ lottery tab — **snake-draft only**; on auction leagues redirects to overview |
+| `/league/:leagueId/players` | `LeagueView` w/ players tab |
+| `/league/:leagueId/payouts` | `LeagueView` w/ payouts tab |
+| `/league/:leagueId/settings` | `LeagueView` w/ settings tab |
+| `/league/<unknown-id>/...` | redirect to `/` |
+| `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
+| any other path | redirect to `/` |
+
+`:leagueId` is the existing stable `league.id` slug in `src/data.js`
+(`hockey-1`, `basketball-1`, etc.) — no separate routing key was
+introduced.
+
+**Wiring:**
+
+- `App.jsx` holds `leagues` state + the `<Routes>` tree. Two thin
+  wrappers — `HomeRoute` and `LeagueRoute` — do the URL-param lookup
+  and validity-gating before rendering the view components.
+- `LeagueView` is fully props-driven now: it takes `activeTab` from
+  the parent route instead of holding tab state itself. The
+  per-route refresh that used to require a `useEffect` syncing
+  `currentLeague ↔ league` is gone — the leagues array lives in
+  `App.jsx` and the matching league is looked up fresh on every
+  render by id.
+- `TabBar` items are `<Link>`s built from a `basePath` prop, so
+  back/forward and right-click-copy-link both work.
+- The home/breadcrumb/`← All Leagues` button and the logo wordmark
+  are all `<Link to="/">`.
+
 ## Critical decisions made
 
 1. **Local-first by design (for now).** Backend deferred. README is honest:
@@ -383,6 +426,29 @@ If one of these is unavoidable, the next step is *add a token*, not
 if you grep `import.*SetupTab` — they export their components under
 different names (`SeasonSetupWizard`, `DataSourcesPanel`,
 `KeeperEditModal`) and are imported via those. They ARE wired in.
+
+## Roadmap
+
+**Commissioner-first.** The current focus is hardening the
+single-user commissioner experience — keeper management, contract
+tracking, payouts, draft setup. Routing is the first piece of
+foundation work for that (real URLs, deep linking, refresh-safe
+navigation); subsequent pieces will keep building on the
+commissioner flows.
+
+**Multi-user accounts / SSO are explicitly deferred.** No login,
+no Google SSO, no Yahoo linking yet. The trigger to revisit:
+commissioner-version flows are stable, the UI has stopped shifting,
+and there's a clear need to share state across people or devices.
+At that point: Google SSO first (lowest-friction auth), Yahoo
+linking later (it's also the in-season platform many leagues use).
+Adding either before the commissioner version stabilizes would
+mean building auth/sharing UI against a product that's still
+moving — wasted work.
+
+This means: no copy that implies multi-user, no auth scaffolding,
+no DB schema decisions, no "share this league" buttons until the
+commissioner version is locked in.
 
 ## Open items (when user wants to revisit)
 

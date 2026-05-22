@@ -454,7 +454,7 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
   );
 }
 
-function OverviewTab({ league, accentColor, isDark, onGoToTab, onUpdateLeague }) {
+function OverviewTab({ league, accentColor, isDark, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
