@@ -581,6 +581,17 @@ commissioner version is locked in.
    Supabase or Neon, behind a tiny Vercel serverless layer. We've
    discussed this — see the README and the early-conversation
    threads.
+8. **Holistic visual-hierarchy / sizing pass across all surfaces.**
+   Symptom on the Payouts panel: buy-in carries the largest type and
+   the most prominent placement, but it's the least important info
+   (set once per league). Standings payouts are the substance and
+   should carry more visual weight. Same kind of audit is owed
+   across the keeper grid, Players, and Settings — establish
+   consistent emphasis conventions for numbers vs. labels vs. inputs
+   so the eye lands on what matters on every tab. Do this as **one
+   deliberate pass across all the surfaces at once**, not per-surface,
+   so the conventions hold up. Defer until the core surfaces exist
+   and have stopped shifting structurally.
 
 ## Cleanup pending
 
