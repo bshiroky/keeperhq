@@ -613,16 +613,27 @@ If one of these is unavoidable, the next step is *add a token*, not
     the value** on line 2 (left-grouped with an 8px gap — does **not**
     push to the far cell edge in stretch mode). The tint/badge keep
     the **same footprint** as a normal cell — only color differs.
-    Auction leagues have no expiry concept.
+    The pill is wrapped in the shared `<Tooltip>` (dark bubble) that
+    explains "…final year of contract, returns to the draft after
+    this season" — the tooltip lives on the **pill specifically**,
+    not the whole cell, so it doesn't collide with the trade-badge
+    tooltip on an expiring+traded cell (two distinct small hover
+    targets, never both at once). Auction leagues have no expiry
+    concept.
   - **Trade indicator**: only the **outgoing** case shows, as a small
     swap badge (`⇄` glyph in `gridAccent`) absolutely positioned in
     the cell's **bottom-right corner** — out of flow, so it never
     competes with line 2 for width and the cell holds its footprint.
-    The badge carries a native `title`/`aria-label` of `"traded to
-    {teamName}"` for hover clarity + accessibility (the destination
-    team name is **not** rendered as inline text — an earlier `→
-    {team}` text version truncated to useless stubs like "→ The …"
-    with long names). The name + value strikethrough + mute. Long
+    The badge is wrapped in the shared `<Tooltip>` component (same
+    dark bubble as the setup-page eligible-pool chips) — hover shows
+    the **full untruncated** `"{player} · traded to {teamName}"`,
+    wrapping within the tooltip's 260px max-width. The absolute
+    corner positioning is passed via the Tooltip's `style` prop (it
+    spreads into the trigger span); an `aria-label` on the inner glyph
+    covers screen readers. NOT a native `title` (finicky delay, can't
+    style). The destination team is **not** rendered as inline text —
+    an earlier `→ {team}` text version truncated to useless stubs like
+    "→ The …" with long names. The name + value strikethrough + mute. Long
     names truncate with ellipsis on line 1; line 2 stays value (+
     Final yr) only — neither wraps, overflows, nor changes the cell's
     footprint (tested with a 30-char name + long team name in both

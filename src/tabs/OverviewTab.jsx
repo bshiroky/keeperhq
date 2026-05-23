@@ -314,12 +314,6 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       return (
                         <td key={ki} style={{ padding: '8px 10px', verticalAlign: 'middle', borderBottom: rowBorder }}>
                           {slot ? (
-                            <Tooltip
-                              isDark={isDark}
-                              style={{ display: 'block' }}
-                              content={expiring
-                                ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
-                                : null}>
                             <div className="kh-keeper-cell" style={{
                               position: 'relative',
                               width: '100%', boxSizing: 'border-box',
@@ -365,21 +359,27 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   {valueText}
                                 </span>
                                 {expiring && (
-                                  <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1, flexShrink: 0 }}>
-                                    Final yr
-                                  </span>
+                                  <Tooltip isDark={isDark} style={{ flexShrink: 0 }}
+                                    content={`${slot.player} · final year of contract, returns to the draft after this season`}>
+                                    <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1 }}>
+                                      Final yr
+                                    </span>
+                                  </Tooltip>
                                 )}
                               </div>
                               {/* Trade indicator: a small swap badge in the bottom-right
                                   corner (absolute, out of flow) so it never competes with
-                                  line 2 for width and the cell holds its footprint. Title
-                                  carries the destination team for hover/accessibility. */}
+                                  line 2 for width. Hover shows the custom dark-bubble
+                                  Tooltip with the full untruncated name + destination. */}
                               {slot.isOutgoing && (
-                                <span title={`traded to ${teamName(slot.tradedTo)}`}
-                                  aria-label={`traded to ${teamName(slot.tradedTo)}`}
-                                  style={{ position: 'absolute', bottom: 6, right: 8, fontSize: '12px', lineHeight: 1, fontWeight: 700, color: gridAccent, cursor: 'default' }}>
-                                  ⇄
-                                </span>
+                                <Tooltip isDark={isDark}
+                                  content={`${slot.player} · traded to ${teamName(slot.tradedTo)}`}
+                                  style={{ position: 'absolute', bottom: 6, right: 8 }}>
+                                  <span aria-label={`traded to ${teamName(slot.tradedTo)}`}
+                                    style={{ fontSize: '12px', lineHeight: 1, fontWeight: 700, color: gridAccent, cursor: 'default' }}>
+                                    ⇄
+                                  </span>
+                                </Tooltip>
                               )}
                               {popoverOpen && (
                                 <div style={{
@@ -411,7 +411,6 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                 </div>
                               )}
                             </div>
-                            </Tooltip>
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
                               display: 'block', width: '100%', boxSizing: 'border-box',
