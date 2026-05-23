@@ -215,12 +215,25 @@ mode (and hidden entirely in view mode if empty). The Payments column
 always reads from `league.buyIn` so the Mark Paid buttons don't shift
 mid-edit.
 
-**Place labels** are dynamic via `placeLabel(place, teamCount)`:
-place 1 → `"Champion (1st)"`, place `teamCount` → `"Last Place (Nth)"`,
-everything in between is just the ordinal (`"4th"`, `"5th"`, …).
-Ordinal handles the 11th/12th/13th English exceptions. Friendly
-labels are used **only in display** (row labels in view mode, row
-labels in edit mode). The Add Place dropdown uses plain ordinals.
+**Place labels are plain ordinals everywhere** — `"1st"`, `"2nd"`,
+… `"12th"`. No "Champion" treatment for 1st, no "Last Place" treatment
+for the bottom seat. The friendly-label concept was tried twice and
+discarded both times: making one row special read as cluttered, not
+fancy. `ordinal()` handles the 11th/12th/13th English exceptions. The
+`+ Add place…` dropdown also uses plain ordinals (you pick a number,
+not a label).
+
+**Dollar inputs step by $25.** All `<input type="number">` fields in
+the Prize Structure card (buy-in, standings cells, Other Payouts
+amount) have `step="25"` so the arrow keys / scroll wheel jump by 25
+— hits common payout amounts (150 / 300 / 450 / 750) cleanly while
+fine entry by typing remains available.
+
+**Visual treatment is intentionally plain.** No trophy icons, no
+column accent for 1st, no per-row decoration. The Payouts panel is
+read as a data table; personality on the league-detail view is
+deferred to a future holistic pass across all the tabs, not a one-off
+on this surface.
 
 **Other Payouts** is the escape hatch: free-text label + dollar
 amount, for prizes that don't map cleanly to place×phase (weekly
