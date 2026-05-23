@@ -557,43 +557,67 @@ If one of these is unavoidable, the next step is *add a token*, not
   (not the parent `<tr>`) so the translucent bg doesn't double-layer
   on the sticky Team/Edit cells.
 
+  **Row dividers** live on the `<td>` cells (`borderBottom: 1px solid
+  t.border` on every cell except the last row), **not** on the `<tr>`
+  — with `borderCollapse: separate` a `<tr>` border doesn't paint, so
+  the divider has to be per-cell.
+
+  **Grid accent is draft-type-based, not sport-based.** `gridAccent =
+  draftType === 'auction' ? tokens.warning : tokens.info` — blue
+  (`#3b8ae6`) for contract/snake, orange (`#e8832a`) for auction.
+  Drives keeper values, the empty "+ Add" cells (border + text +
+  needsMore bg tint), the Pre-Season pill, and the pencil-hover color.
+  This is independent of `SPORT_CONFIG[sport].color` (which the
+  `accentColor` prop still carries for non-grid surfaces); a snake
+  football league reads blue in the grid even though football's sport
+  color is green.
+
   **Cell design** (each keeper slot, `.kh-keeper-cell`):
-  - Each filled cell is a **bordered card** — `border: 1px solid
-    t.border`, `background: t.sectionBg`, `borderRadius:
-    tokens.radiusSm` (6), `padding: '8px 10px'`. The card visually
-    contains the name + value as one unit even in stretch mode where
-    columns are wide.
+  - Each filled cell is a **bordered card** — `width: 100%;
+    boxSizing: border-box; border: 1px solid t.border; background:
+    t.sectionBg; borderRadius: tokens.radiusSm (6); padding: '8px
+    10px'`. `width: 100%` is load-bearing: cells whose `<Tooltip>`
+    has content (the expiring ones) get wrapped in an `inline-block`
+    span, so without it the card shrink-wraps to content and renders
+    narrower than its neighbors. The Tooltip is passed `style={{
+    display: 'block' }}` for the same reason. All cells (normal,
+    expiring, outgoing) render at an identical width + height
+    footprint.
   - Empty "+ Add" slots are full-width dashed boxes matching the
-    filled-cell footprint (not small inline pills): `display: block;
-    width: 100%; minHeight: 50; padding: '12px 10px'; border: 1px
-    dashed t.border; borderRadius: tokens.radiusSm`. When the team
-    `needsMore` (under the `contractsRequired` minimum), the dashed
-    border + text take the league accent color.
+    filled-cell footprint: `display: block; width: 100%; minHeight:
+    50; padding: '12px 10px'; border: 1px dashed gridAccent;
+    borderRadius: tokens.radiusSm`. Border + text always take the
+    grid accent (blue/orange) so both league types read as themed;
+    `needsMore` (under the `contractsRequired` minimum) adds a
+    background tint.
   - Line 1: player name in bold. Truncates with ellipsis (the cell
     is narrow in scroll mode; full names show in stretch mode).
   - Line 2: a **single** value — `Y{contractYear}/{contractLength}`
     on snake/contract leagues, `${keptFor}` on auction. Never both;
     `league.draftType` (`'snake'` vs `'auction'`) is the only field
-    that distinguishes them. Auction values use the sport accent
-    color; snake values use `t.textSecondary`.
+    that distinguishes them. Value color is `gridAccent`.
   - **Expiring treatment** (snake only, when
     `contractYear >= contractLength`): the cell card's border becomes
     `t.dangerBorder` and the background becomes `t.dangerBg`, the
     name + value go `t.danger` red, and a `Final yr` pill
     (`tokens.typePillEmphatic` + `t.danger`) sits **inline next to
     the value** on line 2 (left-grouped with an 8px gap — does **not**
-    push to the far cell edge in stretch mode). Auction leagues have
-    no expiry concept.
-  - **Trade indicator**: only the **outgoing** case shows. A traded-
-    out keeper renders on its source team with line-3 `→ traded to
-    {teamName}` in `t.warning`, with the name and value on lines 1-2
-    strikethrough'd and muted. **Incoming keepers display as normal
-    keepers on the receiving team — no `← from X` indicator.**
-    Expiring and outgoing coexist on the same cell: tint + Final yr
-    pill + strikethrough + trade arrow all render at once, no
-    suppression. (Note: a `priorKeepers` trade gap is tracked as
-    open item #3 — outgoing indicators only render for entries in
-    `team.keepers`, not for ones still in `team.priorKeepers`.)
+    push to the far cell edge in stretch mode). The tint/badge keep
+    the **same footprint** as a normal cell — only color differs.
+    Auction leagues have no expiry concept.
+  - **Trade indicator**: only the **outgoing** case shows, and it's
+    **inline on line 2** (`→ {teamName}` in `t.warning`, after the
+    value/badge) so the cell stays the standard 2-line height. The
+    name + value strikethrough + mute. A traded keeper renders **only
+    on its source team** — it is intentionally NOT shown on the
+    receiving team (no incoming/`← from X` indicator, no duplicate),
+    so a team never displays more than `maxKeepers` columns.
+    `getDisplayKeepers` returns own keepers only; the slots array is
+    capped at `maxKeepers`. Expiring + outgoing coexist on one cell
+    (tint + Final yr pill + strikethrough + trade arrow all at once,
+    no suppression). (Open item #3: a keeper traded while still in
+    `priorKeepers` rather than `keepers` won't show the indicator —
+    out of scope, separate data-iteration issue.)
   - **Legend**: a small swatch + "Final year" label sits in the
     KEEPERS card header (right cluster, next to teams-started count)
     on snake leagues only — makes the pink tint self-explanatory.
@@ -604,11 +628,27 @@ If one of these is unavoidable, the next step is *add a token*, not
     popover for mid-season reassignment — feature preserved, just
     visually subtle.
   - Team-column avatar (24×24 colored initial square) has been
-    removed; just the team name + the kept-count warning subtext
-    (`needsMore` / `+N extra`).
+    removed; just the team name + the under-minimum warning subtext.
   - NHL headshots (`playerMap` from `loadPlayers('nhl')`) are still
     loaded but no longer rendered in the cell — kept wired for
     potential future use.
+
+  **"kept" vs "required" is a real per-league rule, not a bug.**
+  `league.contractsRequired: true` means every keeper slot must be
+  filled — the team subtext shows an `X/Y required` warning (orange)
+  when a team is under the max during pre-season. `contractsRequired:
+  false` means keepers are optional up to the max (a team can keep
+  fewer; no required warning). Some leagues phrase their slot counts
+  as "kept" (up-to-max, optional) and others as "required" (must fill
+  all). Don't normalize the two — the difference reflects the league
+  setting.
+
+  **Header stats** (`LeagueView` header, not the grid): `POOL` (prize
+  money) shows on **both** league types. `EXPIRING` (count of
+  contracts going back to the draft) is an **additional** stat shown
+  only on snake leagues — appended after POOL, not replacing it. So
+  contract header = TEAMS / KEEPERS / PAID / POOL / EXPIRING; auction
+  header = TEAMS / KEEPERS / PAID / POOL.
 - `src/tabs/PlayersTab.jsx` — NHL directory, search/filter/sort,
   manage modal with Add-to-roster + Make-keeper actions
 - `src/tabs/KeepersTab.jsx` — `KeeperEditModal` (used by OverviewTab

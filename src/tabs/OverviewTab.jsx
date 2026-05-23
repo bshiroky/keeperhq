@@ -72,6 +72,10 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const [playerMap, setPlayerMap] = React.useState(null); // normalized name → player record
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
+  // Grid accent is driven by draft type, not sport: contract/snake = blue,
+  // auction = orange. Used for keeper values + empty "+ Add" cells + the
+  // Pre-Season pill so both league types read as consistently themed.
+  const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
 
   // Column-width constants — Team & Edit are pinned (sticky). K columns
   // operate in one of two mutually exclusive modes:
@@ -164,23 +168,16 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
 
   function teamName(id) { return (teams.find(t => t.id === id) || {}).name || '?'; }
 
-  // Build per-team display lists: own keepers (including those traded out, marked) + acquired keepers from other teams
+  // A traded keeper is shown only on its ORIGINAL team's cell (struck-through
+  // with a "→ traded to X" line). It is intentionally NOT rendered on the
+  // receiving team — no incoming/acquired list, no duplicate, and the grid
+  // never exceeds the league's max keeper slots.
   function getDisplayKeepers(team) {
-    const own = (team.keepers || []).map((k, idx) => ({
+    return (team.keepers || []).map((k, idx) => ({
       ...k, sourceTeamId: team.id, sourceIdx: idx,
       currentlyOwnedBy: k.tradedTo || team.id,
       isOutgoing: !!k.tradedTo,
     }));
-    const acquired = [];
-    teams.forEach(other => {
-      if (other.id === team.id) return;
-      (other.keepers || []).forEach((k, idx) => {
-        if (k.tradedTo === team.id) {
-          acquired.push({ ...k, sourceTeamId: other.id, sourceIdx: idx, currentlyOwnedBy: team.id, isIncoming: true, fromTeamName: other.name });
-        }
-      });
-    });
-    return [...own, ...acquired];
   }
 
   function handleSave(updatedTeam) {
@@ -212,7 +209,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
               </span>
             )}
             <span style={{ fontSize: '12px', color: t.textMuted }}>{withKeepersCount}/{teams.length} teams started</span>
-            {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
+            {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: gridAccent, background: `${gridAccent}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
           </div>
         </div>
         <div style={{ position: 'relative' }}>
@@ -267,15 +264,15 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
             </thead>
             <tbody>
               {teams.map((team, i) => {
-                const displayKeepers = getDisplayKeepers(team);
-                // Slots are roster spots K1..maxKeepers — fill with kept-AND-here keepers (own non-traded + incoming).
-                // Outgoing keepers stay in their original slot position so user sees "→ traded to X" in place.
+                // Slots are roster spots K1..maxKeepers, capped at the league
+                // max. Each own keeper sits in its slot; traded-out keepers
+                // stay in place (struck-through, "→ traded to X"). No incoming
+                // keepers are added — a traded player shows only on its source
+                // team — so a team never displays more than maxKeepers columns.
                 const ownKeepers = team.keepers || [];
-                // Build slot array of length maxKeepers — preserve original index for own keepers
                 const slots = Array.from({ length: maxKeepers }, (_, ki) => {
                   const k = ownKeepers[ki];
                   if (k) {
-                    // It's still in this slot whether or not traded out
                     return {
                       ...k, sourceTeamId: team.id, sourceIdx: ki,
                       isOutgoing: !!k.tradedTo,
@@ -284,28 +281,18 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                   }
                   return null;
                 });
-                // Incoming keepers append into first empty slots
-                const incoming = displayKeepers.filter(k => k.isIncoming);
-                let inIdx = 0;
-                for (let s = 0; s < slots.length && inIdx < incoming.length; s++) {
-                  if (!slots[s]) { slots[s] = incoming[inIdx++]; }
-                }
-                // If still more incoming than slots — they'll need a warning row (over-capacity)
-                const overflow = incoming.slice(inIdx);
-                const activeCount = slots.filter(s => s && !s.isOutgoing).length + overflow.length;
+                const activeCount = slots.filter(s => s && !s.isOutgoing).length;
                 const requiredCount = league.contractsRequired ? maxKeepers : 0;
                 const needsMore = isPreseason && activeCount < requiredCount;
+                const rowBorder = i < teams.length - 1 ? `1px solid ${t.border}` : 'none';
                 return (
-                  <tr key={team.id}
-                    style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', verticalAlign: 'middle' }}
-                  >
+                  <tr key={team.id} style={{ verticalAlign: 'middle' }}>
                     {/* Team name — sticky pinned to left edge while K columns scroll */}
-                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, borderBottom: rowBorder, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.name}</div>
-                      {(needsMore || overflow.length > 0) && (
+                      {needsMore && (
                         <div style={{ fontSize: '10px', color: '#e8832a', marginTop: 2, fontWeight: 600 }}>
-                          {needsMore && `${activeCount}/${requiredCount} required`}
-                          {overflow.length > 0 && ` +${overflow.length} extra`}
+                          {activeCount}/{requiredCount} required
                         </div>
                       )}
                     </td>
@@ -320,17 +307,19 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       const valueColor = !slot ? null
                         : slot.isOutgoing ? t.textMuted
                         : expiring ? t.danger
-                        : (isSnake ? t.textSecondary : accentColor);
+                        : gridAccent;
                       return (
-                        <td key={ki} style={{ padding: '8px 10px', verticalAlign: 'middle' }}>
+                        <td key={ki} style={{ padding: '8px 10px', verticalAlign: 'middle', borderBottom: rowBorder }}>
                           {slot ? (
                             <Tooltip
                               isDark={isDark}
+                              style={{ display: 'block' }}
                               content={expiring
                                 ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
                                 : null}>
                             <div className="kh-keeper-cell" style={{
                               position: 'relative',
+                              width: '100%', boxSizing: 'border-box',
                               border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
                               background: expiring ? t.dangerBg : t.sectionBg,
                               borderRadius: tokens.radiusSm,
@@ -355,17 +344,20 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   onClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
                                   title="Reassign to another team (mid-season trade)"
                                   style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '11px', color: t.textMuted, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
-                                  onMouseEnter={e => { e.currentTarget.style.color = accentColor; }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = gridAccent; }}
                                   onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
                                 >✎</button>
                               </div>
-                              {/* Line 2: value + FINAL YR badge — left-grouped (stays bound to value, doesn't float to far cell edge in stretch mode) */}
+                              {/* Line 2: value + FINAL YR badge + outgoing trade indicator — all
+                                  left-grouped on one line so the cell stays the standard 2-line
+                                  height and the data stays bound to the value (no far-edge float). */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                 <span style={{
                                   fontSize: '11px',
                                   fontWeight: 700,
                                   color: valueColor,
                                   textDecoration: slot.isOutgoing ? 'line-through' : 'none',
+                                  flexShrink: 0,
                                 }}>
                                   {valueText}
                                 </span>
@@ -374,13 +366,12 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                     Final yr
                                   </span>
                                 )}
+                                {slot.isOutgoing && (
+                                  <span style={{ fontSize: '10px', color: t.warning, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    → {teamName(slot.tradedTo)}
+                                  </span>
+                                )}
                               </div>
-                              {/* Line 3 (outgoing only): traded-to indicator on its own line */}
-                              {slot.isOutgoing && (
-                                <span style={{ fontSize: '10px', color: t.warning, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                  → traded to {teamName(slot.tradedTo)}
-                                </span>
-                              )}
                               {popoverOpen && (
                                 <div style={{
                                   position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
@@ -415,16 +406,16 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
                               display: 'block', width: '100%', boxSizing: 'border-box',
-                              background: needsMore ? `${accentColor}10` : 'transparent',
-                              border: `1px dashed ${needsMore ? accentColor : t.border}`,
+                              background: needsMore ? `${gridAccent}10` : 'transparent',
+                              border: `1px dashed ${gridAccent}`,
                               borderRadius: tokens.radiusSm,
                               padding: '12px 10px', fontSize: '11px', minHeight: 50,
-                              color: needsMore ? accentColor : t.textMuted, cursor: 'pointer',
+                              color: gridAccent, cursor: 'pointer',
                               fontFamily: 'inherit', whiteSpace: 'nowrap', fontWeight: needsMore ? 600 : 400,
                               textAlign: 'center',
                             }}
-                              onMouseEnter={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.color = accentColor; }}
-                              onMouseLeave={e => { e.currentTarget.style.borderColor = needsMore ? accentColor : t.border; e.currentTarget.style.color = needsMore ? accentColor : t.textMuted; }}
+                              onMouseEnter={e => { e.currentTarget.style.background = `${gridAccent}10`; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = needsMore ? `${gridAccent}10` : 'transparent'; }}
                             >+ Add</button>
                           ) : (
                             <span style={{ fontSize: '12px', color: t.textMuted, opacity: 0.4 }}>—</span>
@@ -433,7 +424,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                       );
                     })}
                     {/* Edit button — sticky pinned to right edge while K columns scroll */}
-                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 16px 12px 12px', textAlign: 'center', width: EDIT_W, minWidth: EDIT_W, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
+                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 12px', textAlign: 'center', width: EDIT_W, minWidth: EDIT_W, borderBottom: rowBorder, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <button onClick={() => setEditingTeam({ team, autoAdd: false })} style={{
                         background: 'none', border: `1px solid ${t.border}`, borderRadius: 6,
                         padding: '4px 10px', fontSize: '11px', fontWeight: 600,
