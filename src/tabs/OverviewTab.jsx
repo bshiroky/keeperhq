@@ -73,25 +73,44 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
 
-  // Column-width constants — Team & Edit are pinned (sticky), only the K
-  // columns scroll. PAGE_COLS controls how many K columns fit per visible
-  // page; chevrons advance one page (so partial columns never linger on
-  // screen) and scroll-snap on each K column keeps drag-scrolling aligned.
+  // Column-width constants — Team & Edit are pinned (sticky). K columns
+  // operate in one of two mutually exclusive modes:
+  //   stretch (when total natural width fits the container): K columns share
+  //     the remaining space equally, no overflow, no scroll, no chevrons.
+  //   scroll (when total natural width exceeds the container): K columns
+  //     stay fixed at COL_W; the container scrolls with snap, chevrons
+  //     advance one column per click, scroll-padding-left = TEAM_W so K
+  //     columns snap flush against the post-sticky boundary.
+  // Mode is decided by measuring container width vs natural K-column width.
   const TEAM_W = 140;
   const COL_W = 180;
   const EDIT_W = 60;
-  const PAGE_COLS = 4;
-  const PAGE_W = PAGE_COLS * COL_W;
 
   const tableScrollRef = React.useRef(null);
+  const [containerW, setContainerW] = React.useState(0);
   const [scrollCanLeft, setScrollCanLeft] = React.useState(false);
   const [scrollCanRight, setScrollCanRight] = React.useState(false);
+
+  const naturalW = TEAM_W + maxKeepers * COL_W + EDIT_W;
+  const stretchMode = containerW > 0 && naturalW <= containerW;
+
+  // Largest scrollLeft that's also a valid snap point (multiple of COL_W,
+  // since K columns are placed at TEAM_W + n*COL_W and scroll-padding-left
+  // shifts the snap origin to scrollLeft = n*COL_W). Clamping chevron
+  // targets to this avoids landing between snap points at the rightmost end.
+  function maxValidSnap() {
+    const el = tableScrollRef.current;
+    if (!el) return 0;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    return Math.max(0, Math.floor(maxScroll / COL_W) * COL_W);
+  }
   React.useEffect(() => {
     function update() {
       const el = tableScrollRef.current;
       if (!el) return;
+      setContainerW(el.clientWidth);
       setScrollCanLeft(el.scrollLeft > 1);
-      setScrollCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+      setScrollCanRight(el.scrollLeft + 1 < maxValidSnap());
     }
     update();
     const el = tableScrollRef.current;
@@ -104,9 +123,14 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   function scrollTable(dir) {
     const el = tableScrollRef.current;
     if (!el) return;
-    // Snap to the nearest page boundary so we never end on a partial column.
-    const next = Math.round(el.scrollLeft / PAGE_W) + dir;
-    const target = Math.max(0, next * PAGE_W);
+    // One whole column per click. Floor-for-right / ceil-for-left so a
+    // clamped landing between snap points still steps cleanly back instead
+    // of jumping to 0.
+    const cur = el.scrollLeft;
+    const raw = dir > 0
+      ? (Math.floor(cur / COL_W) + 1) * COL_W
+      : (Math.ceil(cur / COL_W) - 1) * COL_W;
+    const target = Math.max(0, Math.min(maxValidSnap(), raw));
     el.scrollTo({ left: target, behavior: 'smooth' });
   }
 
@@ -185,6 +209,18 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           </div>
         </div>
         <div style={{ position: 'relative' }}>
+        {teams.length === 0 || maxKeepers === 0 ? (
+          <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.textSecondary, marginBottom: 4 }}>
+              {teams.length === 0 ? 'No teams yet' : 'No keeper slots configured'}
+            </div>
+            <div style={{ fontSize: 12, color: t.textMuted }}>
+              {teams.length === 0
+                ? 'Set up the season to add teams and start picking keepers.'
+                : 'Set Keeper Slots in Settings to use this grid.'}
+            </div>
+          </div>
+        ) : (<>
         {scrollCanLeft && (
           <button onClick={() => scrollTable(-1)} aria-label="Previous keepers"
             style={{ position: 'absolute', left: TEAM_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
@@ -193,13 +229,29 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           <button onClick={() => scrollTable(1)} aria-label="More keepers"
             style={{ position: 'absolute', right: EDIT_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
         )}
-        <div ref={tableScrollRef} style={{ overflowX: 'auto', scrollSnapType: 'x mandatory' }}>
-          <table style={{ width: 'max-content', borderCollapse: 'separate', borderSpacing: 0 }}>
+        <div ref={tableScrollRef} style={{
+          overflowX: stretchMode ? 'hidden' : 'auto',
+          scrollSnapType: stretchMode ? 'none' : 'x mandatory',
+          scrollPaddingLeft: stretchMode ? 0 : TEAM_W,
+        }}>
+          <table style={{
+            width: stretchMode ? '100%' : 'max-content',
+            tableLayout: stretchMode ? 'fixed' : 'auto',
+            borderCollapse: 'separate', borderSpacing: 0,
+          }}>
             <thead>
-              <tr style={{ background: t.sectionBg }}>
+              <tr>
                 <th style={{ position: 'sticky', left: 0, zIndex: 3, background: t.sectionBg, padding: '9px 16px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>Team</th>
                 {Array.from({ length: maxKeepers }, (_, i) => (
-                  <th key={i} style={{ padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted, letterSpacing: '0.05em', textTransform: 'uppercase', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap', width: COL_W, minWidth: COL_W, scrollSnapAlign: 'start' }}>
+                  <th key={i} style={{
+                    background: t.sectionBg,
+                    padding: '9px 12px', textAlign: 'left', fontSize: '11px', fontWeight: 600, color: t.textMuted,
+                    letterSpacing: '0.05em', textTransform: 'uppercase',
+                    borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap',
+                    width: stretchMode ? 'auto' : COL_W,
+                    minWidth: stretchMode ? 0 : COL_W,
+                    scrollSnapAlign: stretchMode ? 'none' : 'start',
+                  }}>
                     K{i + 1}
                   </th>
                 ))}
@@ -381,6 +433,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
             </tbody>
           </table>
         </div>
+        </>)}
         </div>
       </div>
     </>
