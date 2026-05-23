@@ -1,13 +1,39 @@
 # KeeperHQ — context for Claude
 
 A commissioner tool for fantasy keeper leagues. Web app, React + Vite,
-deployed via Vercel from `bshiroky/keeperhq`. Active development branch:
-`claude/import-claude-design-project-N35i9` (already merged into `main`
-once; keep iterating on the branch and PR/merge when ready).
+deployed via Vercel from `bshiroky/keeperhq`. Workflow now uses one
+`claude/<short-name>` branch per feature off `main` (e.g.
+`claude/keeper-grid-scroll` for the grid scroll/snap fix). PR from
+branch → user merges → start next branch off main. Don't push to
+main directly.
 
-## Resume here
+## Recent shipped work (off main)
 
-**Branch tip:** `4b519cc` (clean working tree).
+Independent of the design-system rollout snapshot below, three
+features have shipped through their own branches:
+
+- **PR #4 (merged):** Real client-side routing via `react-router-dom`
+  v7. See the **Routing** section for the route table.
+- **PR #5 (merged):** Restructured payouts to `{standings: [{place,
+  phase, amount}], other: [{label, amount}]}` with an edit/view
+  toggle on the Prize Structure card. See the **Payouts model**
+  section.
+- **`claude/keeper-grid-scroll` (in flight):** Keeper grid horizontal-
+  scroll fixes — `scroll-padding-left: TEAM_W` so snap-align works
+  with sticky columns, one-column-per-click chevron, stretch-vs-scroll
+  mode based on whether K columns fit, header-bg parity, and an
+  empty-state when there are no teams or no keeper slots. See the
+  **File map** entry for `OverviewTab.jsx`.
+
+## Resume here (design-system rollout — paused snapshot)
+
+> The section below is the snapshot from when the design-system
+> rollout was paused after HomeView. Subsequent work (above) has
+> shipped independently. The rollout has **not** been resumed in
+> session; check with the user before assuming where it stands.
+
+**Branch tip at pause:** `4b519cc` (clean working tree, before the
+routing / payouts / grid work above).
 
 **Design-system rollout, paused after HomeView.** Token vocabulary
 lives in `makeTheme` + the module-scope `tokens` constant in
@@ -507,9 +533,29 @@ If one of these is unavoidable, the next step is *add a token*, not
   keeperIdx, tradedTo*, ... }` keyed by normalized name.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
   years, drops expired, resets keepers, etc.)
-- `src/tabs/OverviewTab.jsx` — main keeper grid. Team column and Edit
-  column are **sticky**; K columns scroll with paginated chevrons.
-  Player names truncate.
+- `src/tabs/OverviewTab.jsx` — main keeper grid. Team and Edit
+  columns are **sticky** (pinned left/right). K columns operate in
+  two mutually exclusive modes chosen at runtime by comparing natural
+  table width to container width:
+  - **stretch** (`TEAM_W + maxKeepers*COL_W + EDIT_W ≤ containerW`):
+    table is `width: 100%` + `tableLayout: fixed`, K columns share
+    leftover space equally, Edit pinned flush at the end, no scroll,
+    no chevrons.
+  - **scroll** (overflows): table is `width: max-content` +
+    `tableLayout: auto`, K columns fixed at `COL_W` (180), container
+    scrolls with `scroll-snap-type: x mandatory` +
+    `scroll-padding-left: TEAM_W` so snap targets land K columns
+    flush against the post-sticky boundary. Chevrons advance exactly
+    **one column per click** (snap targets are at multiples of
+    `COL_W`); both directions clamp to `maxValidSnap()` so they
+    never leave a partial column at the edge.
+  - **empty state**: when `teams.length === 0` or `maxKeepers === 0`,
+    the table + chevrons are skipped entirely and a small message
+    renders in their place — avoids sticky-column overlap and the
+    chevron-floats-in-empty-row pitfall.
+  Header `<th>` cells each set `background: t.sectionBg` directly
+  (not the parent `<tr>`) so the translucent bg doesn't double-layer
+  on the sticky Team/Edit cells. Player names truncate.
 - `src/tabs/PlayersTab.jsx` — NHL directory, search/filter/sort,
   manage modal with Add-to-roster + Make-keeper actions
 - `src/tabs/KeepersTab.jsx` — `KeeperEditModal` (used by OverviewTab
@@ -633,11 +679,13 @@ commissioner version is locked in.
 
 ## How to push changes
 
-Standard flow this session has used:
-1. Edit files locally in the container
-2. `npm run build` to verify
-3. `git add -A && git commit -m "..."` (with a HEREDOC body)
-4. `git push -u origin claude/import-claude-design-project-N35i9`
+Standard flow:
+1. Cut a `claude/<short-name>` branch off `main` for each feature
+2. Edit files locally in the container
+3. `npm run build` to verify
+4. `git add <files> && git commit -m "..."` (with a HEREDOC body)
+5. `git push -u origin claude/<short-name>`
+6. Open a PR — user merges to `main` themselves
 
 User merges to `main` themselves when ready. They've done this once
 already (PR #1 was merged earlier). After they merge, future commits

@@ -209,6 +209,18 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           </div>
         </div>
         <div style={{ position: 'relative' }}>
+        {teams.length === 0 || maxKeepers === 0 ? (
+          <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: t.textSecondary, marginBottom: 4 }}>
+              {teams.length === 0 ? 'No teams yet' : 'No keeper slots configured'}
+            </div>
+            <div style={{ fontSize: 12, color: t.textMuted }}>
+              {teams.length === 0
+                ? 'Set up the season to add teams and start picking keepers.'
+                : 'Set Keeper Slots in Settings to use this grid.'}
+            </div>
+          </div>
+        ) : (<>
         {scrollCanLeft && (
           <button onClick={() => scrollTable(-1)} aria-label="Previous keepers"
             style={{ position: 'absolute', left: TEAM_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>‹</button>
@@ -421,6 +433,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
             </tbody>
           </table>
         </div>
+        </>)}
         </div>
       </div>
     </>
