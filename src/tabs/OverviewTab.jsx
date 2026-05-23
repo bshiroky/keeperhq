@@ -369,13 +369,18 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                     Final yr
                                   </span>
                                 )}
-                                {slot.isOutgoing && (
-                                  <span title={`traded to ${teamName(slot.tradedTo)}`}
-                                    style={{ fontSize: '10px', color: t.warning, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    → {teamName(slot.tradedTo)}
-                                  </span>
-                                )}
                               </div>
+                              {/* Trade indicator: a small swap badge in the bottom-right
+                                  corner (absolute, out of flow) so it never competes with
+                                  line 2 for width and the cell holds its footprint. Title
+                                  carries the destination team for hover/accessibility. */}
+                              {slot.isOutgoing && (
+                                <span title={`traded to ${teamName(slot.tradedTo)}`}
+                                  aria-label={`traded to ${teamName(slot.tradedTo)}`}
+                                  style={{ position: 'absolute', bottom: 6, right: 8, fontSize: '12px', lineHeight: 1, fontWeight: 700, color: gridAccent, cursor: 'default' }}>
+                                  ⇄
+                                </span>
+                              )}
                               {popoverOpen && (
                                 <div style={{
                                   position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,

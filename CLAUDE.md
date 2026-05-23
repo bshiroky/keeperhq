@@ -614,23 +614,27 @@ If one of these is unavoidable, the next step is *add a token*, not
     push to the far cell edge in stretch mode). The tint/badge keep
     the **same footprint** as a normal cell — only color differs.
     Auction leagues have no expiry concept.
-  - **Trade indicator**: only the **outgoing** case shows, and it's
-    **inline on line 2** (`→ {teamName}` in `t.warning`, after the
-    value/badge) so the cell stays the standard 2-line height. The
-    short `→ {teamName}` carries a native `title="traded to
-    {teamName}"` for hover clarity + accessibility. The name + value
-    strikethrough + mute. Long names truncate with ellipsis on line 1
-    and the trade team truncates on line 2 — neither wraps, overflows,
-    nor changes the cell's footprint (tested with a 30-char name +
-    long team name in both modes). A traded keeper renders **only
-    on its source team** — it is intentionally NOT shown on the
-    receiving team (no incoming/`← from X` indicator, no duplicate),
-    so a team never displays more than `maxKeepers` columns.
-    `getDisplayKeepers` returns own keepers only; the slots array is
-    capped at `maxKeepers`. Expiring + outgoing coexist on one cell
-    (tint + Final yr pill + strikethrough + trade arrow all at once,
-    no suppression). (Open item #3: a keeper traded while still in
-    `priorKeepers` rather than `keepers` won't show the indicator —
+  - **Trade indicator**: only the **outgoing** case shows, as a small
+    swap badge (`⇄` glyph in `gridAccent`) absolutely positioned in
+    the cell's **bottom-right corner** — out of flow, so it never
+    competes with line 2 for width and the cell holds its footprint.
+    The badge carries a native `title`/`aria-label` of `"traded to
+    {teamName}"` for hover clarity + accessibility (the destination
+    team name is **not** rendered as inline text — an earlier `→
+    {team}` text version truncated to useless stubs like "→ The …"
+    with long names). The name + value strikethrough + mute. Long
+    names truncate with ellipsis on line 1; line 2 stays value (+
+    Final yr) only — neither wraps, overflows, nor changes the cell's
+    footprint (tested with a 30-char name + long team name in both
+    modes). A traded keeper renders **only on its source team** — it
+    is intentionally NOT shown on the receiving team (no incoming/`←
+    from X` indicator, no duplicate), so a team never displays more
+    than `maxKeepers` columns. `getDisplayKeepers` returns own keepers
+    only; the slots array is capped at `maxKeepers`. Expiring +
+    outgoing coexist on one cell (tint + Final yr pill + strikethrough
+    + swap badge all at once, no suppression). (Open item #3: a keeper
+    traded while still in `priorKeepers` rather than `keepers` won't
+    show the indicator —
     out of scope, separate data-iteration issue.)
   - **Legend**: a small swatch + "Final year" label sits in the
     KEEPERS card header (right cluster, next to teams-started count)
@@ -745,6 +749,59 @@ commissioner version is locked in.
    deliberate pass across all the surfaces at once**, not per-surface,
    so the conventions hold up. Defer until the core surfaces exist
    and have stopped shifting structurally.
+9. **Off-season trade model — undecided, decide before building more
+   trade UI.** Keepers aren't locked until declared, so an off-season
+   trade really just moves a player between teams' *pools* before
+   selection — it may not belong as a grid annotation at all. Open
+   question: should trades live as **grid indicators** (the current
+   `⇄` swap-badge approach in OverviewTab), as a **transaction
+   history** (league-level and/or per-player), or **both**? Settle the
+   model before adding more trade UI. Related: the user has asked
+   about viewing previous seasons' data — likely part of the same
+   strategy discussion. Parked for a future design conversation.
+10. **Post-deadline commissioner keeper exceptions.** The commissioner
+    needs to make legitimate keeper changes *after* the keeper
+    deadline — real example: a player was kept, then injured in
+    preseason, and the league granted an exception swap. This is a
+    supported commissioner workflow to build, distinct from in-season
+    trades (which are explicitly out of scope for now).
+11. **Keeper-edit consolidation.** Two editing affordances currently
+    overlap and neither does the whole job: the **pencil** (in the
+    keeper cell) reassigns a player to another team — a trade-type
+    move — while **Edit** (the per-team button → `KeeperEditModal`)
+    adds/removes players but can't trade them. Consolidate into one
+    coherent keeper-edit flow eventually.
+12. **Auto-generated Google Sheet export (high near-term value).**
+    Annual pain: league members ask who they can keep / trade for, and
+    the commissioner currently hand-digs each person's old Yahoo
+    roster page AND old draft page (web only, not in-app) and
+    maintains a Google doc by hand. Want an auto-generated Google
+    Sheet — overall view + per-team view — that updates **one
+    persistent file in place** (does NOT spawn a new file each run),
+    to drop in the league group chat as the interim league-visibility
+    tool until a user-facing product exists. **Decision point:**
+    "update in place" likely implies a Sheets API integration, which
+    touches the no-backend constraint — flag and decide that when this
+    is built.
+13. **Off-season setup workflow (documentation of existing behavior,
+    not a new request).** The core off-season loop: the commissioner
+    uploads each team's roster by copy-pasting their Yahoo roster page
+    (`RosterImportTab` AI paste/OCR). For **auction** leagues, they
+    also paste the prior year's auction draft so dollar values attach
+    to players (`ImportTab` / `DataSourcesPanel`). The system carries
+    contracts forward and applies the defined annual `$` increase
+    (`lib/season.js` + `auctionRules.costIncreasePerYear`). This
+    individual team / setup page is the **primary work surface** and
+    is currently underdocumented — capture it properly when touched.
+14. **Draft-pick ownership / validation (deferred, captured for when
+    it returns).** In the off-season, teams trade draft picks for
+    other teams' excess keepers; the commissioner annotates this by
+    hand. Recurring headache: people try to trade picks they no longer
+    own, forcing the commissioner to pull the Yahoo draft-picks page
+    (web again) to verify. Full pick import may be overkill now, but
+    the underlying need — knowing **who owns which picks** to validate
+    trades — is real. Revisit whether importing pick ownership solves
+    it.
 
 ## Cleanup pending
 
