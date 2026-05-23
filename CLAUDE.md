@@ -537,18 +537,27 @@ If one of these is unavoidable, the next step is *add a token*, not
   columns are **sticky** (pinned left/right). K columns operate in
   two mutually exclusive modes chosen at runtime by comparing natural
   table width to container width:
+  `TEAM_W = 140`, `COL_W = 180`, `EDIT_W = 73`. The table is always
+  `tableLayout: fixed` (see the long-name note below for why).
   - **stretch** (`TEAM_W + maxKeepers*COL_W + EDIT_W ≤ containerW`):
-    table is `width: 100%` + `tableLayout: fixed`, K columns share
-    leftover space equally, Edit pinned flush at the end, no scroll,
-    no chevrons.
-  - **scroll** (overflows): table is `width: max-content` +
-    `tableLayout: auto`, K columns fixed at `COL_W` (180), container
-    scrolls with `scroll-snap-type: x mandatory` +
-    `scroll-padding-left: TEAM_W` so snap targets land K columns
-    flush against the post-sticky boundary. Chevrons advance exactly
-    **one column per click** (snap targets are at multiples of
-    `COL_W`); both directions clamp to `maxValidSnap()` so they
-    never leave a partial column at the edge.
+    table is `width: 100%`, K columns share leftover space equally,
+    Edit pinned flush at the end, no scroll, no chevrons.
+  - **scroll** (overflows): table width is an **explicit pixel sum**
+    (`TEAM_W + maxKeepers*COL_W + EDIT_W`), **not** `max-content` —
+    with `tableLayout: fixed`, `max-content` would let a long player
+    name grow its column instead of truncating, so an explicit width
+    is required to hold `COL_W` and force the ellipsis. K columns are
+    fixed at `COL_W` (180); the container scrolls with
+    `scroll-snap-type: x mandatory` + `scroll-padding-left: TEAM_W` so
+    snap targets land K columns flush against the post-sticky
+    boundary. Chevrons advance exactly **one column per click** (snap
+    targets are at multiples of `COL_W`); both directions clamp to
+    `maxValidSnap()` so they never leave a partial column at the edge.
+  - **Edit-column balance**: `EDIT_W = 73` with the Edit `<td>` right-
+    anchored (`textAlign: right`, padding `12px 20px 12px 10px`) makes
+    the gap to the table's right edge (20px) match the inter-card gap,
+    and the left gap (10px K-cell pad + 10px) also lands at 20px — the
+    button reads centered between the last card and the edge.
   - **empty state**: when `teams.length === 0` or `maxKeepers === 0`,
     the table + chevrons are skipped entirely and a small message
     renders in their place — avoids sticky-column overlap and the
@@ -608,7 +617,12 @@ If one of these is unavoidable, the next step is *add a token*, not
   - **Trade indicator**: only the **outgoing** case shows, and it's
     **inline on line 2** (`→ {teamName}` in `t.warning`, after the
     value/badge) so the cell stays the standard 2-line height. The
-    name + value strikethrough + mute. A traded keeper renders **only
+    short `→ {teamName}` carries a native `title="traded to
+    {teamName}"` for hover clarity + accessibility. The name + value
+    strikethrough + mute. Long names truncate with ellipsis on line 1
+    and the trade team truncates on line 2 — neither wraps, overflows,
+    nor changes the cell's footprint (tested with a 30-char name +
+    long team name in both modes). A traded keeper renders **only
     on its source team** — it is intentionally NOT shown on the
     receiving team (no incoming/`← from X` indicator, no duplicate),
     so a team never displays more than `maxKeepers` columns.

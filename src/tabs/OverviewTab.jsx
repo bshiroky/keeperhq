@@ -88,7 +88,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   // Mode is decided by measuring container width vs natural K-column width.
   const TEAM_W = 140;
   const COL_W = 180;
-  const EDIT_W = 60;
+  const EDIT_W = 73;
 
   const tableScrollRef = React.useRef(null);
   const [containerW, setContainerW] = React.useState(0);
@@ -239,8 +239,11 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           scrollPaddingLeft: stretchMode ? 0 : TEAM_W,
         }}>
           <table style={{
-            width: stretchMode ? '100%' : 'max-content',
-            tableLayout: stretchMode ? 'fixed' : 'auto',
+            // Stretch: fill the container. Scroll: an explicit pixel width
+            // (sum of fixed columns) — NOT max-content, which lets fixed-layout
+            // columns grow to fit long names instead of truncating them.
+            width: stretchMode ? '100%' : `${TEAM_W + maxKeepers * COL_W + EDIT_W}px`,
+            tableLayout: 'fixed',
             borderCollapse: 'separate', borderSpacing: 0,
           }}>
             <thead>
@@ -367,7 +370,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   </span>
                                 )}
                                 {slot.isOutgoing && (
-                                  <span style={{ fontSize: '10px', color: t.warning, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  <span title={`traded to ${teamName(slot.tradedTo)}`}
+                                    style={{ fontSize: '10px', color: t.warning, fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     → {teamName(slot.tradedTo)}
                                   </span>
                                 )}
@@ -423,8 +427,11 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                         </td>
                       );
                     })}
-                    {/* Edit button — sticky pinned to right edge while K columns scroll */}
-                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 12px', textAlign: 'center', width: EDIT_W, minWidth: EDIT_W, borderBottom: rowBorder, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
+                    {/* Edit button — sticky pinned to right edge. Right-anchored
+                        with a 20px right pad so the gap to the table edge matches
+                        the 20px inter-card gap; EDIT_W (73) is sized so the left
+                        gap (10px K-cell pad + button offset) lands at 20px too. */}
+                    <td style={{ position: 'sticky', right: 0, zIndex: 2, background: t.cardBg, padding: '12px 20px 12px 10px', textAlign: 'right', width: EDIT_W, minWidth: EDIT_W, borderBottom: rowBorder, boxShadow: scrollCanRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <button onClick={() => setEditingTeam({ team, autoAdd: false })} style={{
                         background: 'none', border: `1px solid ${t.border}`, borderRadius: 6,
                         padding: '4px 10px', fontSize: '11px', fontWeight: 600,
