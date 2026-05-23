@@ -74,24 +74,41 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
 
   // Column-width constants — Team & Edit are pinned (sticky), only the K
-  // columns scroll. PAGE_COLS controls how many K columns fit per visible
-  // page; chevrons advance one page (so partial columns never linger on
-  // screen) and scroll-snap on each K column keeps drag-scrolling aligned.
+  // columns scroll. The chevron's page step is measured from the actual
+  // visible K-column area at runtime (clientWidth − sticky widths, rounded
+  // down to whole COL_W) so it adapts to container width. scroll-padding-left
+  // matches TEAM_W so scroll-snap-align: start lands K columns flush against
+  // the post-sticky edge instead of behind the Team pin.
   const TEAM_W = 140;
   const COL_W = 180;
   const EDIT_W = 60;
-  const PAGE_COLS = 4;
-  const PAGE_W = PAGE_COLS * COL_W;
 
   const tableScrollRef = React.useRef(null);
   const [scrollCanLeft, setScrollCanLeft] = React.useState(false);
   const [scrollCanRight, setScrollCanRight] = React.useState(false);
+  function pageW() {
+    const el = tableScrollRef.current;
+    if (!el) return COL_W;
+    const visibleK = el.clientWidth - TEAM_W - EDIT_W;
+    const pageCols = Math.max(1, Math.floor(visibleK / COL_W));
+    return pageCols * COL_W;
+  }
+  // Largest scrollLeft that's also a valid snap point (multiple of COL_W,
+  // since K columns are placed at TEAM_W + n*COL_W and scroll-padding-left
+  // shifts the snap origin to scrollLeft = n*COL_W). Clamping chevron
+  // targets to this avoids landing between snap points at the rightmost end.
+  function maxValidSnap() {
+    const el = tableScrollRef.current;
+    if (!el) return 0;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    return Math.max(0, Math.floor(maxScroll / COL_W) * COL_W);
+  }
   React.useEffect(() => {
     function update() {
       const el = tableScrollRef.current;
       if (!el) return;
       setScrollCanLeft(el.scrollLeft > 1);
-      setScrollCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+      setScrollCanRight(el.scrollLeft + 1 < maxValidSnap());
     }
     update();
     const el = tableScrollRef.current;
@@ -104,9 +121,16 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   function scrollTable(dir) {
     const el = tableScrollRef.current;
     if (!el) return;
-    // Snap to the nearest page boundary so we never end on a partial column.
-    const next = Math.round(el.scrollLeft / PAGE_W) + dir;
-    const target = Math.max(0, next * PAGE_W);
+    const w = pageW();
+    const cur = el.scrollLeft;
+    // From the current position, step to the next whole page in `dir`. Using
+    // floor-for-right / ceil-for-left so a clamped landing between pages
+    // (e.g. cur=900 when the natural page step is 720) still moves one whole
+    // page back instead of jumping to 0.
+    const raw = dir > 0
+      ? (Math.floor(cur / w) + 1) * w
+      : (Math.ceil(cur / w) - 1) * w;
+    const target = Math.max(0, Math.min(maxValidSnap(), raw));
     el.scrollTo({ left: target, behavior: 'smooth' });
   }
 
@@ -193,7 +217,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
           <button onClick={() => scrollTable(1)} aria-label="More keepers"
             style={{ position: 'absolute', right: EDIT_W - 14, top: '50%', transform: 'translateY(-50%)', zIndex: 6, width: 28, height: 28, borderRadius: '50%', background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)', cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>›</button>
         )}
-        <div ref={tableScrollRef} style={{ overflowX: 'auto', scrollSnapType: 'x mandatory' }}>
+        <div ref={tableScrollRef} style={{ overflowX: 'auto', scrollSnapType: 'x mandatory', scrollPaddingLeft: TEAM_W }}>
           <table style={{ width: 'max-content', borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr style={{ background: t.sectionBg }}>
