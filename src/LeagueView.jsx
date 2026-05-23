@@ -39,20 +39,44 @@ function TabBar({ tabs, active, basePath, accentColor, isDark }) {
   );
 }
 
+function ordinal(n) {
+  const v = n % 100;
+  if (v >= 11 && v <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1: return `${n}st`;
+    case 2: return `${n}nd`;
+    case 3: return `${n}rd`;
+    default: return `${n}th`;
+  }
+}
+
 function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
-  const buyIn = league.buyIn || 0;
-  const payouts = league.payouts || [];
-  const totalPool = buyIn * teamCount;
-  const allocated = payouts.reduce((s, p) => s + (Number(p.amount) || 0), 0);
-  const remaining = totalPool - allocated;
+  const liveBuyIn = league.buyIn || 0;
+  const liveTotalPool = liveBuyIn * teamCount;
   const paid = teams.filter(tm => tm.paid).length;
-  const collected = paid * buyIn;
+  const collected = paid * liveBuyIn;
+
   const [expandedTeam, setExpandedTeam] = React.useState(null);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(null);
+  const [extraRows, setExtraRows] = React.useState([]); // session-only places added during this edit
+
   const todayStr = () => new Date().toISOString().slice(0, 10);
   const fmtDate = (s) => s ? new Date(s + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+
+  // Active data: draft when editing, league otherwise
+  const buyIn = isEditing ? draft.buyIn : liveBuyIn;
+  const standings = isEditing ? draft.standings : (league.payouts?.standings || []);
+  const other = isEditing ? draft.other : (league.payouts?.other || []);
+  const payoutNote = isEditing ? draft.payoutNote : (league.payoutNote || '');
+  const totalPool = buyIn * teamCount;
+  const sumStandings = standings.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const sumOther = other.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const allocated = sumStandings + sumOther;
+  const remaining = totalPool - allocated;
 
   const fieldStyle = {
     background: isDark ? '#161a22' : '#f7f9fc',
@@ -65,6 +89,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
     outline: 'none',
   };
 
+  // Payments handlers (live, never drafted)
   function updateTeam(teamId, patch) {
     const newTeams = teams.map(tm => tm.id === teamId ? { ...tm, ...patch } : tm);
     if (onUpdateLeague) onUpdateLeague({ ...league, teams: newTeams });
@@ -74,83 +99,309 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
       updateTeam(team.id, { paid: false, paidDate: null, paidNote: null });
     } else {
       updateTeam(team.id, { paid: true, paidDate: team.paidDate || todayStr() });
-      setExpandedTeam(team.id); // open the editor so user can add note/edit date
+      setExpandedTeam(team.id);
     }
   }
-  function setBuyIn(v) {
-    const next = Number(v) || 0;
-    onUpdateLeague({ ...league, buyIn: next, totalPool: next * teamCount });
+
+  // Edit lifecycle
+  function startEdit() {
+    setDraft({
+      buyIn: liveBuyIn,
+      standings: (league.payouts?.standings || []).map(p => ({ ...p })),
+      other: (league.payouts?.other || []).map(p => ({ ...p })),
+      payoutNote: league.payoutNote || '',
+    });
+    setExtraRows([]);
+    setIsEditing(true);
   }
-  function updatePayout(idx, patch) {
-    const next = payouts.map((p, i) => i === idx ? { ...p, ...patch } : p);
-    onUpdateLeague({ ...league, payouts: next });
+  function cancel() {
+    setIsEditing(false);
+    setDraft(null);
+    setExtraRows([]);
   }
-  function addPayout() {
-    onUpdateLeague({ ...league, payouts: [...payouts, { label: '', amount: 0 }] });
+  function save() {
+    onUpdateLeague({
+      ...league,
+      buyIn: draft.buyIn,
+      totalPool: draft.buyIn * teamCount,
+      payouts: { standings: draft.standings, other: draft.other },
+      payoutNote: draft.payoutNote,
+    });
+    setIsEditing(false);
+    setDraft(null);
+    setExtraRows([]);
   }
-  function removePayout(idx) {
-    onUpdateLeague({ ...league, payouts: payouts.filter((_, i) => i !== idx) });
+
+  // Draft mutators
+  function setDraftBuyIn(v) {
+    setDraft(d => ({ ...d, buyIn: Number(v) || 0 }));
   }
-  function setPayoutNote(v) {
-    onUpdateLeague({ ...league, payoutNote: v });
+  function setDraftCell(place, phase, raw) {
+    setDraft(d => {
+      const std = d.standings.slice();
+      const idx = std.findIndex(p => p.place === place && p.phase === phase);
+      if (raw === '' || raw == null) {
+        if (idx >= 0) std.splice(idx, 1);
+      } else {
+        const n = Number(raw);
+        if (Number.isNaN(n)) return d;
+        if (idx >= 0) std[idx] = { ...std[idx], amount: n };
+        else std.push({ place, phase, amount: n });
+      }
+      return { ...d, standings: std };
+    });
   }
+  function removeRow(place) {
+    setDraft(d => ({ ...d, standings: d.standings.filter(p => p.place !== place) }));
+    setExtraRows(rows => rows.filter(p => p !== place));
+  }
+  function addRow(place) {
+    setExtraRows(rows => rows.includes(place) ? rows : [...rows, place]);
+  }
+  function setDraftOther(idx, patch) {
+    setDraft(d => ({ ...d, other: d.other.map((p, i) => i === idx ? { ...p, ...patch } : p) }));
+  }
+  function addDraftOther() {
+    setDraft(d => ({ ...d, other: [...d.other, { label: '', amount: 0 }] }));
+  }
+  function removeDraftOther(idx) {
+    setDraft(d => ({ ...d, other: d.other.filter((_, i) => i !== idx) }));
+  }
+  function setDraftPayoutNote(v) {
+    setDraft(d => ({ ...d, payoutNote: v }));
+  }
+
+  function amountColor(v) {
+    const n = Number(v) || 0;
+    if (n === 0) return t.textPrimary;
+    return n < 0 ? '#e85252' : '#6dd4a8';
+  }
+  function fmtAmount(v) {
+    const n = Number(v) || 0;
+    return n < 0 ? `-$${Math.abs(n).toLocaleString()}` : `$${n.toLocaleString()}`;
+  }
+
+  // Visible places: places with data, plus session-added rows (edit mode only)
+  const placeSet = new Set(standings.map(p => p.place));
+  if (isEditing) extraRows.forEach(p => placeSet.add(p));
+  const visiblePlaces = [...placeSet].sort((a, b) => a - b);
+
+  // Addable places (edit mode picker): 1..teamCount minus already-shown
+  const cap = teamCount || 20;
+  const addablePlaces = [];
+  for (let p = 1; p <= cap; p++) if (!placeSet.has(p)) addablePlaces.push(p);
+
+  function cellAmount(place, phase) {
+    const row = standings.find(p => p.place === place && p.phase === phase);
+    return row ? row.amount : null;
+  }
+
+  const sectionHeading = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textSecondary };
+  const columnHeader = { fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: t.textMuted, textAlign: 'right' };
+  const gridCols = isEditing
+    ? '1fr 110px 110px 28px'    // place | reg | playoffs | × (or spacer)
+    : '1fr 110px 110px';        // place | reg | playoffs
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
+        <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Prize Structure</div>
+          {isEditing ? (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={cancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+              <button onClick={save} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
+            </div>
+          ) : (
+            <button onClick={startEdit} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
+          )}
         </div>
 
-        <div style={{ padding: '14px 20px', borderBottom: `1px solid ${t.divider}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* Buy-in */}
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${t.divider}`, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: '14px', color: t.textBody, flex: 1 }}>Buy-in (per team)</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
-            <input type="number" value={buyIn || ''} onChange={e => setBuyIn(e.target.value)}
-              style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700 }} />
-          </div>
+          {isEditing ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
+              <input type="number" step="25" value={buyIn || ''} onChange={e => setDraftBuyIn(e.target.value)}
+                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700 }} />
+            </div>
+          ) : (
+            <span style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary }}>${buyIn.toLocaleString()}</span>
+          )}
         </div>
-        <div style={{ padding: '8px 20px 12px', fontSize: 11, color: t.textMuted }}>
+        <div style={{ padding: '8px 20px 16px', fontSize: 11, color: t.textMuted }}>
           × {teamCount} teams = <span style={{ color: t.textSecondary, fontWeight: 700 }}>${totalPool.toLocaleString()}</span> total pool
         </div>
 
+        {/* Standings grid */}
         <div style={{ padding: '0 20px' }}>
-          {payouts.length === 0 && <div style={{ color: t.textMuted, fontSize: '13px', padding: '12px 0' }}>No payouts configured yet.</div>}
-          {payouts.map((p, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < payouts.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-              <input type="text" value={p.label} onChange={e => updatePayout(i, { label: e.target.value })} placeholder="e.g. 1st Place"
-                style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
-              <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
-              <input type="number" value={p.amount} onChange={e => updatePayout(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })}
-                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: (Number(p.amount) || 0) < 0 ? '#e85252' : '#6dd4a8' }} />
-              <button onClick={() => removePayout(i)} title="Remove payout"
-                style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
+          <div style={{ ...sectionHeading, padding: '16px 0 12px' }}>Standings Payouts</div>
+          {visiblePlaces.length === 0 && !isEditing && (
+            <div style={{ color: t.textMuted, fontSize: '12px', padding: '4px 0 16px' }}>
+              No standings payouts configured.
             </div>
-          ))}
-        </div>
-        <div style={{ padding: '10px 20px 14px' }}>
-          <button onClick={addPayout}
-            style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
-            + Add Payout
-          </button>
+          )}
+          {(visiblePlaces.length > 0 || isEditing) && (
+            <div style={{ display: 'grid', gridTemplateColumns: gridCols, columnGap: 8, rowGap: 12, alignItems: 'center' }}>
+              <span />
+              <span style={columnHeader}>Regular Season</span>
+              <span style={columnHeader}>Playoffs</span>
+              {isEditing && <span />}
+              {visiblePlaces.map(place => {
+                const reg = cellAmount(place, 'regular');
+                const pf = cellAmount(place, 'playoffs');
+                return (
+                  <React.Fragment key={place}>
+                    <span style={{ fontSize: 13, color: t.textBody }}>{ordinal(place)}</span>
+                    {isEditing ? (
+                      <>
+                        <div style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
+                          <input type="number" step="25" value={reg ?? ''}
+                            onChange={e => {
+                              const raw = e.target.value;
+                              if (raw === '') { setDraftCell(place, 'regular', ''); return; }
+                              const n = Number(raw);
+                              if (Number.isNaN(n)) return;
+                              setDraftCell(place, 'regular', n);
+                            }}
+                            placeholder="—"
+                            style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: reg != null && reg !== 0 ? 700 : 500, color: amountColor(reg) }} />
+                        </div>
+                        <div style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
+                          <input type="number" step="25" value={pf ?? ''}
+                            onChange={e => {
+                              const raw = e.target.value;
+                              if (raw === '') { setDraftCell(place, 'playoffs', ''); return; }
+                              const n = Number(raw);
+                              if (Number.isNaN(n)) return;
+                              setDraftCell(place, 'playoffs', n);
+                            }}
+                            placeholder="—"
+                            style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: pf != null && pf !== 0 ? 700 : 500, color: amountColor(pf) }} />
+                        </div>
+                        <button onClick={() => removeRow(place)} title="Remove row"
+                          style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit', justifySelf: 'center' }}>×</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ justifySelf: 'end', fontSize: 13, fontWeight: reg != null && reg !== 0 ? 700 : 500, color: reg == null ? t.textMuted : amountColor(reg) }}>
+                          {reg == null ? '—' : fmtAmount(reg)}
+                        </span>
+                        <span style={{ justifySelf: 'end', fontSize: 13, fontWeight: pf != null && pf !== 0 ? 700 : 500, color: pf == null ? t.textMuted : amountColor(pf) }}>
+                          {pf == null ? '—' : fmtAmount(pf)}
+                        </span>
+                      </>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+              {isEditing && (
+                addablePlaces.length > 0 ? (
+                  <div style={{ gridColumn: '1 / -1', paddingTop: 4 }}>
+                    {visiblePlaces.length === 0 && (
+                      <div style={{ color: t.textMuted, fontSize: '12px', paddingBottom: 8 }}>
+                        Pick a place to add your first payout.
+                      </div>
+                    )}
+                    <select value=""
+                      onChange={e => { if (e.target.value) { addRow(Number(e.target.value)); e.target.value = ''; } }}
+                      style={{ ...fieldStyle, cursor: 'pointer', padding: '6px 8px', marginLeft: -9 }}>
+                      <option value="">+ Add place…</option>
+                      {addablePlaces.map(p => (
+                        <option key={p} value={p}>{ordinal(p)}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div style={{ gridColumn: '1 / -1', paddingTop: 4, fontSize: 12, color: t.textMuted }}>
+                    All places added.
+                  </div>
+                )
+              )}
+            </div>
+          )}
+          <div style={{ height: 20 }} />
         </div>
 
-        <div style={{ padding: '0 20px 14px' }}>
-          <input type="text" value={league.payoutNote || ''} onChange={e => setPayoutNote(e.target.value)}
-            placeholder="Optional note about the payout structure…"
-            style={{ ...fieldStyle, width: '100%', boxSizing: 'border-box' }} />
-        </div>
+        {/* Other Payouts */}
+        {(isEditing || other.length > 0) && (
+          <div style={{ padding: '0 20px', borderTop: `1px solid ${t.divider}` }}>
+            <div style={{ ...sectionHeading, padding: '16px 0 12px' }}>Other Payouts</div>
+            {!isEditing && other.length === 0 && (
+              <div style={{ color: t.textMuted, fontSize: '12px', padding: '4px 0 16px' }}>None.</div>
+            )}
+            {isEditing && other.length === 0 && (
+              <div style={{ color: t.textMuted, fontSize: '12px', padding: '4px 0 12px' }}>
+                For prizes that don't map to place×phase — weekly winners, sweep bonuses, etc.
+              </div>
+            )}
+            {other.map((p, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < other.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+                {isEditing ? (
+                  <>
+                    <input type="text" value={p.label} onChange={e => setDraftOther(i, { label: e.target.value })} placeholder="e.g. Weekly high score — $5/week"
+                      style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
+                    <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
+                    <input type="number" step="25" value={p.amount}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        if (raw === '') { setDraftOther(i, { amount: 0 }); return; }
+                        const n = Number(raw);
+                        if (Number.isNaN(n)) return;
+                        setDraftOther(i, { amount: n });
+                      }}
+                      style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: amountColor(Number(p.amount) || 0) }} />
+                    <button onClick={() => removeDraftOther(i)} title="Remove payout"
+                      style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ fontSize: 13, color: t.textBody, flex: 1, minWidth: 0 }}>{p.label || <em style={{ color: t.textMuted }}>(no label)</em>}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: amountColor(Number(p.amount) || 0) }}>
+                      {fmtAmount(Number(p.amount) || 0)}
+                    </span>
+                  </>
+                )}
+              </div>
+            ))}
+            {isEditing && (
+              <div style={{ padding: '12px 0 16px' }}>
+                <button onClick={addDraftOther}
+                  style={{ background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  + Add Other Payout
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
+        {/* Payout note */}
+        {(isEditing || payoutNote) && (
+          <div style={{ padding: '16px 20px', borderTop: `1px solid ${t.divider}` }}>
+            {isEditing ? (
+              <input type="text" value={payoutNote} onChange={e => setDraftPayoutNote(e.target.value)}
+                placeholder="Optional note about the payout structure…"
+                style={{ ...fieldStyle, width: '100%', boxSizing: 'border-box' }} />
+            ) : (
+              <div style={{ fontSize: 12, color: t.textMuted, fontStyle: 'italic' }}>{payoutNote}</div>
+            )}
+          </div>
+        )}
+
+        {/* Totals */}
         <div style={{ margin: '0 20px', borderTop: `1px solid ${t.divider}` }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 4px', alignItems: 'baseline' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0 6px', alignItems: 'baseline' }}>
             <span style={{ fontSize: '13px', color: t.textMuted }}>Total Pool</span>
             <span style={{ fontSize: '18px', fontWeight: 700, color: t.textPrimary }}>${totalPool.toLocaleString()}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', alignItems: 'baseline' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', alignItems: 'baseline' }}>
             <span style={{ fontSize: '12px', color: t.textMuted }}>Allocated</span>
             <span style={{ fontSize: '13px', fontWeight: 600, color: t.textSecondary }}>${allocated.toLocaleString()}</span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0 12px', alignItems: 'baseline' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 16px', alignItems: 'baseline' }}>
             <span style={{ fontSize: '12px', color: t.textMuted }}>{remaining < 0 ? 'Over-allocated by' : 'Unallocated'}</span>
             <span style={{ fontSize: '13px', fontWeight: 700, color: remaining < 0 ? '#e85252' : (remaining === 0 ? '#6dd4a8' : t.textSecondary) }}>
               ${Math.abs(remaining).toLocaleString()}
@@ -162,11 +413,11 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Payments</div>
-          <div style={{ fontSize: '13px', color: t.textMuted }}>${collected.toLocaleString()} / ${totalPool.toLocaleString()}</div>
+          <div style={{ fontSize: '13px', color: t.textMuted }}>${collected.toLocaleString()} / ${liveTotalPool.toLocaleString()}</div>
         </div>
         <div style={{ padding: '14px 20px 0' }}>
           <div style={{ background: t.progressBg, borderRadius: 4, height: 5, marginBottom: 14 }}>
-            <div style={{ background: collected >= totalPool ? '#4caf7d' : '#e8832a', height: '100%', borderRadius: 4, width: `${Math.min((collected / (totalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
+            <div style={{ background: collected >= liveTotalPool ? '#4caf7d' : '#e8832a', height: '100%', borderRadius: 4, width: `${Math.min((collected / (liveTotalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
           </div>
         </div>
         <div style={{ padding: '0 20px' }}>
@@ -192,7 +443,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       color: team.paid ? '#6dd4a8' : '#e85252', cursor: 'pointer', fontFamily: 'inherit',
                       minWidth: 70, textAlign: 'center',
                     }}>
-                    {team.paid ? `✓ $${buyIn}` : 'Mark Paid'}
+                    {team.paid ? `✓ $${liveBuyIn}` : 'Mark Paid'}
                   </button>
                 </div>
                 {isOpen && team.paid && (

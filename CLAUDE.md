@@ -158,6 +158,110 @@ introduced.
 - The home/breadcrumb/`← All Leagues` button and the logo wordmark
   are all `<Link to="/">`.
 
+## Payouts model
+
+`league.payouts` is an **object** with two arrays:
+
+```js
+payouts: {
+  standings: [{ place: number, phase: 'regular' | 'playoffs', amount: number }, ...],
+  other:     [{ label: string, amount: number }, ...],
+},
+payoutNote: string,
+```
+
+**Standings Payouts** render as a **place×phase grid** with an
+**edit/view toggle** (`PayoutsTab` in `src/LeagueView.jsx`), mirroring
+Settings' `EditableCard` pattern. Card header carries [Edit] in view
+mode; [Cancel] [Save] in edit mode. Save commits a draft to
+`onUpdateLeague`; Cancel discards.
+
+*View mode (default):*
+- Rows = only places with **at least one** payout (regular OR
+  playoffs). The all-12-rows-of-dashes version is too noisy.
+- Friendly place labels in the row column: `"Champion (1st)"`, `"2nd"`,
+  `"Last Place (Nth)"`.
+- Columns = Regular Season, Playoffs. Each cell renders the saved
+  amount as colored text (green positive, red negative) or `"—"` for
+  no stored line.
+- Read-only: no inputs, no dropdowns, no × buttons. This is also the
+  future end-user read-only view.
+
+*Edit mode (click Edit):*
+- Same grid; cells become amount inputs in place (not a modal).
+- Phase stays as the column header — there's **no per-row phase
+  dropdown** because the column already encodes the phase.
+- Row × button removes the row (clears both phase lines).
+- A `+ Add place…` `<select>` below the grid lets the commissioner
+  pick which place to add. Options are **plain ordinals** (`1st`,
+  `2nd`, …, `12th`), excluding places already shown — explicitly
+  *not* friendly labels like "Champion" or "Last Place" because you
+  pick a number, not a label. Supports non-contiguous layouts: add
+  place 12 for a last-place penalty without first adding 4–11.
+- A session-added row with no data vanishes on Cancel or Save (data
+  drives view-mode visibility).
+
+This pattern supersedes the earlier standalone grid (cells live on
+all-12-rows) and standalone list (one-row-per-line with phase
+dropdowns) — they were the same data in two presentation states; this
+is the resolved combined form. Underlying data model is still
+`{place, phase, amount}` lines with no `_state` field, so the
+edit/view distinction is purely in `PayoutsTab` rendering.
+
+The Other Payouts section and the optional `payoutNote` follow the
+same draft pattern: editable inputs in edit mode, plain text in view
+mode (and hidden entirely in view mode if empty). The Payments column
+(right side of the Payouts tab) is unrelated to the draft — it
+always reads from `league.buyIn` so the Mark Paid buttons don't shift
+mid-edit.
+
+**Place labels are plain ordinals everywhere** — `"1st"`, `"2nd"`,
+… `"12th"`. No "Champion" treatment for 1st, no "Last Place" treatment
+for the bottom seat. The friendly-label concept was tried twice and
+discarded both times: making one row special read as cluttered, not
+fancy. `ordinal()` handles the 11th/12th/13th English exceptions. The
+`+ Add place…` dropdown also uses plain ordinals (you pick a number,
+not a label).
+
+**Dollar inputs step by $25.** All `<input type="number">` fields in
+the Prize Structure card (buy-in, standings cells, Other Payouts
+amount) have `step="25"` so the arrow keys / scroll wheel jump by 25
+— hits common payout amounts (150 / 300 / 450 / 750) cleanly while
+fine entry by typing remains available.
+
+**Visual treatment is intentionally plain.** No trophy icons, no
+column accent for 1st, no per-row decoration. The Payouts panel is
+read as a data table; personality on the league-detail view is
+deferred to a future holistic pass across all the tabs, not a one-off
+on this surface.
+
+**Other Payouts** is the escape hatch: free-text label + dollar
+amount, for prizes that don't map cleanly to place×phase (weekly
+high score, sweep bonus, etc.). The amount is the **total dollars
+allocated to the prize, not per-instance** — so weekly winners at
+$5/week × 18 weeks goes in as label `"Weekly high score — $5/week"`
+and amount `90`. This keeps the pool math honest.
+
+**Totals are combined:**
+- `allocated = sum(standings.amount) + sum(other.amount)`
+- `unallocated = totalPool − allocated`
+
+**Backwards compat:** none. The previous shape was `payouts: [{ label,
+amount }, ...]`. Old localStorage data won't crash — `payouts?.standings
+|| []` falls back to empty — but it will appear as no payouts until
+the user clicks "Reset to demo data" in the tweaks panel. Single-user
+local-first app; not worth a migration shim.
+
+**Demo data:**
+- `hockey-1` matches the user's real league: Reg 1st $750 / 2nd $150;
+  Playoffs 1st $450 / 2nd $300 / 3rd $150; Other line for the sweep
+  bonus rule (amount $0 — the label carries the conditional, $0 keeps
+  the math honest).
+- `basketball-1` and `football-1`: both phases pay top 3, with a
+  last-place penalty (-$50) in the regular column. Sums to $950
+  against a $1,200 pool ($250 unallocated).
+- `baseball-placeholder`: `{ standings: [], other: [] }`.
+
 ## Critical decisions made
 
 1. **Local-first by design (for now).** Backend deferred. README is honest:
@@ -477,6 +581,17 @@ commissioner version is locked in.
    Supabase or Neon, behind a tiny Vercel serverless layer. We've
    discussed this — see the README and the early-conversation
    threads.
+8. **Holistic visual-hierarchy / sizing pass across all surfaces.**
+   Symptom on the Payouts panel: buy-in carries the largest type and
+   the most prominent placement, but it's the least important info
+   (set once per league). Standings payouts are the substance and
+   should carry more visual weight. Same kind of audit is owed
+   across the keeper grid, Players, and Settings — establish
+   consistent emphasis conventions for numbers vs. labels vs. inputs
+   so the eye lands on what matters on every tab. Do this as **one
+   deliberate pass across all the surfaces at once**, not per-surface,
+   so the conventions hold up. Defer until the core surfaces exist
+   and have stopped shifting structurally.
 
 ## Cleanup pending
 

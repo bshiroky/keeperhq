@@ -19,14 +19,19 @@ export const APP_DATA = {
       bottomLotteryTeams: 4,
       noPlayoffPickupKeepers: true,
       contractsRequired: true,
-      payouts: [
-        { label: 'Regular Season — 1st', amount: 750 },
-        { label: 'Regular Season — 2nd', amount: 150 },
-        { label: 'Playoffs — 1st', amount: 450 },
-        { label: 'Playoffs — 2nd', amount: 300 },
-        { label: 'Playoffs — 3rd', amount: 150 },
-      ],
-      payoutNote: 'If the same team wins the regular season and playoffs, the entire $1,800 pool goes to that team.',
+      payouts: {
+        standings: [
+          { place: 1, phase: 'regular', amount: 750 },
+          { place: 2, phase: 'regular', amount: 150 },
+          { place: 1, phase: 'playoffs', amount: 450 },
+          { place: 2, phase: 'playoffs', amount: 300 },
+          { place: 3, phase: 'playoffs', amount: 150 },
+        ],
+        other: [
+          { label: 'Sweep bonus — reg season + playoffs champ takes whole pool', amount: 0 },
+        ],
+      },
+      payoutNote: '',
       teams: [
         { id: 't1', name: 'Mark', paid: true, paidDate: '2025-09-12', paidNote: 'EMT', keepersSubmitted: false, keepers: [],
           rosterAsOfDate: '2026-03-10',
@@ -136,12 +141,17 @@ export const APP_DATA = {
         lastPlacePenalty: 50,
         minBid: 1,
       },
-      payouts: [
-        { label: '1st Place', amount: 600 },
-        { label: '2nd Place', amount: 300 },
-        { label: '3rd Place', amount: 150 },
-        { label: 'Last Place (penalty)', amount: -50 },
-      ],
+      payouts: {
+        standings: [
+          { place: 1, phase: 'regular', amount: 200 },
+          { place: 2, phase: 'regular', amount: 100 },
+          { place: 12, phase: 'regular', amount: -50 },
+          { place: 1, phase: 'playoffs', amount: 400 },
+          { place: 2, phase: 'playoffs', amount: 200 },
+          { place: 3, phase: 'playoffs', amount: 100 },
+        ],
+        other: [],
+      },
       payoutNote: 'Last place team pays an extra $50 to discourage tanking late in the season.',
       teams: [
         { id: 'b1', name: 'Team Alpha', paid: true, keepersSubmitted: true, keepers: [
@@ -193,12 +203,17 @@ export const APP_DATA = {
         lastPlacePenalty: 50,
         minBid: 1,
       },
-      payouts: [
-        { label: '1st Place', amount: 600 },
-        { label: '2nd Place', amount: 300 },
-        { label: '3rd Place', amount: 150 },
-        { label: 'Last Place (penalty)', amount: -50 },
-      ],
+      payouts: {
+        standings: [
+          { place: 1, phase: 'regular', amount: 200 },
+          { place: 2, phase: 'regular', amount: 100 },
+          { place: 12, phase: 'regular', amount: -50 },
+          { place: 1, phase: 'playoffs', amount: 400 },
+          { place: 2, phase: 'playoffs', amount: 200 },
+          { place: 3, phase: 'playoffs', amount: 100 },
+        ],
+        other: [],
+      },
       payoutNote: 'Last place team pays an extra $50 to discourage tanking late in the season.',
       teams: [
         { id: 'f1', name: 'Team 1', paid: true, keepersSubmitted: false, keepers: [] },
@@ -231,7 +246,7 @@ export const APP_DATA = {
       playoffTeams: 4,
       noPlayoffPickupKeepers: true,
       auctionRules: { costIncreasePerYear: 5, undraftedStartCost: 5, minBid: 1 },
-      payouts: [],
+      payouts: { standings: [], other: [] },
       payoutNote: '',
       teams: []
     }
