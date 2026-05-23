@@ -331,9 +331,10 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                 : null}>
                             <div className="kh-keeper-cell" style={{
                               position: 'relative',
-                              background: expiring ? t.dangerBg : 'transparent',
-                              borderRadius: 6,
-                              padding: '6px 10px',
+                              border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
+                              background: expiring ? t.dangerBg : t.sectionBg,
+                              borderRadius: tokens.radiusSm,
+                              padding: '8px 10px',
                               display: 'flex', flexDirection: 'column', gap: 2,
                               minWidth: 0,
                             }}>
@@ -358,8 +359,8 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
                                 >✎</button>
                               </div>
-                              {/* Line 2: value (+ FINAL YR badge on right) */}
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
+                              {/* Line 2: value + FINAL YR badge — left-grouped (stays bound to value, doesn't float to far cell edge in stretch mode) */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                 <span style={{
                                   fontSize: '11px',
                                   fontWeight: 700,
@@ -413,11 +414,14 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                             </Tooltip>
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
-                              background: needsMore ? `${accentColor}10` : 'none',
+                              display: 'block', width: '100%', boxSizing: 'border-box',
+                              background: needsMore ? `${accentColor}10` : 'transparent',
                               border: `1px dashed ${needsMore ? accentColor : t.border}`,
-                              borderRadius: 6, padding: '5px 10px', fontSize: '11px',
+                              borderRadius: tokens.radiusSm,
+                              padding: '12px 10px', fontSize: '11px', minHeight: 50,
                               color: needsMore ? accentColor : t.textMuted, cursor: 'pointer',
                               fontFamily: 'inherit', whiteSpace: 'nowrap', fontWeight: needsMore ? 600 : 400,
+                              textAlign: 'center',
                             }}
                               onMouseEnter={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.color = accentColor; }}
                               onMouseLeave={e => { e.currentTarget.style.borderColor = needsMore ? accentColor : t.border; e.currentTarget.style.color = needsMore ? accentColor : t.textMuted; }}

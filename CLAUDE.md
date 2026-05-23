@@ -558,6 +558,17 @@ If one of these is unavoidable, the next step is *add a token*, not
   on the sticky Team/Edit cells.
 
   **Cell design** (each keeper slot, `.kh-keeper-cell`):
+  - Each filled cell is a **bordered card** — `border: 1px solid
+    t.border`, `background: t.sectionBg`, `borderRadius:
+    tokens.radiusSm` (6), `padding: '8px 10px'`. The card visually
+    contains the name + value as one unit even in stretch mode where
+    columns are wide.
+  - Empty "+ Add" slots are full-width dashed boxes matching the
+    filled-cell footprint (not small inline pills): `display: block;
+    width: 100%; minHeight: 50; padding: '12px 10px'; border: 1px
+    dashed t.border; borderRadius: tokens.radiusSm`. When the team
+    `needsMore` (under the `contractsRequired` minimum), the dashed
+    border + text take the league accent color.
   - Line 1: player name in bold. Truncates with ellipsis (the cell
     is narrow in scroll mode; full names show in stretch mode).
   - Line 2: a **single** value — `Y{contractYear}/{contractLength}`
@@ -566,10 +577,13 @@ If one of these is unavoidable, the next step is *add a token*, not
     that distinguishes them. Auction values use the sport accent
     color; snake values use `t.textSecondary`.
   - **Expiring treatment** (snake only, when
-    `contractYear >= contractLength`): the inner wrapper gets a
-    `t.dangerBg` tint, the name + value go `t.danger` red, and a
-    `Final yr` pill (`tokens.typePillEmphatic` + `t.danger`) sits at
-    the right of line 2. Auction leagues have no expiry concept.
+    `contractYear >= contractLength`): the cell card's border becomes
+    `t.dangerBorder` and the background becomes `t.dangerBg`, the
+    name + value go `t.danger` red, and a `Final yr` pill
+    (`tokens.typePillEmphatic` + `t.danger`) sits **inline next to
+    the value** on line 2 (left-grouped with an 8px gap — does **not**
+    push to the far cell edge in stretch mode). Auction leagues have
+    no expiry concept.
   - **Trade indicator**: only the **outgoing** case shows. A traded-
     out keeper renders on its source team with line-3 `→ traded to
     {teamName}` in `t.warning`, with the name and value on lines 1-2
