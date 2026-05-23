@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme, Tooltip } from '../components.jsx';
+import { makeTheme, Tooltip, tokens } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
@@ -201,9 +201,16 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
         />
       )}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <style>{`.kh-keeper-pencil { opacity: 0; transition: opacity 0.15s; } .kh-keeper-cell:hover .kh-keeper-pencil { opacity: 0.6; } .kh-keeper-pencil:hover { opacity: 1; }`}</style>
+        <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keepers</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {league.draftType === 'snake' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '11px', color: t.textMuted }}>
+                <span aria-hidden="true" style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: t.dangerBg, border: `1px solid ${t.dangerBorder}` }} />
+                Final year
+              </span>
+            )}
             <span style={{ fontSize: '12px', color: t.textMuted }}>{withKeepersCount}/{teams.length} teams started</span>
             {isPreseason && <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 20, padding: '2px 8px' }}>Pre-Season</span>}
           </div>
@@ -294,77 +301,83 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                   >
                     {/* Team name — sticky pinned to left edge while K columns scroll */}
                     <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <div style={{ width: 24, height: 24, borderRadius: 6, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: accentColor, flexShrink: 0 }}>
-                          {team.name[0]}
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.name}</div>
+                      {(needsMore || overflow.length > 0) && (
+                        <div style={{ fontSize: '10px', color: '#e8832a', marginTop: 2, fontWeight: 600 }}>
+                          {needsMore && `${activeCount}/${requiredCount} required`}
+                          {overflow.length > 0 && ` +${overflow.length} extra`}
                         </div>
-                        <div>
-                          <div style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary }}>{team.name}</div>
-                          {(needsMore || overflow.length > 0) && (
-                            <div style={{ fontSize: '10px', color: '#e8832a', marginTop: 2, fontWeight: 600 }}>
-                              {needsMore && `${activeCount}/${requiredCount} required`}
-                              {overflow.length > 0 && ` +${overflow.length} extra`}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      )}
                     </td>
                     {/* Keeper slots */}
                     {slots.map((slot, ki) => {
                       const popoverOpen = slot && movingKeeper && movingKeeper.teamId === slot.sourceTeamId && movingKeeper.keeperIdx === slot.sourceIdx;
                       const expiring = slot && league.draftType === 'snake' && slot.contractYear >= slot.contractLength;
+                      const isSnake = league.draftType === 'snake';
+                      const valueText = slot && (isSnake
+                        ? `Y${slot.contractYear}/${slot.contractLength}`
+                        : `$${slot.keptFor}`);
+                      const valueColor = !slot ? null
+                        : slot.isOutgoing ? t.textMuted
+                        : expiring ? t.danger
+                        : (isSnake ? t.textSecondary : accentColor);
                       return (
-                        <td key={ki} style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                        <td key={ki} style={{ padding: '8px 10px', verticalAlign: 'middle' }}>
                           {slot ? (
                             <Tooltip
                               isDark={isDark}
-                              content={expiring && !slot.isOutgoing
+                              content={expiring
                                 ? `Final year of contract — ${slot.player} goes back to the draft after this season.`
                                 : null}>
-                            <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, width: '100%', minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
-                                {(() => {
-                                  const p = playerMap?.get(normalizeName(slot.player));
-                                  return p?.headshot ? (
-                                    <img src={p.headshot} alt="" width={22} height={22}
-                                      style={{ borderRadius: '50%', background: t.sectionBg, objectFit: 'cover', flexShrink: 0, opacity: slot.isOutgoing ? 0.45 : 1 }}
-                                      onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
-                                  ) : null;
-                                })()}
+                            <div className="kh-keeper-cell" style={{
+                              position: 'relative',
+                              background: expiring ? t.dangerBg : 'transparent',
+                              borderRadius: 6,
+                              padding: '6px 10px',
+                              display: 'flex', flexDirection: 'column', gap: 2,
+                              minWidth: 0,
+                            }}>
+                              {/* Line 1: name + hover-only reassign pencil */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                 <span style={{
                                   fontSize: '13px',
-                                  color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textPrimary),
                                   fontWeight: slot.isOutgoing ? 500 : 700,
+                                  color: slot.isOutgoing ? t.textMuted : (expiring ? t.danger : t.textPrimary),
                                   textDecoration: slot.isOutgoing ? 'line-through' : 'none',
                                   flex: 1, minWidth: 0,
                                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                 }} title={slot.player}>
                                   {slot.player}
                                 </span>
-                                {league.draftType === 'snake' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : (expiring ? '#e85252' : t.textMuted), textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>
-                                    Y{slot.contractYear}/{slot.contractLength}
-                                  </span>
-                                )}
-                                {league.draftType === 'auction' && (
-                                  <span style={{ fontSize: '10px', color: slot.isOutgoing ? t.textMuted : accentColor, fontWeight: 700, textDecoration: slot.isOutgoing ? 'line-through' : 'none', flexShrink: 0 }}>${slot.keptFor}</span>
-                                )}
                                 <button
+                                  className="kh-keeper-pencil"
                                   onClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
                                   title="Reassign to another team (mid-season trade)"
-                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '10px', color: t.textMuted, opacity: 0.5, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
-                                  onMouseEnter={e => { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = accentColor; }}
-                                  onMouseLeave={e => { e.currentTarget.style.opacity = 0.5; e.currentTarget.style.color = t.textMuted; }}
+                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '11px', color: t.textMuted, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = accentColor; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
                                 >✎</button>
                               </div>
-                              {slot.isOutgoing && (
-                                <span style={{ fontSize: '10px', color: '#e8832a', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                  → traded to {teamName(slot.tradedTo)}
+                              {/* Line 2: value (+ FINAL YR badge on right) */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
+                                <span style={{
+                                  fontSize: '11px',
+                                  fontWeight: 700,
+                                  color: valueColor,
+                                  textDecoration: slot.isOutgoing ? 'line-through' : 'none',
+                                }}>
+                                  {valueText}
                                 </span>
-                              )}
-                              {slot.isIncoming && (
-                                <span style={{ fontSize: '10px', color: '#4caf7d', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                                  ← from {slot.fromTeamName}
+                                {expiring && (
+                                  <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1, flexShrink: 0 }}>
+                                    Final yr
+                                  </span>
+                                )}
+                              </div>
+                              {/* Line 3 (outgoing only): traded-to indicator on its own line */}
+                              {slot.isOutgoing && (
+                                <span style={{ fontSize: '10px', color: t.warning, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                                  → traded to {teamName(slot.tradedTo)}
                                 </span>
                               )}
                               {popoverOpen && (
