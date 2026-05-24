@@ -537,25 +537,147 @@ If one of these is unavoidable, the next step is *add a token*, not
   columns are **sticky** (pinned left/right). K columns operate in
   two mutually exclusive modes chosen at runtime by comparing natural
   table width to container width:
+  `TEAM_W = 140`, `COL_W = 180`, `EDIT_W = 73`. The table is always
+  `tableLayout: fixed` (see the long-name note below for why).
   - **stretch** (`TEAM_W + maxKeepers*COL_W + EDIT_W ≤ containerW`):
-    table is `width: 100%` + `tableLayout: fixed`, K columns share
-    leftover space equally, Edit pinned flush at the end, no scroll,
-    no chevrons.
-  - **scroll** (overflows): table is `width: max-content` +
-    `tableLayout: auto`, K columns fixed at `COL_W` (180), container
-    scrolls with `scroll-snap-type: x mandatory` +
-    `scroll-padding-left: TEAM_W` so snap targets land K columns
-    flush against the post-sticky boundary. Chevrons advance exactly
-    **one column per click** (snap targets are at multiples of
-    `COL_W`); both directions clamp to `maxValidSnap()` so they
-    never leave a partial column at the edge.
+    table is `width: 100%`, K columns share leftover space equally,
+    Edit pinned flush at the end, no scroll, no chevrons.
+  - **scroll** (overflows): table width is an **explicit pixel sum**
+    (`TEAM_W + maxKeepers*COL_W + EDIT_W`), **not** `max-content` —
+    with `tableLayout: fixed`, `max-content` would let a long player
+    name grow its column instead of truncating, so an explicit width
+    is required to hold `COL_W` and force the ellipsis. K columns are
+    fixed at `COL_W` (180); the container scrolls with
+    `scroll-snap-type: x mandatory` + `scroll-padding-left: TEAM_W` so
+    snap targets land K columns flush against the post-sticky
+    boundary. Chevrons advance exactly **one column per click** (snap
+    targets are at multiples of `COL_W`); both directions clamp to
+    `maxValidSnap()` so they never leave a partial column at the edge.
+  - **Edit-column balance**: `EDIT_W = 73` with the Edit `<td>` right-
+    anchored (`textAlign: right`, padding `12px 20px 12px 10px`) makes
+    the gap to the table's right edge (20px) match the inter-card gap,
+    and the left gap (10px K-cell pad + 10px) also lands at 20px — the
+    button reads centered between the last card and the edge.
   - **empty state**: when `teams.length === 0` or `maxKeepers === 0`,
     the table + chevrons are skipped entirely and a small message
     renders in their place — avoids sticky-column overlap and the
     chevron-floats-in-empty-row pitfall.
   Header `<th>` cells each set `background: t.sectionBg` directly
   (not the parent `<tr>`) so the translucent bg doesn't double-layer
-  on the sticky Team/Edit cells. Player names truncate.
+  on the sticky Team/Edit cells.
+
+  **Row dividers** live on the `<td>` cells (`borderBottom: 1px solid
+  t.border` on every cell except the last row), **not** on the `<tr>`
+  — with `borderCollapse: separate` a `<tr>` border doesn't paint, so
+  the divider has to be per-cell.
+
+  **Grid accent is draft-type-based, not sport-based.** `gridAccent =
+  draftType === 'auction' ? tokens.warning : tokens.info` — blue
+  (`#3b8ae6`) for contract/snake, orange (`#e8832a`) for auction.
+  Drives keeper values, the empty "+ Add" cells (border + text +
+  needsMore bg tint), the Pre-Season pill, and the pencil-hover color.
+  This is independent of `SPORT_CONFIG[sport].color` (which the
+  `accentColor` prop still carries for non-grid surfaces); a snake
+  football league reads blue in the grid even though football's sport
+  color is green.
+
+  **Cell design** (each keeper slot, `.kh-keeper-cell`):
+  - Each filled cell is a **bordered card** — `width: 100%;
+    boxSizing: border-box; border: 1px solid t.border; background:
+    t.sectionBg; borderRadius: tokens.radiusSm (6); padding: '8px
+    10px'`. `width: 100%` is load-bearing: cells whose `<Tooltip>`
+    has content (the expiring ones) get wrapped in an `inline-block`
+    span, so without it the card shrink-wraps to content and renders
+    narrower than its neighbors. The Tooltip is passed `style={{
+    display: 'block' }}` for the same reason. All cells (normal,
+    expiring, outgoing) render at an identical width + height
+    footprint.
+  - Empty "+ Add" slots are full-width dashed boxes matching the
+    filled-cell footprint: `display: block; width: 100%; minHeight:
+    50; padding: '12px 10px'; border: 1px dashed gridAccent;
+    borderRadius: tokens.radiusSm`. Border + text always take the
+    grid accent (blue/orange) so both league types read as themed;
+    `needsMore` (under the `contractsRequired` minimum) adds a
+    background tint.
+  - Line 1: player name in bold. Truncates with ellipsis (the cell
+    is narrow in scroll mode; full names show in stretch mode).
+  - Line 2: a **single** value — `Y{contractYear}/{contractLength}`
+    on snake/contract leagues, `${keptFor}` on auction. Never both;
+    `league.draftType` (`'snake'` vs `'auction'`) is the only field
+    that distinguishes them. Value color is `gridAccent`.
+  - **Expiring treatment** (snake only, when
+    `contractYear >= contractLength`): the cell card's border becomes
+    `t.dangerBorder` and the background becomes `t.dangerBg`, the
+    name + value go `t.danger` red, and a `Final yr` pill
+    (`tokens.typePillEmphatic` + `t.danger`) sits **inline next to
+    the value** on line 2 (left-grouped with an 8px gap — does **not**
+    push to the far cell edge in stretch mode). The tint/badge keep
+    the **same footprint** as a normal cell — only color differs.
+    The pill is wrapped in the shared `<Tooltip>` (dark bubble) that
+    explains "…final year of contract, returns to the draft after
+    this season" — the tooltip lives on the **pill specifically**,
+    not the whole cell, so it doesn't collide with the trade-badge
+    tooltip on an expiring+traded cell (two distinct small hover
+    targets, never both at once). Auction leagues have no expiry
+    concept.
+  - **Trade indicator**: only the **outgoing** case shows, as a small
+    swap badge (`⇄` glyph in `gridAccent`) absolutely positioned in
+    the cell's **bottom-right corner** — out of flow, so it never
+    competes with line 2 for width and the cell holds its footprint.
+    The badge is wrapped in the shared `<Tooltip>` component (same
+    dark bubble as the setup-page eligible-pool chips) — hover shows
+    the **full untruncated** `"{player} · traded to {teamName}"`,
+    wrapping within the tooltip's 260px max-width. The absolute
+    corner positioning is passed via the Tooltip's `style` prop (it
+    spreads into the trigger span); an `aria-label` on the inner glyph
+    covers screen readers. NOT a native `title` (finicky delay, can't
+    style). The destination team is **not** rendered as inline text —
+    an earlier `→ {team}` text version truncated to useless stubs like
+    "→ The …" with long names. The name + value strikethrough + mute. Long
+    names truncate with ellipsis on line 1; line 2 stays value (+
+    Final yr) only — neither wraps, overflows, nor changes the cell's
+    footprint (tested with a 30-char name + long team name in both
+    modes). A traded keeper renders **only on its source team** — it
+    is intentionally NOT shown on the receiving team (no incoming/`←
+    from X` indicator, no duplicate), so a team never displays more
+    than `maxKeepers` columns. `getDisplayKeepers` returns own keepers
+    only; the slots array is capped at `maxKeepers`. Expiring +
+    outgoing coexist on one cell (tint + Final yr pill + strikethrough
+    + swap badge all at once, no suppression). (Open item #3: a keeper
+    traded while still in `priorKeepers` rather than `keepers` won't
+    show the indicator —
+    out of scope, separate data-iteration issue.)
+  - **Legend**: a small swatch + "Final year" label sits in the
+    KEEPERS card header (right cluster, next to teams-started count)
+    on snake leagues only — makes the pink tint self-explanatory.
+    Hidden on auction.
+  - **Pencil reassign**: a `✎` button in line 1 is opacity 0 by
+    default and fades in on cell hover (`.kh-keeper-cell:hover .kh-
+    keeper-pencil`). Click opens the existing "Move {player} to:"
+    popover for mid-season reassignment — feature preserved, just
+    visually subtle.
+  - Team-column avatar (24×24 colored initial square) has been
+    removed; just the team name + the under-minimum warning subtext.
+  - NHL headshots (`playerMap` from `loadPlayers('nhl')`) are still
+    loaded but no longer rendered in the cell — kept wired for
+    potential future use.
+
+  **"kept" vs "required" is a real per-league rule, not a bug.**
+  `league.contractsRequired: true` means every keeper slot must be
+  filled — the team subtext shows an `X/Y required` warning (orange)
+  when a team is under the max during pre-season. `contractsRequired:
+  false` means keepers are optional up to the max (a team can keep
+  fewer; no required warning). Some leagues phrase their slot counts
+  as "kept" (up-to-max, optional) and others as "required" (must fill
+  all). Don't normalize the two — the difference reflects the league
+  setting.
+
+  **Header stats** (`LeagueView` header, not the grid): `POOL` (prize
+  money) shows on **both** league types. `EXPIRING` (count of
+  contracts going back to the draft) is an **additional** stat shown
+  only on snake leagues — appended after POOL, not replacing it. So
+  contract header = TEAMS / KEEPERS / PAID / POOL / EXPIRING; auction
+  header = TEAMS / KEEPERS / PAID / POOL.
 - `src/tabs/PlayersTab.jsx` — NHL directory, search/filter/sort,
   manage modal with Add-to-roster + Make-keeper actions
 - `src/tabs/KeepersTab.jsx` — `KeeperEditModal` (used by OverviewTab
@@ -638,6 +760,59 @@ commissioner version is locked in.
    deliberate pass across all the surfaces at once**, not per-surface,
    so the conventions hold up. Defer until the core surfaces exist
    and have stopped shifting structurally.
+9. **Off-season trade model — undecided, decide before building more
+   trade UI.** Keepers aren't locked until declared, so an off-season
+   trade really just moves a player between teams' *pools* before
+   selection — it may not belong as a grid annotation at all. Open
+   question: should trades live as **grid indicators** (the current
+   `⇄` swap-badge approach in OverviewTab), as a **transaction
+   history** (league-level and/or per-player), or **both**? Settle the
+   model before adding more trade UI. Related: the user has asked
+   about viewing previous seasons' data — likely part of the same
+   strategy discussion. Parked for a future design conversation.
+10. **Post-deadline commissioner keeper exceptions.** The commissioner
+    needs to make legitimate keeper changes *after* the keeper
+    deadline — real example: a player was kept, then injured in
+    preseason, and the league granted an exception swap. This is a
+    supported commissioner workflow to build, distinct from in-season
+    trades (which are explicitly out of scope for now).
+11. **Keeper-edit consolidation.** Two editing affordances currently
+    overlap and neither does the whole job: the **pencil** (in the
+    keeper cell) reassigns a player to another team — a trade-type
+    move — while **Edit** (the per-team button → `KeeperEditModal`)
+    adds/removes players but can't trade them. Consolidate into one
+    coherent keeper-edit flow eventually.
+12. **Auto-generated Google Sheet export (high near-term value).**
+    Annual pain: league members ask who they can keep / trade for, and
+    the commissioner currently hand-digs each person's old Yahoo
+    roster page AND old draft page (web only, not in-app) and
+    maintains a Google doc by hand. Want an auto-generated Google
+    Sheet — overall view + per-team view — that updates **one
+    persistent file in place** (does NOT spawn a new file each run),
+    to drop in the league group chat as the interim league-visibility
+    tool until a user-facing product exists. **Decision point:**
+    "update in place" likely implies a Sheets API integration, which
+    touches the no-backend constraint — flag and decide that when this
+    is built.
+13. **Off-season setup workflow (documentation of existing behavior,
+    not a new request).** The core off-season loop: the commissioner
+    uploads each team's roster by copy-pasting their Yahoo roster page
+    (`RosterImportTab` AI paste/OCR). For **auction** leagues, they
+    also paste the prior year's auction draft so dollar values attach
+    to players (`ImportTab` / `DataSourcesPanel`). The system carries
+    contracts forward and applies the defined annual `$` increase
+    (`lib/season.js` + `auctionRules.costIncreasePerYear`). This
+    individual team / setup page is the **primary work surface** and
+    is currently underdocumented — capture it properly when touched.
+14. **Draft-pick ownership / validation (deferred, captured for when
+    it returns).** In the off-season, teams trade draft picks for
+    other teams' excess keepers; the commissioner annotates this by
+    hand. Recurring headache: people try to trade picks they no longer
+    own, forcing the commissioner to pull the Yahoo draft-picks page
+    (web again) to verify. Full pick import may be overkill now, but
+    the underlying need — knowing **who owns which picks** to validate
+    trades — is real. Revisit whether importing pick ownership solves
+    it.
 
 ## Cleanup pending
 

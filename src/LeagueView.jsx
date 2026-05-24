@@ -843,7 +843,12 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
               { label: 'Teams', value: totalTeams },
               { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? '#6dd4a8' : undefined },
               { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? '#e8832a' : '#6dd4a8' },
-              { label: league.draftType === 'snake' ? 'Expiring' : 'Pool', value: league.draftType === 'snake' ? (stats.expiring || '—') : `$${league.totalPool.toLocaleString()}`, accent: league.draftType === 'snake' && stats.expiring > 0 ? '#e85252' : undefined },
+              // POOL is universal (prize money). EXPIRING is an additional
+              // snake-only stat (count of contracts going back to the draft).
+              { label: 'Pool', value: `$${league.totalPool.toLocaleString()}` },
+              ...(league.draftType === 'snake'
+                ? [{ label: 'Expiring', value: stats.expiring || '—', accent: stats.expiring > 0 ? '#e85252' : undefined }]
+                : []),
             ].map(s => (
               <div key={s.label}>
                 <div style={{ fontSize: '9px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
