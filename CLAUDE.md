@@ -618,7 +618,12 @@ If one of these is unavoidable, the next step is *add a token*, not
     this season" — the tooltip lives on the **pill specifically**,
     not the whole cell, so it doesn't collide with the trade-badge
     tooltip on an expiring+traded cell (two distinct small hover
-    targets, never both at once). Auction leagues have no expiry
+    targets, never both at once). The pill's Tooltip trigger is given
+    `display: inline-flex` (not the Tooltip's default `inline-block`)
+    so its inherited line-box doesn't inflate line 2 — otherwise an
+    expiring cell renders ~6px taller than a normal one. All cell
+    states (normal / expiring / traded / expiring+traded) must share
+    one height; the cell suite asserts this. Auction leagues have no expiry
     concept.
   - **Trade indicator**: only the **outgoing** case shows, as a small
     swap badge (`⇄` glyph in `gridAccent`) absolutely positioned in
