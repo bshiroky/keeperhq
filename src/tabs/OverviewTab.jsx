@@ -359,7 +359,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   {valueText}
                                 </span>
                                 {expiring && (
-                                  <Tooltip isDark={isDark} style={{ flexShrink: 0 }}
+                                  <Tooltip isDark={isDark} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
                                     content={`${slot.player} · final year of contract, returns to the draft after this season`}>
                                     <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1 }}>
                                       Final yr
