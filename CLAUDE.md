@@ -9,8 +9,8 @@ main directly.
 
 ## Recent shipped work (off main)
 
-Independent of the design-system rollout snapshot below, three
-features have shipped through their own branches:
+Independent of the design-system rollout snapshot below, several
+features have shipped through their own branches (all merged):
 
 - **PR #4 (merged):** Real client-side routing via `react-router-dom`
   v7. See the **Routing** section for the route table.
@@ -18,12 +18,17 @@ features have shipped through their own branches:
   phase, amount}], other: [{label, amount}]}` with an edit/view
   toggle on the Prize Structure card. See the **Payouts model**
   section.
-- **`claude/keeper-grid-scroll` (in flight):** Keeper grid horizontal-
-  scroll fixes — `scroll-padding-left: TEAM_W` so snap-align works
-  with sticky columns, one-column-per-click chevron, stretch-vs-scroll
-  mode based on whether K columns fit, header-bg parity, and an
-  empty-state when there are no teams or no keeper slots. See the
-  **File map** entry for `OverviewTab.jsx`.
+- **PR #6 (merged):** Keeper grid horizontal-scroll fixes —
+  `scroll-padding-left: TEAM_W` so snap-align works with sticky
+  columns, one-column-per-click chevron, stretch-vs-scroll mode based
+  on whether K columns fit, header-bg parity, and an empty-state when
+  there are no teams or no keeper slots.
+- **PR #7 (merged):** Keeper cell redesign — bordered two-line cards
+  (name + single value), per-league grid accent (blue snake / orange
+  auction), expiring pink-tint + `Final yr` pill, outgoing-only trade
+  shown as a `⇄` swap badge with a shared-Tooltip hover, full-width
+  "+ Add" cells, Edit-button balance, and long-name truncation. See
+  the **File map** entry for `OverviewTab.jsx`.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -135,11 +140,14 @@ serve that phase.
 
 ## Architecture in one paragraph
 
-100% client-side. League data lives in the user's browser via localStorage
-(`src/App.jsx` handles persistence). NHL player directory ships as a
-static JSON at `public/players-nhl.json`, generated at build time by
-`scripts/fetch-players-nhl.mjs`. No backend, no auth, no DB. Single-user,
-single-device by design (see "Backend deferred" below).
+100% client-side **today**. League data lives in the user's browser via
+localStorage (`src/App.jsx` handles persistence). NHL player directory
+ships as a static JSON at `public/players-nhl.json`, generated at build
+time by `scripts/fetch-players-nhl.mjs`. No backend, no auth, no DB *yet*.
+This is the current implementation, **not a permanent stance** —
+single-commissioner server-side persistence + auth is now a planned
+milestone (see the Roadmap "split A vs B" note and Open items #7/#15).
+What stays deferred is multi-user *collaboration*, not persistence.
 
 ## Routing
 
@@ -290,9 +298,13 @@ local-first app; not worth a migration shim.
 
 ## Critical decisions made
 
-1. **Local-first by design (for now).** Backend deferred. README is honest:
-   "your league data lives in your own browser." Don't promise sharing
-   features that imply a backend.
+1. **Local-first *for now* — server-side persistence is now planned.**
+   Today data lives in the browser (README: "your league data lives in
+   your own browser"). But single-commissioner persistence + auth is a
+   near-term milestone (Roadmap split A; Open items #7/#15) — don't
+   treat "backend deferred" as still-true blanket guidance. Still off
+   the table: **sharing / collaboration** features that imply *multiple
+   users* (Roadmap split B). Don't promise member-facing sharing.
 2. **NHL only** for the player directory. Other sports show "Coming soon"
    via `public/mascot-soon.png` in `PlayersTab` and elsewhere.
 3. **Players tab is keeper-centric.** Assigning a free agent creates a
@@ -708,19 +720,32 @@ foundation work for that (real URLs, deep linking, refresh-safe
 navigation); subsequent pieces will keep building on the
 commissioner flows.
 
-**Multi-user accounts / SSO are explicitly deferred.** No login,
-no Google SSO, no Yahoo linking yet. The trigger to revisit:
-commissioner-version flows are stable, the UI has stopped shifting,
-and there's a clear need to share state across people or devices.
-At that point: Google SSO first (lowest-friction auth), Yahoo
-linking later (it's also the in-season platform many leagues use).
-Adding either before the commissioner version stabilizes would
-mean building auth/sharing UI against a product that's still
-moving — wasted work.
+**Two things that used to be lumped under "backend deferred" are now
+split — read this before pushing back on persistence work.**
 
-This means: no copy that implies multi-user, no auth scaffolding,
-no DB schema decisions, no "share this league" buttons until the
-commissioner version is locked in.
+**(A) Single-commissioner persistence + auth + portability is now an
+INTENDED near-term milestone — NOT deferred.** Login (Google SSO
+first, lowest-friction), real server-side storage so one
+commissioner's data follows them across devices, one owner per
+league. The original deferral was about *premature collaboration
+features*, not basic persistence — don't read "local-first by design"
+or "backend deferred" as a reason to block building auth + a database
+for a single commissioner. This is the path to the user running the
+app with their real league. See Open items #7 (backend), #15
+(account/login), #16 (create-league flow).
+
+**(B) Multi-user collaboration REMAINS deferred.** League *members*
+logging in, members picking their own keepers, in-app trade
+negotiation between members, "share this league" UI, the end-user
+(league-member) flow. None of this until the single-commissioner
+version is stable and the UI has stopped shifting. The trigger:
+commissioner flows locked in + a clear need for multiple people to
+share state.
+
+So: building auth + a DB + a create-league flow for **one
+commissioner** is on-plan now. Building **member-facing collaboration
+UI** is not. No copy that implies multi-user, no "share this league"
+buttons, no member login until (B)'s trigger is hit.
 
 ## Open items (when user wants to revisit)
 
@@ -744,11 +769,17 @@ commissioner version is locked in.
    fetch script. Sport choices discussed: Sleeper for NFL (free, no
    key), ESPN unofficial for NBA, MLB Stats API for MLB. Defer until
    user wants to actually use those sports.
-7. **Real backend** — the big one. Defer trigger: user wants a second
-   person to use it, or UI has stopped shifting. Path: probably
-   Supabase or Neon, behind a tiny Vercel serverless layer. We've
-   discussed this — see the README and the early-conversation
-   threads.
+7. **Real backend / database — now a planned milestone (no longer an
+   indefinite defer).** Replace the localStorage-only mock-data setup
+   with real server-side persistence so a commissioner's data
+   persists and is portable across devices. **Single owner per
+   league** — this is scoped to single-commissioner persistence, NOT
+   multi-user collaboration (see Roadmap split A vs B). Path: probably
+   Supabase or Neon behind a tiny Vercel serverless layer. Coupled
+   with account/login (#15). Supersedes the old "local-first by
+   design" framing for persistence purposes — though the data *shape*
+   (`src/data.js` / the `league` object) stays the working model;
+   this is about where it's stored, not restructuring it.
 8. **Holistic visual-hierarchy / sizing pass across all surfaces.**
    Symptom on the Payouts panel: buy-in carries the largest type and
    the most prominent placement, but it's the least important info
@@ -759,7 +790,8 @@ commissioner version is locked in.
    so the eye lands on what matters on every tab. Do this as **one
    deliberate pass across all the surfaces at once**, not per-surface,
    so the conventions hold up. Defer until the core surfaces exist
-   and have stopped shifting structurally.
+   and have stopped shifting structurally. (The Payouts-specific
+   cleanup is also tracked separately as #21.)
 9. **Off-season trade model — undecided, decide before building more
    trade UI.** Keepers aren't locked until declared, so an off-season
    trade really just moves a player between teams' *pools* before
@@ -793,7 +825,10 @@ commissioner version is locked in.
     tool until a user-facing product exists. **Decision point:**
     "update in place" likely implies a Sheets API integration, which
     touches the no-backend constraint — flag and decide that when this
-    is built.
+    is built. **The user's "export keeper-eligible list" ask is this
+    same item** — the eligible-list export and the Sheet export are
+    one feature; the output format (Sheet tabs vs CSV vs other) is
+    still to be decided.
 13. **Off-season setup workflow (documentation of existing behavior,
     not a new request).** The core off-season loop: the commissioner
     uploads each team's roster by copy-pasting their Yahoo roster page
@@ -812,7 +847,57 @@ commissioner version is locked in.
     (web again) to verify. Full pick import may be overkill now, but
     the underlying need — knowing **who owns which picks** to validate
     trades — is real. Revisit whether importing pick ownership solves
-    it.
+    it. **Refinement:** uploaded picks carry **Yahoo team names**, but
+    this app keys teams by **GM / owner name**, and team names change
+    through the season — so a pick import needs a **mapping layer
+    (Yahoo team name ↔ GM/owner)**, not a raw import. Same mapping
+    concern likely applies to roster/draft uploads generally.
+15. **Account creation + login — near-term, single commissioner per
+    league.** Google SSO first (lowest-friction auth). Tightly coupled
+    with the backend (#7): login identifies the commissioner whose
+    data persists server-side. **One owner per league** — not member
+    logins (that's the deferred collaboration line, Roadmap split B).
+    Yahoo linking is a later, separate auth (it's also the in-season
+    platform many leagues use).
+16. **Create / set up a league via UI — prerequisite for real use.**
+    Leagues currently exist **only as mock data in `src/data.js`**;
+    there is no in-app create-league flow. The HomeView "Add League"
+    slot (`AddLeagueSlot` in `HomeView.jsx`) is a visual placeholder
+    that just `alert()`s. Need a real flow capturing sport, draft type
+    (auction vs snake), team count, keeper rules (slots, min, contract
+    length / `contractsRequired` / `contractsFollowTrade` for snake;
+    `costIncreasePerYear` / `undraftedStartCost` for auction), buy-in,
+    etc., writing a new league into storage. Prerequisite for the user
+    running the app with their own real league (pairs with #7/#15).
+17. **Mobile web / responsive — baseline, not polish.** League members
+    and the commissioner will largely view on phones. The commissioner
+    surfaces (HomeView, LeagueView tabs, the keeper grid, payouts,
+    settings) need to be responsive. Treat as a baseline requirement
+    when surfaces stabilize, not a final polish pass. (The keeper grid
+    already has stretch/scroll modes; the rest of the layout is
+    desktop-width-assuming — e.g. `maxWidth: 1000` containers, the
+    2-col payouts grid.)
+18. **End-user (league-member) flow — REMAINS deferred.** The
+    league-member experience is distinct from the commissioner tool:
+    members viewing their own team, picking their own keepers,
+    negotiating trades. Stays behind the collaboration line (Roadmap
+    split B) until the single-commissioner version is locked in. Do
+    not build member-facing UI before then.
+19. **Public / logged-out homepage (clarify, scope TBD).** A
+    logged-out or public entry surface, distinct from the My Leagues
+    `HomeView` (which assumes you're already "in"). Needed once there's
+    auth (#15) — a place to land before login / sign-up. Scope and
+    content TBD.
+20. **Draft lottery — make it more engaging / fun.** The user wants to
+    revisit the lottery tab (`LotteryTab`, snake-only) and make it more
+    of an event — more engaging/playful presentation. Scope TBD; net-
+    new design pass, not a bug.
+21. **Payouts page cleanup (revisit abandoned work).** A
+    visual/structural cleanup of the Payouts tab was started in an
+    earlier session and abandoned mid-work. Revisit it. Related to the
+    holistic visual-hierarchy pass (#8) — the buy-in-too-prominent
+    symptom lives on this surface — but the user calls it out as its
+    own to-do.
 
 ## Cleanup pending
 
@@ -869,9 +954,14 @@ push directly to `main`.
 
 ## Things NOT to do
 
-- Don't add a backend, login, or accounts unless explicitly asked.
-- Don't promise multi-device or multi-user features in copy/UI until
-  there's actually a backend.
+- Backend / login / accounts for a **single commissioner** are now
+  planned (Roadmap split A, Open items #7/#15) — don't reflexively
+  block them. Still don't *start* building them without the user
+  steering it, but they're on-plan, not off-limits.
+- Don't build **multi-user collaboration** (member logins, member
+  keeper-picking, in-app trade negotiation, "share this league") or
+  promise it in copy/UI — that's the still-deferred line (Roadmap
+  split B).
 - Don't push to `main` directly.
 - Don't bake in API keys (no provider that requires one has been chosen).
 - Don't add comments narrating the change ("Added per user request,
