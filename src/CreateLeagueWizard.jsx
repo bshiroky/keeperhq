@@ -106,6 +106,7 @@ function buildLeague(s, existing) {
     paid: false,
     keepersSubmitted: false,
     keepers: [],
+    ...(i === 0 ? { isCommissioner: true } : {}),
   }));
   const base = {
     id: uniqueId(slugify(s.name || ''), existing),
