@@ -13,6 +13,11 @@ import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 const STEPS = ['Basics', 'League Format', 'Teams', 'Review'];
 const CROSS_YEAR = new Set(['hockey', 'basketball']);
 
+const SPORT_PICKER_STYLES = `
+  @keyframes kh-sportbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+  .kh-sport-bob { animation: kh-sportbob 1.8s ease-in-out infinite; }
+`;
+
 function seasonOptions(sport) {
   return CROSS_YEAR.has(sport)
     ? ['2025-26', '2026-27', '2027-28']
@@ -153,23 +158,24 @@ function StepBasics({ form, set, isDark }) {
 
       <div>
         <FieldLabel t={t}>Sport</FieldLabel>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: tokens.spaceSm }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceSm }}>
           {Object.entries(SPORT_CONFIG).map(([id, cfg]) => {
             const active = form.sport === id;
             return (
               <button key={id} type="button"
                 onClick={() => set({ sport: id, season: defaultSeason(id) })}
                 style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: tokens.spaceXs,
-                  padding: `${tokens.spaceSm}px ${tokens.spaceXs}px`,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: tokens.spaceSm,
+                  padding: `${tokens.spaceLg}px ${tokens.spaceXs}px`,
                   border: `2px solid ${active ? cfg.color : t.border}`,
                   background: active ? cfg.tint : t.cardBg,
                   borderRadius: tokens.radiusLg, cursor: 'pointer', fontFamily: 'inherit',
                   boxShadow: active ? `0 0 0 4px ${cfg.tint}, 0 8px 20px ${cfg.border}` : 'none',
                   transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
                 }}>
-                <img src={cfg.logo} alt="" height={52}
-                  style={{ height: 52, width: 'auto', imageRendering: 'pixelated', display: 'block',
+                <img src={cfg.logo} alt="" height={76}
+                  className={active ? 'kh-sport-bob' : undefined}
+                  style={{ height: 76, width: 'auto', maxWidth: '100%', imageRendering: 'pixelated', display: 'block',
                     filter: active ? 'none' : 'grayscale(1)', opacity: active ? 1 : 0.5,
                     transition: 'filter 0.15s, opacity 0.15s' }} />
                 <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 600, color: active ? cfg.color : t.textMuted }}>
@@ -456,6 +462,7 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
+      <style>{SPORT_PICKER_STYLES}</style>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceLg, flexWrap: 'wrap' }}>
         <div>
