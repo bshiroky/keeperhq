@@ -164,13 +164,15 @@ function StepBasics({ form, set, isDark }) {
                   padding: `${tokens.spaceSm}px ${tokens.spaceXs}px`,
                   border: `2px solid ${active ? cfg.color : t.border}`,
                   background: active ? cfg.tint : t.cardBg,
-                  borderRadius: tokens.radiusLg, cursor: 'pointer',
-                  fontFamily: 'inherit', transition: 'border-color 0.15s, background 0.15s',
+                  borderRadius: tokens.radiusLg, cursor: 'pointer', fontFamily: 'inherit',
+                  boxShadow: active ? `0 0 0 4px ${cfg.tint}, 0 8px 20px ${cfg.border}` : 'none',
+                  transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
                 }}>
                 <img src={cfg.logo} alt="" height={52}
                   style={{ height: 52, width: 'auto', imageRendering: 'pixelated', display: 'block',
-                    filter: active ? 'none' : 'grayscale(0.4)', opacity: active ? 1 : 0.85 }} />
-                <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 600, color: active ? cfg.color : t.textBody }}>
+                    filter: active ? 'none' : 'grayscale(1)', opacity: active ? 1 : 0.5,
+                    transition: 'filter 0.15s, opacity 0.15s' }} />
+                <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 600, color: active ? cfg.color : t.textMuted }}>
                   {cfg.label}
                 </span>
               </button>
@@ -509,9 +511,9 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
         {/* Live preview — the real TradingCard, non-interactive */}
         <div style={{ flex: '0 0 380px', minWidth: 320, maxWidth: 400, position: 'sticky', top: 88 }}>
           <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>Live preview</div>
-          <TradingCard league={preview} isDark={isDark} />
+          <TradingCard league={preview} isDark={isDark} building />
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceSm, lineHeight: 1.4 }}>
-            This is exactly how the league appears on your My Leagues page.
+            Card fills in as you go.
           </div>
         </div>
       </div>

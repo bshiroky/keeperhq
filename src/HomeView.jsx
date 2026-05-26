@@ -120,13 +120,13 @@ const CARD_STYLES = `
 `;
 
 // ── Trading card ─────────────────────────────────────────────────────────
-function TradingCard({ league, onClick, isDark }) {
+function TradingCard({ league, onClick, isDark, building }) {
   const sport  = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const t      = makeTheme(isDark);
-  const action = nextAction(league);
+  const action = building ? { kind: 'action', label: 'Building…' } : nextAction(league);
   const pay    = paymentsOf(league);
   const mod    = ruleMod(league);
-  const flavor = flavorLine(league, action);
+  const flavor = building ? "Fresh league. Let's wire it up." : flavorLine(league, action);
   const totalPool = (league.totalPool || pay.potential).toLocaleString();
 
   const stickerColors = {
@@ -242,7 +242,7 @@ function TradingCard({ league, onClick, isDark }) {
               ...tokens.typePill,
               whiteSpace: 'nowrap',
             }}>
-              {`${mod || 'Keeper league'} · ${league.keeperSlots || 0} keepers`}
+              {building ? 'Keeper league · 0 keepers' : `${mod || 'Keeper league'} · ${league.keeperSlots || 0} keepers`}
             </span>
           </div>
 
@@ -273,8 +273,8 @@ function TradingCard({ league, onClick, isDark }) {
             ].map(s => (
               <div key={s.label}>
                 <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
-                <div style={{ ...tokens.typeNumericCompact, color: s.color, lineHeight: 1.15, marginTop: 1 }}>
-                  {s.val}
+                <div style={{ ...tokens.typeNumericCompact, color: building ? t.textMuted : s.color, lineHeight: 1.15, marginTop: 1 }}>
+                  {building ? '—' : s.val}
                 </div>
               </div>
             ))}
