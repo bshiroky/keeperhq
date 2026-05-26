@@ -110,6 +110,7 @@ const SPORT_CONFIG = {
 
 function sportTint(color)   { return color + '1f'; }  // ≈ 12% alpha
 function sportBorder(color) { return color + '33'; }  // ≈ 20% alpha
+function sportFill(color)   { return color + '3d'; }  // ≈ 24% alpha — selected-card fill
 
 // Renders the sport's badge logo if available, falling back to the emoji.
 // Height controls vertical size; width auto-scales to preserve the shield
@@ -380,13 +381,302 @@ function Tooltip({ children, content, isDark, position = 'top', style = {} }) {
   );
 }
 
+// ── Trading card (extracted from HomeView so both My-Leagues and the
+//    create-league wizard import one source) ───────────────────────────────
+// The action engine + flavor + payments helpers drive the card's sticker,
+// voice line, and stat block. `state` ('building' | 'ready') is the wizard
+// live-preview mode; when undefined (My-Leagues) the original behavior holds.
+
+const GRAIN_SVG =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.7 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+
+const CARD_STYLES = `
+  @keyframes kh-shine { 0% { transform: translateX(-150%) skewX(-22deg); } 100% { transform: translateX(420%) skewX(-22deg); } }
+  @keyframes kh-bob   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @keyframes kh-bob-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  @keyframes kh-pop   { 0% { transform: scale(0.85) rotate(-3deg); } 60% { transform: scale(1.06) rotate(-3deg); } 100% { transform: scale(1) rotate(-3deg); } }
+
+  .kh-tcard {
+    transition:
+      transform 0.28s cubic-bezier(.2,.8,.2,1),
+      box-shadow 0.28s,
+      border-color 0.28s;
+    will-change: transform;
+  }
+  .kh-tcard:hover { transform: translateY(-6px) rotate(-0.5deg); }
+
+  .kh-tcard-shine {
+    position: absolute; top: 0; left: 0; bottom: 0; width: 32%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), transparent);
+    transform: translateX(-150%) skewX(-22deg);
+    pointer-events: none; mix-blend-mode: overlay;
+  }
+  .kh-tcard:hover .kh-tcard-shine { animation: kh-shine 1.15s ease-out; }
+
+  .kh-tcard:hover .kh-tcard-mascot { animation: kh-bob 1.1s ease-in-out infinite; }
+  .kh-tcard-mascot--bob { animation: kh-bob-slow 2.4s ease-in-out infinite; }
+
+  .kh-tcard-sticker { animation: kh-pop 0.28s cubic-bezier(.2,.8,.2,1); }
+
+  .kh-add-slot { transition: border-color 0.18s, color 0.18s; }
+`;
+
+function nextAction(league) {
+  const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const teamsWithKeepers = teams.filter(tm => (tm.keepers || []).length > 0).length;
+
+  if (league.status === 'completed') return { kind: 'action', label: 'Start new season', cta: true };
+  if (league.status === 'active')    return { kind: 'ready',  label: 'In season',        cta: false };
+  if (league.status === 'setup')     return { kind: 'action', label: 'Set up league',    cta: true };
+
+  if (league.draftType === 'snake') {
+    const rostersLoaded = teams.filter(tm => (tm.roster || []).length > 0).length;
+    if (rostersLoaded === 0)       return { kind: 'action', label: 'Upload rosters', cta: true };
+    if (rostersLoaded < teamCount) return { kind: 'action', label: `Upload rosters · ${rostersLoaded}/${teamCount}`, cta: true };
+  }
+  if (league.draftType === 'auction') {
+    const hasAnyPriors = teams.some(tm => (tm.priorKeepers || []).length > 0);
+    if (!hasAnyPriors) return { kind: 'action', label: "Import last year's draft", cta: true };
+  }
+
+  if (teamsWithKeepers < teamCount) {
+    return { kind: 'waiting', label: `${teamsWithKeepers}/${teamCount} keepers in`, cta: false };
+  }
+  if (!league.draftDate) return { kind: 'action', label: 'Set draft date', cta: true };
+  return { kind: 'ready', label: 'Ready for draft', cta: false };
+}
+
+function flavorLine(league, action) {
+  const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const teamsWithKeepers = teams.filter(tm => (tm.keepers || []).length > 0).length;
+
+  if (action.kind === 'action') {
+    if (action.label.startsWith('Upload rosters'))   return "Rosters first — can't verify keepers without 'em.";
+    if (action.label.startsWith("Import last year")) return "Need last year's draft to seed keeper costs.";
+    if (action.label === 'Set draft date')           return "Everything's in. Just pick a date.";
+    if (action.label === 'Start new season')         return "Season's done. Roll it forward.";
+    if (action.label === 'Set up league')            return "Fresh league. Let's wire it up.";
+    return action.label;
+  }
+  if (action.kind === 'waiting') {
+    return `${teamsWithKeepers} of ${teamCount} have picked keepers. Patience.`;
+  }
+  return "Locked and loaded. Bring on draft day.";
+}
+
+function paymentsOf(league) {
+  const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const paid = teams.filter(tm => tm.paid).length;
+  const buyIn = league.buyIn || 0;
+  return {
+    paid, teamCount, buyIn,
+    collected:   paid * buyIn,
+    potential:   teamCount * buyIn,
+    outstanding: (teamCount - paid) * buyIn,
+    behind:      paid < teamCount,
+    complete:    paid === teamCount && teamCount > 0,
+  };
+}
+
+function ruleMod(league) {
+  if (league.draftType === 'snake' && league.contractYears) {
+    return `${league.contractYears}-yr contracts`;
+  }
+  if (league.draftType === 'auction' && league.auctionRules?.costIncreasePerYear) {
+    return `+$${league.auctionRules.costIncreasePerYear}/yr keeper cost`;
+  }
+  return null;
+}
+
+function TradingCard({ league, onClick, isDark, state }) {
+  const sport  = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
+  const t      = makeTheme(isDark);
+  const wizard = state === 'building' || state === 'ready';
+  const action = state === 'building' ? { kind: 'action', label: 'Building…' }
+               : state === 'ready'    ? { kind: 'ready',  label: 'Ready for draft' }
+               :                        nextAction(league);
+  const pay    = paymentsOf(league);
+  const mod    = ruleMod(league);
+  const flavor = state === 'building' ? "Fresh league. Let's wire it up."
+               : state === 'ready'    ? "Locked and loaded. Bring on draft day."
+               :                        flavorLine(league, action);
+  const totalPool = (league.totalPool || pay.potential).toLocaleString();
+
+  const stickerColors = {
+    action:  { bg: tokens.warning, fg: '#fff' },
+    waiting: { bg: isDark ? '#2a3142' : '#dfe4ee', fg: isDark ? '#c8d0e0' : '#3a4255' },
+    ready:   { bg: tokens.success, fg: '#0f2018' },
+  }[action.kind];
+
+  const moodColor = action.kind === 'action' ? tokens.warning
+                  : action.kind === 'ready'  ? tokens.success
+                  :                            sport.color;
+
+  const hasName  = !!(league.name && String(league.name).trim());
+  const hasSport = !!league.sport;
+  const metaPill = wizard
+    ? (mod ? `${mod} · ${league.keeperSlots || 0} keepers` : 'Keeper league · 0 keepers')
+    : `${mod || 'Keeper league'} · ${league.keeperSlots || 0} keepers`;
+  const stats = wizard
+    ? [
+        { label: 'Teams', val: league.teamCount || '—', color: t.textPrimary },
+        { label: 'Paid',  val: `0/${league.teamCount || 0}`, color: t.textPrimary },
+        { label: 'Pool',  val: '—', color: t.textMuted },
+      ]
+    : [
+        { label: 'Teams', val: pay.teamCount, color: t.textPrimary },
+        { label: 'Paid',  val: `${pay.paid}/${pay.teamCount}`,
+          color: pay.complete ? tokens.success : pay.behind ? tokens.warning : t.textPrimary },
+        { label: 'Pool',  val: `$${totalPool}`, color: t.textPrimary },
+      ];
+
+  return (
+    <div
+      onClick={() => onClick && onClick(league)}
+      className="kh-tcard"
+      style={{
+        position: 'relative', overflow: 'hidden',
+        background: t.cardBg,
+        border: `1px solid ${t.border}`,
+        borderRadius: 16,
+        cursor: onClick ? 'pointer' : 'default',
+        boxShadow: isDark
+          ? `0 1px 0 rgba(255,255,255,0.05) inset,
+             0 0 0 1px ${sport.color}11,
+             0 14px 32px rgba(0,0,0,0.5)`
+          : `0 1px 0 rgba(255,255,255,1) inset,
+             0 0 0 1px ${sport.color}22,
+             0 1px 3px rgba(0,0,0,0.08),
+             0 14px 32px rgba(0,0,0,0.10)`,
+      }}
+    >
+      <div style={{
+        position: 'relative',
+        backgroundColor: sport.color,
+        backgroundImage: `url(${sport.bgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: sport.bgPosition || 'center',
+        backgroundRepeat: 'no-repeat',
+        aspectRatio: '5 / 2',
+        overflow: 'hidden',
+      }}>
+        <div className="kh-tcard-sticker" key={action.label} style={{
+          position: 'absolute', top: 38, left: tokens.spaceSm,
+          background: stickerColors.bg, color: stickerColors.fg,
+          padding: '6px 12px', borderRadius: tokens.radiusSm,
+          ...tokens.typePillEmphatic, fontWeight: 800,
+          transform: 'rotate(-3deg)',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.4) inset',
+          zIndex: 3, display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}>
+          {action.label.toUpperCase()}
+        </div>
+
+        <div style={{
+          position: 'absolute', right: wizard ? -6 : -8, bottom: wizard ? -12 : -16,
+          width: wizard ? 116 : 160, height: wizard ? 122 : 170,
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          zIndex: 2,
+        }}>
+          <img className={`kh-tcard-mascot${wizard ? ' kh-tcard-mascot--bob' : ''}`} src={sport.logo} alt=""
+            style={{
+              height: wizard ? 108 : 152, width: 'auto', imageRendering: 'pixelated', display: 'block',
+              filter: 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))',
+            }} />
+        </div>
+
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: GRAIN_SVG,
+          opacity: 0.18, mixBlendMode: 'overlay',
+          pointerEvents: 'none', zIndex: 1,
+        }} />
+
+        <div className="kh-tcard-shine" style={{ zIndex: 4 }} />
+      </div>
+
+      <div style={{ padding: `${tokens.spaceMd}px`, position: 'relative' }}>
+        <div style={{
+          position: 'absolute', inset: 0,
+          backgroundImage: GRAIN_SVG,
+          opacity: isDark ? 0.05 : 0.04, mixBlendMode: 'multiply',
+          pointerEvents: 'none',
+        }} />
+
+        <div style={{ position: 'relative' }}>
+          <div style={{
+            ...tokens.typeHeadingHero, lineHeight: 1.1,
+            color: hasName ? t.textPrimary : t.textMuted,
+            fontStyle: hasName ? 'normal' : 'italic',
+          }}>
+            {hasName ? league.name : 'league name'}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, marginTop: tokens.space2xs + 2, flexWrap: 'wrap' }}>
+            {hasSport ? (
+              <SportBadge sport={league.sport} />
+            ) : (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center',
+                border: `1px dashed ${t.border}`, color: t.textMuted,
+                borderRadius: 20, padding: '3px 10px',
+                ...tokens.typePill, fontStyle: 'italic', whiteSpace: 'nowrap',
+              }}>sport</span>
+            )}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: t.badgeBg, color: t.textSecondary,
+              border: `1px solid ${t.border}`,
+              borderRadius: 20, padding: '3px 10px',
+              ...tokens.typePill,
+              whiteSpace: 'nowrap',
+            }}>
+              {metaPill}
+            </span>
+          </div>
+
+          <div style={{
+            marginTop: tokens.spaceSm, marginBottom: tokens.space2xs,
+            paddingLeft: tokens.spaceSm - 2,
+            borderLeft: `2px solid ${moodColor}`,
+            color: t.textBody,
+            ...tokens.typeBodyMeta, fontStyle: 'italic', lineHeight: 1.45,
+          }}>
+            {flavor}
+          </div>
+
+          <div style={{
+            marginTop: tokens.spaceSm,
+            paddingTop: tokens.spaceSm,
+            borderTop: `1px dashed ${t.border}`,
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6,
+            fontFeatureSettings: '"tnum"',
+          }}>
+            {stats.map(s => (
+              <div key={s.label}>
+                <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
+                <div style={{ ...tokens.typeNumericCompact, color: s.color, lineHeight: 1.15, marginTop: 1 }}>
+                  {s.val}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   makeTheme, tokens,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
-  sportTint, sportBorder,
+  sportTint, sportBorder, sportFill,
+  TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
 });
 
 export {
@@ -395,5 +685,6 @@ export {
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
-  sportTint, sportBorder,
+  sportTint, sportBorder, sportFill,
+  TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
 };

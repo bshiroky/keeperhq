@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate } fr
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
+import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 
 // Root App + Tweaks
@@ -104,8 +105,20 @@ function HomeRoute({ leagues, isDark }) {
     <HomeView
       leagues={leagues}
       onSelectLeague={league => navigate(`/league/${league.id}`)}
-      onAddLeague={() => alert('Add League flow coming soon!')}
+      onAddLeague={() => navigate('/new')}
       isDark={isDark}
+    />
+  );
+}
+
+function NewLeagueRoute({ leagues, isDark, onCreate }) {
+  const navigate = useNavigate();
+  return (
+    <CreateLeagueWizard
+      isDark={isDark}
+      existingLeagues={leagues}
+      onCreate={league => onCreate(league)}
+      onCancel={() => navigate('/')}
     />
   );
 }
@@ -157,6 +170,11 @@ function App() {
 
   function handleUpdateLeague(updated) {
     setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+  }
+
+  function handleAddLeague(league) {
+    setLeagues(prev => [...prev, league]);
+    navigate(`/league/${league.id}/overview`);
   }
 
   function handleResetData() {
@@ -216,6 +234,7 @@ function App() {
       <main style={{ padding: '16px 0 40px' }}>
         <Routes>
           <Route path="/" element={<HomeRoute leagues={leagues} isDark={isDark} />} />
+          <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} onCreate={handleAddLeague} />} />
           <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

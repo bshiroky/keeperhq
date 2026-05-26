@@ -1,7 +1,8 @@
 import React from 'react';
-import { makeTheme, Tooltip, tokens } from '../components.jsx';
+import { makeTheme, tokens } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
+import { SampleKeeperCell } from './keeper-grid-variants.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
@@ -302,85 +303,17 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                     {/* Keeper slots */}
                     {slots.map((slot, ki) => {
                       const popoverOpen = slot && movingKeeper && movingKeeper.teamId === slot.sourceTeamId && movingKeeper.keeperIdx === slot.sourceIdx;
-                      const expiring = slot && league.draftType === 'snake' && slot.contractYear >= slot.contractLength;
-                      const isSnake = league.draftType === 'snake';
-                      const valueText = slot && (isSnake
-                        ? `Y${slot.contractYear}/${slot.contractLength}`
-                        : `$${slot.keptFor}`);
-                      const valueColor = !slot ? null
-                        : slot.isOutgoing ? t.textMuted
-                        : expiring ? t.danger
-                        : gridAccent;
                       return (
                         <td key={ki} style={{ padding: '8px 10px', verticalAlign: 'middle', borderBottom: rowBorder }}>
                           {slot ? (
-                            <div className="kh-keeper-cell" style={{
-                              position: 'relative',
-                              width: '100%', boxSizing: 'border-box',
-                              border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
-                              background: expiring ? t.dangerBg : t.sectionBg,
-                              borderRadius: tokens.radiusSm,
-                              padding: '8px 10px',
-                              display: 'flex', flexDirection: 'column', gap: 2,
-                              minWidth: 0,
-                            }}>
-                              {/* Line 1: name + hover-only reassign pencil */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                                <span style={{
-                                  fontSize: '13px',
-                                  fontWeight: slot.isOutgoing ? 500 : 700,
-                                  color: slot.isOutgoing ? t.textMuted : (expiring ? t.danger : t.textPrimary),
-                                  textDecoration: slot.isOutgoing ? 'line-through' : 'none',
-                                  flex: 1, minWidth: 0,
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }} title={slot.player}>
-                                  {slot.player}
-                                </span>
-                                <button
-                                  className="kh-keeper-pencil"
-                                  onClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
-                                  title="Reassign to another team (mid-season trade)"
-                                  style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '11px', color: t.textMuted, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
-                                  onMouseEnter={e => { e.currentTarget.style.color = gridAccent; }}
-                                  onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
-                                >✎</button>
-                              </div>
-                              {/* Line 2: value + FINAL YR badge + outgoing trade indicator — all
-                                  left-grouped on one line so the cell stays the standard 2-line
-                                  height and the data stays bound to the value (no far-edge float). */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                                <span style={{
-                                  fontSize: '11px',
-                                  fontWeight: 700,
-                                  color: valueColor,
-                                  textDecoration: slot.isOutgoing ? 'line-through' : 'none',
-                                  flexShrink: 0,
-                                }}>
-                                  {valueText}
-                                </span>
-                                {expiring && (
-                                  <Tooltip isDark={isDark} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
-                                    content={`${slot.player} · final year of contract, returns to the draft after this season`}>
-                                    <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1 }}>
-                                      Final yr
-                                    </span>
-                                  </Tooltip>
-                                )}
-                              </div>
-                              {/* Trade indicator: a small swap badge in the bottom-right
-                                  corner (absolute, out of flow) so it never competes with
-                                  line 2 for width. Hover shows the custom dark-bubble
-                                  Tooltip with the full untruncated name + destination. */}
-                              {slot.isOutgoing && (
-                                <Tooltip isDark={isDark}
-                                  content={`${slot.player} · traded to ${teamName(slot.tradedTo)}`}
-                                  style={{ position: 'absolute', bottom: 6, right: 8 }}>
-                                  <span aria-label={`traded to ${teamName(slot.tradedTo)}`}
-                                    style={{ fontSize: '12px', lineHeight: 1, fontWeight: 700, color: gridAccent, cursor: 'default' }}>
-                                    ⇄
-                                  </span>
-                                </Tooltip>
-                              )}
+                            <SampleKeeperCell
+                              slot={slot}
+                              isSnake={league.draftType === 'snake'}
+                              isDark={isDark}
+                              gridAccent={gridAccent}
+                              onReassignClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
+                              tradedToName={slot.isOutgoing ? teamName(slot.tradedTo) : null}
+                            >
                               {popoverOpen && (
                                 <div style={{
                                   position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
@@ -410,7 +343,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                                   })}
                                 </div>
                               )}
-                            </div>
+                            </SampleKeeperCell>
                           ) : isPreseason ? (
                             <button onClick={() => setEditingTeam({ team, autoAdd: true })} title="Add a keeper" style={{
                               display: 'block', width: '100%', boxSizing: 'border-box',
