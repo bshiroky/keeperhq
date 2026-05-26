@@ -1,5 +1,5 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES } from './components.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
@@ -199,21 +199,44 @@ function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDa
 }
 
 // Faux-select: styled button + popover so the closed control can show a muted
-// unit suffix ("players", "years") next to the bold value.
+// unit suffix ("players", "years") next to the bold value. The menu renders in
+// a portal (fixed-positioned from the button's rect) so it escapes the card's
+// overflow:hidden clip. Closes on outside-click and on scroll/resize.
 function Select({ value, onChange, options, suffix, width, isDark }) {
   const t = makeTheme(isDark);
   const [open, setOpen] = React.useState(false);
-  const ref = React.useRef(null);
+  const [coords, setCoords] = React.useState({ top: 0, left: 0, width: 0 });
+  const btnRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  function toggle() {
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+    setOpen(true);
+  }
+
   React.useEffect(() => {
     if (!open) return;
-    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    function onDoc(e) {
+      if (btnRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onMove() { setOpen(false); }
     document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
+    };
   }, [open]);
 
   return (
-    <div ref={ref} style={{ position: 'relative', width, boxSizing: 'border-box' }}>
-      <button type="button" onClick={() => setOpen(o => !o)} style={{
+    <div style={{ position: 'relative', width, boxSizing: 'border-box' }}>
+      <button ref={btnRef} type="button" onClick={toggle} style={{
         width: '100%', boxSizing: 'border-box',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
         background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
@@ -227,13 +250,13 @@ function Select({ value, onChange, options, suffix, width, isDark }) {
           <path d="M1 1L5 5L9 1" stroke={t.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, width: '100%',
-          maxHeight: 220, overflowY: 'auto',
+      {open && createPortal(
+        <div ref={menuRef} style={{
+          position: 'fixed', top: coords.top, left: coords.left, width: coords.width,
+          maxHeight: 220, overflowY: 'auto', boxSizing: 'border-box',
           background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
-          borderRadius: tokens.radiusSm, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-          zIndex: 50, padding: 4,
+          borderRadius: tokens.radiusSm, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          zIndex: 10000, padding: 4,
         }}>
           {options.map(opt => {
             const sel = String(opt) === String(value);
@@ -251,7 +274,8 @@ function Select({ value, onChange, options, suffix, width, isDark }) {
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -672,14 +696,14 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
         background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
         overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 320px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr) 320px', alignItems: 'start' }}>
           {/* Rail */}
           <div style={{ background: colMuted, borderRight: `1px solid ${t.divider}`, padding: `${tokens.spaceXl}px ${tokens.spaceSm}px` }}>
             <LeftRail step={s.step} accent={accent} onGoto={i => dispatch({ type: 'goto', step: i })} isDark={isDark} />
           </div>
 
           {/* Form column */}
-          <div style={{ padding: `${tokens.spaceXl}px ${tokens.space2xl}px` }}>
+          <div style={{ minWidth: 0, padding: `${tokens.spaceXl}px ${tokens.space2xl}px` }}>
             <div style={{ ...tokens.typeLabelEyebrow, color: accent }}>Step {s.step + 1} of 4</div>
             <h2 style={{ ...tokens.typeHeadingCard, fontSize: 20, color: t.textPrimary, margin: `${tokens.space2xs}px 0 ${tokens.spaceLg}px` }}>
               {STEP_TITLES[s.step]}
