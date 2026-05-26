@@ -35,17 +35,20 @@ features have shipped through their own branches (all merged):
   inflate line 2). All cell states share one height.
 - **PR #9 (merged):** Roadmap/docs expansion in CLAUDE.md (backend +
   multi-user reframe, Open items, housekeeping). Docs only.
-- **`claude/create-league-wizard` (branch / PR pending):** Create New
-  League wizard — a 4-step flow (Basics / Format / Teams / Review) at
-  `/new` that writes a real league to localStorage in the exact
-  `src/data.js` shape and navigates into it. Replaces the
-  `AddLeagueSlot` `alert()` placeholder. Live-preview column is the
-  **real** `TradingCard` fed the in-progress league; Step-2 SAMPLE
-  KEEPER cells are the **real** keeper cell, extracted from
-  `OverviewTab` into `src/tabs/keeper-grid-variants.jsx`
-  (`SampleKeeperCell`) and shared by both. Two additive fields beyond
-  the mock shape: `teams[0].isCommissioner` and (auction)
-  `auctionRules.budget`. Addresses Open item #16.
+- **PR #10 (open):** Create-League wizard — a 4-step flow
+  (Basics → League Format → Teams → Review) at `/new` that writes a
+  real league to localStorage (the `src/data.js` shape) and routes
+  into it. Replaces the `AddLeagueSlot` `alert()` placeholder.
+  `useReducer` state; three-column card (left rail · form · live
+  preview). The live-preview column is the **real** `TradingCard`
+  (newly extracted into `components.jsx`, driven by a
+  `state='building'|'ready'` prop); the Step-2 sample cells are the
+  **real** `SampleKeeperCell` (`src/tabs/keeper-grid-variants.jsx`,
+  shared with the keeper grid). New league fields: `commissionerTeamId`,
+  `commishFee: 0`, `createdAt`, and `teams[0].isCommissioner`. Per
+  scope: no keeper round-cost UI, no commissioner-reassignment UI
+  (auto team #1), and no season selector (a sensible default season is
+  stored under the hood). Addresses Open item #16.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -179,7 +182,7 @@ no extra rewrite rule needed.
 | Path | Behavior |
 |---|---|
 | `/` | `HomeView` — My Leagues |
-| `/new` | `CreateLeagueWizard` — 4-step create-league flow; writes a new league to localStorage and navigates into it |
+| `/new` | `CreateLeagueWizard` — 4-step create-league flow (Basics → League Format → Teams → Review); writes a new league to localStorage and routes into it |
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
 | `/league/:leagueId/overview` | `LeagueView` w/ overview tab |
 | `/league/:leagueId/lottery` | `LeagueView` w/ lottery tab — **snake-draft only**; on auction leagues redirects to overview |
@@ -545,26 +548,59 @@ If one of these is unavoidable, the next step is *add a token*, not
 - **`mascot-celebrate`**: not yet wired — earmarked for season-complete
   banner
 
+## Build constraints — reuse, don't rebuild
+
+Standing rules for building new surfaces. They exist because a parallel
+copy of a component drifts away from the original.
+
+- **League cards** → use the real `TradingCard` (in `components.jsx`),
+  never a lookalike.
+- **Keeper cells** → use the shared `SampleKeeperCell`
+  (`src/tabs/keeper-grid-variants.jsx`), never a reimplementation.
+- **Form inputs / dropdowns** → match the **Manage Player**
+  (`KeeperEditModal`) input styling, **not** LeagueView's `inputStyle`.
+- **Value styling** → the value is **bold** (`textPrimary`); any unit /
+  prefix / suffix (`$`, `players`, `/yr`) is **regular gray**
+  (`textMuted`).
+- **Missing component?** If a design references a component that only
+  exists inline somewhere, **extract it from where it lives** (and
+  re-run the relevant regression — e.g. the keeper-cell suite) rather
+  than copying it. A parallel copy drifts.
+- **Layout** → wizard/page content sizes to its active column; action
+  buttons sit in **normal flow below the content**, never pinned to a
+  column-driven height.
+- **Design handoff** → approved designs come from **Claude Design as a
+  written spec** (tokens, sizes, states, components to reuse), not just
+  screenshots. Screenshots are for **final QA only**.
+
 ## File map (most-edited)
 
 - `src/App.jsx` — top-level shell, header, view switching, localStorage.
   Holds `leagues` state; `handleAddLeague` appends a wizard-built
   league + navigates into it; `/new` route renders the wizard.
 - `src/HomeView.jsx` — My Leagues page (summary tiles + league cards).
-  `TradingCard` is reused by the create-league wizard as its live
-  preview (it already omits the season label and guards every field,
-  so it renders fine from a half-built league object).
+  Imports `TradingCard` from `components.jsx` (it no longer lives
+  here — see below); renders `PackStats`, `SportFilter`, and the card
+  grid.
 - `src/CreateLeagueWizard.jsx` — the `/new` create-league flow.
-  4 steps (Basics / Format / Teams / Review), left rail + center
-  content + right live-`TradingCard` preview. `buildLeague(form,
-  existing)` produces the saved object (exact `src/data.js` shape;
-  `slugify`'d unique id; `isCommissioner` on team 0; auction adds
-  `auctionRules.budget`). Inputs mirror the `KeeperEditModal` styling;
-  numeric fields are bold value + gray prefix/suffix.
+  4 steps (Basics → League Format → Teams → Review); `useReducer`
+  state; three-column card (left rail · form · right live-`TradingCard`
+  preview, `state='building'` until Review flips it to `'ready'`).
+  `buildLeague(state, existing)` produces the saved object (the
+  `src/data.js` shape; `slugify`'d unique id; `commissionerTeamId` +
+  `teams[0].isCommissioner`; snake adds `contractYears`, auction adds
+  `auctionRules.{costIncreasePerYear, budget, …}`). Local `Input` /
+  `Select` primitives mirror the `KeeperEditModal` styling (value bold,
+  unit/suffix regular gray); the `Select` menu portals out of the
+  card's `overflow:hidden` so it isn't clipped.
 - `src/LeagueView.jsx` — League detail (tabs: Overview / Lottery /
   Players / Payouts & Pay / Settings), settings forms
 - `src/components.jsx` — shared UI primitives + `SPORT_CONFIG`,
-  `getLeagueStats`, `Tooltip`, `SportLogo`, `makeTheme`
+  `getLeagueStats`, `Tooltip`, `SportLogo`, `makeTheme`, and
+  `TradingCard` (extracted from `HomeView`; takes a
+  `state?: 'building' | 'ready'` prop for the wizard live-preview —
+  `building` pins the BUILDING… sticker + dashed stats, `ready` flips
+  to READY FOR DRAFT, undefined keeps the My-Leagues behavior).
 - `src/PlayerAutocomplete.jsx` — autocomplete input backed by
   `loadPlayers`; takes `disabledNames` to block dupes; shows
   in-league keeper/rostered status next to suggestions
@@ -775,8 +811,12 @@ league. The original deferral was about *premature collaboration
 features*, not basic persistence — don't read "local-first by design"
 or "backend deferred" as a reason to block building auth + a database
 for a single commissioner. This is the path to the user running the
-app with their real league. See Open items #7 (backend), #15
-(account/login), #16 (create-league flow).
+app with their real league. **Create-league (#16) is now shipped
+(PR #10), so the backend + auth (#7/#15) is the next major
+milestone.** The shared responsive-layout / page-width-consistency
+item (#17) is the foundation for mobile and is expected to land
+alongside that work. See Open items #7 (backend), #15 (account/login),
+#16 (create-league flow — shipped), #17 (responsive).
 
 **(B) Multi-user collaboration REMAINS deferred.** League *members*
 logging in, members picking their own keepers, in-app trade
@@ -903,19 +943,21 @@ buttons, no member login until (B)'s trigger is hit.
     logins (that's the deferred collaboration line, Roadmap split B).
     Yahoo linking is a later, separate auth (it's also the in-season
     platform many leagues use).
-16. **Create / set up a league via UI — FIRST PASS SHIPPED (branch
-    `claude/create-league-wizard`).** `CreateLeagueWizard.jsx` at
-    `/new` now writes a real league to localStorage and navigates into
-    it; the `AddLeagueSlot` `alert()` is replaced. The wizard captures
-    name, sport, season, draft type, keeper slots, and the
-    draft-type-branched rules (contract length for snake;
-    `costIncreasePerYear` + `budget` for auction), plus team count and
-    placeholder team names (team 1 = commissioner). **Not yet
-    collected by the wizard** (defaulted, editable in Settings): buy-in
-    (→ 0), `minKeepers` (→ 0), `contractsRequired`/`contractsFollowTrade`
-    (snake → false / absent), `undraftedStartCost`/`minBid` (auction →
-    5 / 1), `playoffTeams`/`bottomLotteryTeams`, `draftDate`. Pairs
-    with #7/#15 for when persistence/auth land.
+16. **Create / set up a league via UI — SHIPPED (PR #10).**
+    `CreateLeagueWizard.jsx` at `/new` writes a real league to
+    localStorage (the `src/data.js` shape) and routes into it; the
+    `AddLeagueSlot` `alert()` is replaced. The wizard captures name,
+    sport, draft type, keeper slots, and the draft-type-branched rules
+    (contract length for snake; `costIncreasePerYear` + `budget` for
+    auction), plus team count and placeholder team names (team 1 =
+    commissioner, via `commissionerTeamId` + `teams[0].isCommissioner`).
+    **Not collected** (defaulted, editable in Settings): season (a
+    sensible default is stored, no UI), buy-in (→ 0), `minKeepers`
+    (→ 0), `contractsRequired`/`contractsFollowTrade` (snake → false /
+    absent), `undraftedStartCost`/`minBid` (auction → 5 / 1),
+    `playoffTeams`/`bottomLotteryTeams`, `draftDate`, and the keeper
+    round-cost rule (intentionally out of scope). Pairs with #7/#15 for
+    when persistence/auth land.
 17. **Mobile web / responsive — baseline, not polish.** League members
     and the commissioner will largely view on phones. The commissioner
     surfaces (HomeView, LeagueView tabs, the keeper grid, payouts,
