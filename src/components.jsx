@@ -110,6 +110,7 @@ const SPORT_CONFIG = {
 
 function sportTint(color)   { return color + '1f'; }  // ≈ 12% alpha
 function sportBorder(color) { return color + '33'; }  // ≈ 20% alpha
+function sportFill(color)   { return color + '3d'; }  // ≈ 24% alpha — selected-card fill
 
 // Renders the sport's badge logo if available, falling back to the emoji.
 // Height controls vertical size; width auto-scales to preserve the shield
@@ -386,7 +387,7 @@ Object.assign(window, {
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
-  sportTint, sportBorder,
+  sportTint, sportBorder, sportFill,
 });
 
 export {
@@ -395,5 +396,5 @@ export {
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
-  sportTint, sportBorder,
+  sportTint, sportBorder, sportFill,
 };

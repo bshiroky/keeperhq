@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SPORT_CONFIG, tokens, makeTheme } from './components.jsx';
+import { SPORT_CONFIG, tokens, makeTheme, sportFill } from './components.jsx';
 import { TradingCard } from './HomeView.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
@@ -11,6 +11,7 @@ import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 // onCreate callback, then navigates into it.
 
 const STEPS = ['Basics', 'League Format', 'Teams', 'Review'];
+const STEP_TITLES = ['The basics', 'League format', 'Teams', 'Review'];
 const CROSS_YEAR = new Set(['hockey', 'basketball']);
 
 const SPORT_PICKER_STYLES = `
@@ -165,14 +166,25 @@ function StepBasics({ form, set, isDark }) {
               <button key={id} type="button"
                 onClick={() => set({ sport: id, season: defaultSeason(id) })}
                 style={{
+                  position: 'relative',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: tokens.spaceSm,
                   padding: `${tokens.spaceLg}px ${tokens.spaceXs}px`,
                   border: `2px solid ${active ? cfg.color : t.border}`,
-                  background: active ? cfg.tint : t.cardBg,
+                  background: active ? sportFill(cfg.color) : t.cardBg,
                   borderRadius: tokens.radiusLg, cursor: 'pointer', fontFamily: 'inherit',
                   boxShadow: active ? `0 0 0 4px ${cfg.tint}, 0 8px 20px ${cfg.border}` : 'none',
                   transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
                 }}>
+                {active && (
+                  <span aria-hidden="true" style={{
+                    position: 'absolute', top: tokens.spaceXs, right: tokens.spaceXs,
+                    width: 20, height: 20, borderRadius: '50%',
+                    background: cfg.color, color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '11px', fontWeight: 800, lineHeight: 1,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                  }}>✓</span>
+                )}
                 <img src={cfg.logo} alt="" height={76}
                   className={active ? 'kh-sport-bob' : undefined}
                   style={{ height: 76, width: 'auto', maxWidth: '100%', imageRendering: 'pixelated', display: 'block',
@@ -211,7 +223,7 @@ function DraftTypeCard({ type, title, tagline, sample, isSnake, accent, active, 
       flex: 1, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
       border: `2px solid ${active ? accent : t.border}`,
       background: active ? `${accent}10` : t.cardBg,
-      borderRadius: tokens.radiusLg, padding: tokens.spaceMd,
+      borderRadius: tokens.radiusLg, padding: tokens.spaceSm,
       display: 'flex', flexDirection: 'column', gap: tokens.spaceXs,
       transition: 'border-color 0.15s, background 0.15s',
     }}>
@@ -243,49 +255,54 @@ function StepFormat({ form, set, isDark }) {
         <div style={{ display: 'flex', gap: tokens.spaceSm, alignItems: 'stretch' }}>
           <DraftTypeCard
             type="auction" title="Auction" isSnake={false} sample={SAMPLE_AUCTION}
-            tagline="Bid real dollars on players; keepers cost more each year you hold them."
+            tagline="Bid dollars; keepers cost more each year."
             accent={tokens.warning} active={form.draftType === 'auction'}
             onSelect={() => set({ draftType: 'auction' })} isDark={isDark}
           />
           <DraftTypeCard
             type="snake" title="Snake" isSnake={true} sample={SAMPLE_SNAKE}
-            tagline="Draft in order; keepers run on multi-year contracts and then expire."
+            tagline="Draft in order; keepers run on contracts."
             accent={tokens.info} active={form.draftType === 'snake'}
             onSelect={() => set({ draftType: 'snake' })} isDark={isDark}
           />
         </div>
       </div>
 
-      <div>
-        <FieldLabel t={t}>Keeper slots</FieldLabel>
-        <NumberField value={form.keeperSlots} onChange={v => set({ keeperSlots: v })}
-          min={1} max={20} suffix="players per team" isDark={isDark} />
+      <div style={{ display: 'flex', gap: tokens.spaceLg, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div>
+          <FieldLabel t={t}>Keeper slots</FieldLabel>
+          <NumberField value={form.keeperSlots} onChange={v => set({ keeperSlots: v })}
+            min={1} max={20} suffix="players" isDark={isDark} />
+        </div>
+
+        {isSnake ? (
+          <div>
+            <FieldLabel t={t}>Contract length</FieldLabel>
+            <NumberField value={form.contractYears} onChange={v => set({ contractYears: v })}
+              min={1} max={10} suffix="years" isDark={isDark} />
+          </div>
+        ) : (
+          <>
+            <div>
+              <FieldLabel t={t}>Annual increase</FieldLabel>
+              <NumberField value={form.costIncreasePerYear} onChange={v => set({ costIncreasePerYear: v })}
+                min={0} max={100} step={1} prefix="+$" suffix="/yr"
+                valueColor={tokens.warning} isDark={isDark} />
+            </div>
+            <div>
+              <FieldLabel t={t}>Auction budget</FieldLabel>
+              <NumberField value={form.budget} onChange={v => set({ budget: v })}
+                min={1} max={1000} step={5} prefix="$" suffix="/team"
+                valueColor={tokens.warning} width={72} isDark={isDark} />
+            </div>
+          </>
+        )}
       </div>
 
-      {isSnake ? (
-        <div>
-          <FieldLabel t={t}>Contract length</FieldLabel>
-          <NumberField value={form.contractYears} onChange={v => set({ contractYears: v })}
-            min={1} max={10} suffix="years" isDark={isDark} />
-          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceXs }}>
-            How many seasons a player can be kept before returning to the draft.
-          </div>
+      {isSnake && (
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
+          Contract length is how many seasons a player can be kept before returning to the draft.
         </div>
-      ) : (
-        <>
-          <div>
-            <FieldLabel t={t}>Annual cost increase</FieldLabel>
-            <NumberField value={form.costIncreasePerYear} onChange={v => set({ costIncreasePerYear: v })}
-              min={0} max={100} step={1} prefix="+$" suffix="per year kept"
-              valueColor={tokens.warning} isDark={isDark} />
-          </div>
-          <div>
-            <FieldLabel t={t}>Auction budget</FieldLabel>
-            <NumberField value={form.budget} onChange={v => set({ budget: v })}
-              min={1} max={1000} step={5} prefix="$" suffix="per team"
-              valueColor={tokens.warning} width={72} isDark={isDark} />
-          </div>
-        </>
       )}
     </div>
   );
@@ -466,7 +483,7 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceLg, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create a league</h1>
+          <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create new league</h1>
           <p style={{ ...tokens.typeBodyMeta, color: t.textSecondary, margin: `${tokens.space2xs}px 0 0` }}>
             Set the basics now — everything is editable later in Settings.
           </p>
@@ -489,8 +506,13 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
             background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
             boxShadow: t.cardShadow, padding: `${tokens.spaceLg}px ${tokens.spaceXl}px`,
           }}>
-            <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary, marginBottom: tokens.spaceLg }}>
-              {step}. {STEPS[step - 1]}
+            <div style={{ marginBottom: tokens.spaceLg }}>
+              <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.space2xs }}>
+                Step {step} of 4
+              </div>
+              <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>
+                {STEP_TITLES[step - 1]}
+              </div>
             </div>
             {step === 1 && <StepBasics form={form} set={set} isDark={isDark} />}
             {step === 2 && <StepFormat form={form} set={set} isDark={isDark} />}
@@ -499,8 +521,9 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
 
             {/* Nav — sits a comfortable gap below the last field, in flow. */}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: tokens.spaceSm, marginTop: tokens.spaceXl }}>
-              <button type="button" onClick={() => (step === 1 ? onCancel() : setStep(step - 1))} style={ghostBtn}>
-                {step === 1 ? 'Cancel' : 'Back'}
+              <button type="button" onClick={() => setStep(step - 1)} disabled={step === 1}
+                style={{ ...ghostBtn, opacity: step === 1 ? 0.45 : 1, cursor: step === 1 ? 'not-allowed' : 'pointer' }}>
+                Back
               </button>
               {step < 4 ? (
                 <button type="button" onClick={() => setStep(step + 1)} style={{ ...btnBase, background: primary, color: '#fff' }}>
