@@ -164,7 +164,7 @@ function FieldHelp({ children, t }) {
   return <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs }}>{children}</div>;
 }
 
-function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDark, type = 'text', autoFocus }) {
+function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDark, type = 'text', autoFocus, min, max, step }) {
   const t = makeTheme(isDark);
   const sm = size === 'sm';
   const filled = value !== '' && value != null;
@@ -186,10 +186,11 @@ function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDa
       )}
       <input
         type={type} value={value} placeholder={placeholder} onChange={onChange} onBlur={onBlur} autoFocus={autoFocus}
+        min={min} max={max} step={step}
         style={{
           flex: 1, minWidth: 0, boxSizing: 'border-box',
           background: 'transparent', border: 'none', outline: 'none',
-          padding: sm ? '7px 8px' : '8px 12px',
+          padding: sm ? '8px 10px' : '8px 12px',
           fontSize: sm ? 13 : 14, fontWeight: filled ? (sm ? 700 : 600) : 400,
           color: t.textPrimary, fontFamily: 'inherit',
         }}
@@ -376,7 +377,6 @@ function SectionDivider({ label, t }) {
 // ── Step 1: Basics ──────────────────────────────────────────────────────────
 function StepBasics({ s, dispatch, isDark }) {
   const t = makeTheme(isDark);
-  const seasons = seasonOptions(s.sport);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceLg, maxWidth: 520 }}>
       <div>
@@ -388,12 +388,6 @@ function StepBasics({ s, dispatch, isDark }) {
         <FieldLabel t={t}>Sport</FieldLabel>
         <SportPicker value={s.sport} onChange={id => dispatch({ type: 'sport', sport: id })} isDark={isDark} />
       </div>
-      <div style={{ maxWidth: 260 }}>
-        <FieldLabel t={t}>Season</FieldLabel>
-        <Select value={s.season} onChange={v => dispatch({ type: 'set', patch: { season: v } })}
-          options={seasons} width="100%" isDark={isDark} />
-        <FieldHelp t={t}>The off-season you're setting up keepers for.</FieldHelp>
-      </div>
     </div>
   );
 }
@@ -402,7 +396,6 @@ function StepBasics({ s, dispatch, isDark }) {
 function StepFormat({ s, dispatch, isDark }) {
   const t = makeTheme(isDark);
   const isSnake = s.draftType === 'snake';
-  const CTRL = 140;
   return (
     <div>
       <FieldLabel t={t}>Draft type</FieldLabel>
@@ -421,13 +414,15 @@ function StepFormat({ s, dispatch, isDark }) {
       {s.draftType && (
         <>
           <SectionDivider label="Keeper rules" t={t} />
-          <div style={{ display: 'flex', gap: tokens.spaceLg, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: tokens.spaceMd, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <div>
               <FieldLabel t={t}>Keeper slots</FieldLabel>
               <FieldHelp t={t}>Per team.</FieldHelp>
               <div style={{ marginTop: tokens.spaceXs }}>
-                <Select value={s.keeperSlots} onChange={v => dispatch({ type: 'set', patch: { keeperSlots: Number(v) } })}
-                  options={Array.from({ length: 10 }, (_, i) => i + 1)} suffix="players" width={CTRL} isDark={isDark} />
+                <Input size="sm" type="number" width={96} isDark={isDark} min={1} max={10} step={1}
+                  value={s.keeperSlots}
+                  onChange={e => dispatch({ type: 'set', patch: { keeperSlots: e.target.value === '' ? '' : Number(e.target.value) } })}
+                  onBlur={e => dispatch({ type: 'set', patch: { keeperSlots: clamp(Number(e.target.value) || 1, 1, 10) } })} />
               </div>
             </div>
 
@@ -437,7 +432,7 @@ function StepFormat({ s, dispatch, isDark }) {
                 <FieldHelp t={t}>Years before a keeper expires.</FieldHelp>
                 <div style={{ marginTop: tokens.spaceXs }}>
                   <Select value={s.contractYears} onChange={v => dispatch({ type: 'set', patch: { contractYears: Number(v) } })}
-                    options={[2, 3, 4, 5]} suffix="years" width={CTRL} isDark={isDark} />
+                    options={[2, 3, 4, 5]} suffix="years" width={120} isDark={isDark} />
                 </div>
               </div>
             ) : (
@@ -446,7 +441,7 @@ function StepFormat({ s, dispatch, isDark }) {
                   <FieldLabel t={t}>Annual increase</FieldLabel>
                   <FieldHelp t={t}>Cost each year held.</FieldHelp>
                   <div style={{ marginTop: tokens.spaceXs }}>
-                    <Input size="sm" type="number" prefix="+$" width={CTRL} isDark={isDark}
+                    <Input size="sm" type="number" prefix="+$" width={120} isDark={isDark} min={0} max={50} step={1}
                       value={s.auctionInflation}
                       onChange={e => dispatch({ type: 'set', patch: { auctionInflation: e.target.value === '' ? '' : Number(e.target.value) } })}
                       onBlur={e => dispatch({ type: 'set', patch: { auctionInflation: clamp(Number(e.target.value) || 0, 0, 50) } })} />
@@ -456,7 +451,7 @@ function StepFormat({ s, dispatch, isDark }) {
                   <FieldLabel t={t}>Auction budget</FieldLabel>
                   <FieldHelp t={t}>Per team, total cap.</FieldHelp>
                   <div style={{ marginTop: tokens.spaceXs }}>
-                    <Input size="sm" type="number" prefix="$" width={CTRL} isDark={isDark}
+                    <Input size="sm" type="number" prefix="$" width={128} isDark={isDark} min={50} max={1000} step={5}
                       value={s.budget}
                       onChange={e => dispatch({ type: 'set', patch: { budget: e.target.value === '' ? '' : Number(e.target.value) } })}
                       onBlur={e => dispatch({ type: 'set', patch: { budget: clamp(Number(e.target.value) || 50, 50, 1000) } })} />
@@ -496,10 +491,10 @@ function StepTeams({ s, dispatch, isDark }) {
         <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>You're commissioner of team #1 by default.</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spaceSm, maxWidth: 640 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: tokens.spaceSm, maxWidth: 640, maxHeight: 300, overflowY: 'auto' }}>
         {names.map((nm, i) => (
           <div key={i} style={{
-            display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+            display: 'flex', alignItems: 'center', gap: tokens.spaceSm, minWidth: 0, boxSizing: 'border-box',
             background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
             borderRadius: tokens.radiusMd, padding: '8px 12px',
           }}>
@@ -582,8 +577,7 @@ function StepReview({ s, dispatch, isDark, accent }) {
 
       <ReviewSection title="Basics" accent={accent} editLabel="Edit step 1" onEdit={() => dispatch({ type: 'goto', step: 0 })} t={t} isDark={isDark}>
         <ReviewRow t={t} label="Name" value={s.name.trim() || 'Untitled League'} />
-        <ReviewRow t={t} label="Sport" value={SPORT_CONFIG[s.sport]?.label || '—'} />
-        <ReviewRow t={t} label="Season" value={s.season} last />
+        <ReviewRow t={t} label="Sport" value={SPORT_CONFIG[s.sport]?.label || '—'} last />
       </ReviewSection>
 
       <ReviewSection title="League format" accent={accent} editLabel="Edit step 2" onEdit={() => dispatch({ type: 'goto', step: 1 })} t={t} isDark={isDark}>
@@ -735,9 +729,6 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
           <div style={{ background: colMuted, borderLeft: `1px solid ${t.divider}`, padding: tokens.spaceXl }}>
             <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceSm }}>Live preview</div>
             <TradingCard league={preview} isDark={isDark} state={isReview ? 'ready' : 'building'} />
-            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, fontStyle: 'italic', textAlign: 'center', marginTop: tokens.spaceSm }}>
-              Card fills in as you go.
-            </div>
           </div>
         </div>
       </div>

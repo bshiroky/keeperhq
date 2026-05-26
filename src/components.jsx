@@ -576,14 +576,14 @@ function TradingCard({ league, onClick, isDark, state }) {
         </div>
 
         <div style={{
-          position: 'absolute', right: -8, bottom: -16,
-          width: 160, height: 170,
+          position: 'absolute', right: wizard ? -6 : -8, bottom: wizard ? -12 : -16,
+          width: wizard ? 116 : 160, height: wizard ? 122 : 170,
           display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
           zIndex: 2,
         }}>
           <img className={`kh-tcard-mascot${wizard ? ' kh-tcard-mascot--bob' : ''}`} src={sport.logo} alt=""
             style={{
-              height: 152, width: 'auto', imageRendering: 'pixelated', display: 'block',
+              height: wizard ? 108 : 152, width: 'auto', imageRendering: 'pixelated', display: 'block',
               filter: 'drop-shadow(0 6px 8px rgba(0,0,0,0.25))',
             }} />
         </div>
