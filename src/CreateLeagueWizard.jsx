@@ -1,37 +1,41 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SPORT_CONFIG, tokens, makeTheme, sportFill } from './components.jsx';
-import { TradingCard } from './HomeView.jsx';
+import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES } from './components.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
-// Create New League — 4-step wizard (Basics / Format / Teams / Review).
-// Left progress rail, center step content, right live preview that IS the
-// real HomeView TradingCard fed a half-built league object. Writes a league
-// with the exact mock-data shape (src/data.js) into localStorage via the
-// onCreate callback, then navigates into it.
+// Create New League — 4-step wizard (Basics / League Format / Teams / Review).
+// Three-column card: left rail · form · live TradingCard preview. Writes a
+// league in the src/data.js shape to localStorage (via onCreate) and routes
+// into it. Per the build scope: no keeper round-cost UI, and the commissioner
+// is auto-assigned to team #1 (commissionerTeamId) with no reassignment UI.
 
 const STEPS = ['Basics', 'League Format', 'Teams', 'Review'];
-const STEP_TITLES = ['The basics', 'League format', 'Teams', 'Review'];
-const CROSS_YEAR = new Set(['hockey', 'basketball']);
+const STEP_TITLES = ['The basics', 'League format', 'Teams', 'Review & create'];
 
-const SPORT_PICKER_STYLES = `
-  @keyframes kh-sportbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-  .kh-sport-bob { animation: kh-sportbob 1.8s ease-in-out infinite; }
+// Picker / preview animation rules. kh-bob + kh-bob-slow keyframes live in the
+// shared CARD_STYLES (also rendered here), so these selectors can reference them.
+const WIZARD_STYLES = `
+  .kh-fighter-card { transition: background 0.2s, border-color 0.2s, box-shadow 0.25s, transform 0.2s; }
+  .kh-fighter-card--unselected:hover { background: rgba(0,0,0,0.025); transform: translateY(-1px); }
+  .kh-fighter-card--selected .kh-fighter-char { animation: kh-bob 1.4s ease-in-out infinite; }
 `;
 
+// Sample keepers shown inside the draft-type tiles (same shape the Overview
+// grid feeds SampleKeeperCell).
+const SAMPLE_AUCTION = { player: 'Connor McDavid', keptFor: 58 };
+const SAMPLE_SNAKE   = { player: 'Connor McDavid', contractYear: 2, contractLength: 3 };
+
+const CROSS_YEAR = sport => sport === 'hockey' || sport === 'basketball' || sport === '';
+
 function seasonOptions(sport) {
-  return CROSS_YEAR.has(sport)
-    ? ['2025-26', '2026-27', '2027-28']
-    : ['2026', '2027', '2028'];
-}
-function defaultSeason(sport) {
-  return CROSS_YEAR.has(sport) ? '2026-27' : '2026';
+  const y = new Date().getFullYear();
+  if (CROSS_YEAR(sport)) return [0, 1, 2].map(i => `${y + i}-${String(y + i + 1).slice(2)}`);
+  return [0, 1, 2].map(i => `${y + i}`);
 }
 
 function slugify(name) {
   return (
-    name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
-    'league'
+    name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'league'
   );
 }
 function uniqueId(base, existing) {
@@ -42,395 +46,579 @@ function uniqueId(base, existing) {
   return `${base}-${n}`;
 }
 
-// Builds the saved league object. Shape is identical to the mock leagues in
-// src/data.js; the only additive fields beyond that shape are team[0]
-// isCommissioner and (auction) auctionRules.budget, both intentional.
-function buildLeague(form, existing) {
-  const teams = Array.from({ length: form.teamCount }, (_, i) => ({
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// ── Wizard state ───────────────────────────────────────────────────────────
+function makeInitial() {
+  return {
+    step: 0,
+    name: '',
+    sport: '',
+    season: seasonOptions('')[0],
+    draftType: '',
+    keeperSlots: 5,
+    auctionInflation: 5,
+    budget: 200,
+    contractYears: 3,
+    teamCount: 10,
+    teamNames: Array.from({ length: 10 }, (_, i) => `Team ${i + 1}`),
+  };
+}
+
+function reducer(s, a) {
+  switch (a.type) {
+    case 'set':    return { ...s, ...a.patch };
+    case 'goto':   return { ...s, step: a.step };
+    case 'next':   return { ...s, step: Math.min(3, s.step + 1) };
+    case 'back':   return { ...s, step: Math.max(0, s.step - 1) };
+    case 'sport':  return { ...s, sport: a.sport, season: seasonOptions(a.sport)[0] };
+    // Switching draft type discards the other mode's values (no cross-mode carry).
+    case 'draftType': return { ...s, draftType: a.draftType, auctionInflation: 5, budget: 200, contractYears: 3 };
+    case 'teamCount': {
+      const n = a.count;
+      const names = s.teamNames.slice(0, n);
+      while (names.length < n) names.push(`Team ${names.length + 1}`);
+      return { ...s, teamCount: n, teamNames: names };
+    }
+    case 'teamName': {
+      const names = s.teamNames.slice();
+      names[a.i] = a.value;
+      return { ...s, teamNames: names };
+    }
+    default: return s;
+  }
+}
+
+function stepValid(s, step) {
+  if (step === 0) return s.name.trim().length > 0 && s.sport !== '';
+  if (step === 1) return s.draftType !== '';
+  if (step === 2) return s.teamNames.slice(0, s.teamCount).every(n => n.trim().length > 0);
+  return true;
+}
+
+// ── Output shapes ────────────────────────────────────────────────────────
+// Saved league mirrors the src/data.js shape (auctionRules / contractYears /
+// slug id) so the rest of the app reads it correctly, plus commissionerTeamId.
+function buildLeague(s, existing) {
+  const teams = s.teamNames.slice(0, s.teamCount).map((nm, i) => ({
     id: `t${i + 1}`,
-    name: (form.teamNames[i] || '').trim() || `Team ${i + 1}`,
+    name: (nm || '').trim() || `Team ${i + 1}`,
     paid: false,
     keepersSubmitted: false,
     keepers: [],
-    ...(i === 0 ? { isCommissioner: true } : {}),
   }));
-  const buyIn = 0;
   const base = {
-    id: uniqueId(slugify(form.name || ''), existing),
-    name: (form.name || '').trim() || 'Untitled League',
-    sport: form.sport,
-    draftType: form.draftType,
-    season: form.season,
-    teamCount: form.teamCount,
-    keeperSlots: form.keeperSlots,
+    id: uniqueId(slugify(s.name || ''), existing),
+    name: (s.name || '').trim() || 'Untitled League',
+    sport: s.sport,
+    draftType: s.draftType,
+    season: s.season,
+    teamCount: s.teamCount,
+    keeperSlots: s.keeperSlots,
     minKeepers: 0,
-    buyIn,
-    totalPool: form.teamCount * buyIn,
+    buyIn: 0,
+    totalPool: 0,
+    commishFee: 0,
     status: 'pre-draft',
     draftDate: null,
     playoffTeams: 6,
-    noPlayoffPickupKeepers: true,
     payouts: { standings: [], other: [] },
     payoutNote: '',
+    commissionerTeamId: teams[0].id,
+    createdAt: new Date().toISOString(),
     teams,
   };
-  if (form.draftType === 'snake') {
-    return { ...base, contractYears: form.contractYears, bottomLotteryTeams: 4, contractsRequired: false };
+  if (s.draftType === 'snake') {
+    return { ...base, contractYears: s.contractYears, bottomLotteryTeams: 4, contractsRequired: false };
   }
   return {
     ...base,
-    auctionRules: {
-      costIncreasePerYear: form.costIncreasePerYear,
-      budget: form.budget,
-      undraftedStartCost: 5,
-      minBid: 1,
-    },
+    auctionRules: { costIncreasePerYear: s.auctionInflation, budget: s.budget, undraftedStartCost: 5, minBid: 1 },
   };
 }
 
-// ── Shared field styling — mirrors the Manage-Player (KeeperEditModal)
-//    input/select styling exactly so the wizard reads as the same surface.
-function textInputStyle(t, isDark) {
+// Lighter object for the live TradingCard preview — keeps auctionRules /
+// contractYears so the card's ruleMod produces the right meta pill.
+function buildPreview(s) {
   return {
-    width: '100%', boxSizing: 'border-box',
-    background: isDark ? '#161a22' : '#f7f9fc',
-    border: `1px solid ${t.border}`, borderRadius: 8,
-    padding: '8px 12px', fontSize: '14px', color: t.textPrimary,
-    outline: 'none', fontFamily: 'inherit',
-  };
-}
-function selectStyle(t, isDark) {
-  return {
-    background: isDark ? '#161a22' : '#f7f9fc',
-    border: `1px solid ${t.border}`, borderRadius: 6,
-    padding: '7px 8px', color: t.textPrimary, fontSize: '13px',
-    fontFamily: 'inherit', cursor: 'pointer',
+    id: 'preview',
+    name: s.name,
+    sport: s.sport,
+    draftType: s.draftType,
+    season: s.season,
+    teamCount: s.teamCount,
+    keeperSlots: s.keeperSlots,
+    contractYears: s.draftType === 'snake' ? s.contractYears : undefined,
+    auctionRules: s.draftType === 'auction' ? { costIncreasePerYear: s.auctionInflation } : undefined,
+    buyIn: 0,
+    totalPool: 0,
+    teams: [],
   };
 }
 
-// Bold numeric value with gray prefix/suffix (the value-bold / unit-gray rule).
-function NumberField({ value, onChange, min, max, step = 1, prefix, suffix, isDark, valueColor, width = 60 }) {
+// ── Field primitives (modeled on KeeperEditModal inputs) ───────────────────
+function FieldLabel({ children, t }) {
+  return <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.space2xs }}>{children}</div>;
+}
+function FieldHelp({ children, t }) {
+  return <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs }}>{children}</div>;
+}
+
+function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDark, type = 'text', autoFocus }) {
   const t = makeTheme(isDark);
+  const sm = size === 'sm';
+  const filled = value !== '' && value != null;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      {prefix && <span style={{ ...tokens.typeBody, color: t.textMuted }}>{prefix}</span>}
+    <div style={{
+      display: 'flex', alignItems: 'stretch', width, boxSizing: 'border-box',
+      background: isDark ? '#161a22' : '#f7f9fc',
+      border: `1px solid ${t.border}`, borderRadius: sm ? tokens.radiusSm : tokens.radiusMd,
+      overflow: 'hidden',
+    }}>
+      {prefix != null && (
+        <span style={{
+          display: 'inline-flex', alignItems: 'center',
+          padding: sm ? '0 8px' : '0 10px',
+          borderRight: `1px solid ${t.border}`,
+          background: 'rgba(0,0,0,0.025)', color: t.textMuted,
+          fontWeight: 400, fontSize: sm ? 13 : 14,
+        }}>{prefix}</span>
+      )}
       <input
-        type="number" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-        onBlur={e => {
-          let v = Number(e.target.value);
-          if (Number.isNaN(v)) v = min;
-          v = Math.max(min, Math.min(max ?? Infinity, v));
-          onChange(v);
-        }}
+        type={type} value={value} placeholder={placeholder} onChange={onChange} onBlur={onBlur} autoFocus={autoFocus}
         style={{
-          width, textAlign: 'center',
-          background: isDark ? '#161a22' : '#f7f9fc',
-          border: `1px solid ${t.border}`, borderRadius: 6,
-          padding: '7px 8px', color: valueColor || t.textPrimary,
-          fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', outline: 'none',
+          flex: 1, minWidth: 0, boxSizing: 'border-box',
+          background: 'transparent', border: 'none', outline: 'none',
+          padding: sm ? '7px 8px' : '8px 12px',
+          fontSize: sm ? 13 : 14, fontWeight: filled ? (sm ? 700 : 600) : 400,
+          color: t.textPrimary, fontFamily: 'inherit',
         }}
       />
-      {suffix && <span style={{ ...tokens.typeBody, color: t.textMuted }}>{suffix}</span>}
-    </span>
-  );
-}
-
-function FieldLabel({ children, t }) {
-  return <div style={{ ...tokens.typeLabelEyebrow, color: t.textSecondary, marginBottom: tokens.spaceXs }}>{children}</div>;
-}
-
-// ── Step 1: Basics ─────────────────────────────────────────────────────────
-function StepBasics({ form, set, isDark }) {
-  const t = makeTheme(isDark);
-  const seasons = seasonOptions(form.sport);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceLg }}>
-      <div>
-        <FieldLabel t={t}>League name</FieldLabel>
-        <input
-          value={form.name}
-          onChange={e => set({ name: e.target.value })}
-          placeholder="e.g. The Pond"
-          autoFocus
-          style={textInputStyle(t, isDark)}
-        />
-      </div>
-
-      <div>
-        <FieldLabel t={t}>Sport</FieldLabel>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceSm }}>
-          {Object.entries(SPORT_CONFIG).map(([id, cfg]) => {
-            const active = form.sport === id;
-            return (
-              <button key={id} type="button"
-                onClick={() => set({ sport: id, season: defaultSeason(id) })}
-                style={{
-                  position: 'relative',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: tokens.spaceSm,
-                  padding: `${tokens.spaceLg}px ${tokens.spaceXs}px`,
-                  border: `2px solid ${active ? cfg.color : t.border}`,
-                  background: active ? sportFill(cfg.color) : t.cardBg,
-                  borderRadius: tokens.radiusLg, cursor: 'pointer', fontFamily: 'inherit',
-                  boxShadow: active ? `0 0 0 4px ${cfg.tint}, 0 8px 20px ${cfg.border}` : 'none',
-                  transition: 'border-color 0.15s, background 0.15s, box-shadow 0.15s',
-                }}>
-                {active && (
-                  <span aria-hidden="true" style={{
-                    position: 'absolute', top: tokens.spaceXs, right: tokens.spaceXs,
-                    width: 20, height: 20, borderRadius: '50%',
-                    background: cfg.color, color: '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '11px', fontWeight: 800, lineHeight: 1,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
-                  }}>✓</span>
-                )}
-                <img src={cfg.logo} alt="" height={76}
-                  className={active ? 'kh-sport-bob' : undefined}
-                  style={{ height: 76, width: 'auto', maxWidth: '100%', imageRendering: 'pixelated', display: 'block',
-                    filter: active ? 'none' : 'grayscale(1)', opacity: active ? 1 : 0.5,
-                    transition: 'filter 0.15s, opacity 0.15s' }} />
-                <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 600, color: active ? cfg.color : t.textMuted }}>
-                  {cfg.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <FieldLabel t={t}>Season</FieldLabel>
-        <select value={form.season} onChange={e => set({ season: e.target.value })} style={selectStyle(t, isDark)}>
-          {seasons.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceXs }}>
-          The off-season you're setting up keepers for.
-        </div>
-      </div>
     </div>
   );
 }
 
-// ── Step 2: League Format ──────────────────────────────────────────────────
-const SAMPLE_AUCTION = { player: 'Nikola Jokić', keptFor: 42 };
-const SAMPLE_SNAKE = { player: 'Connor McDavid', contractYear: 2, contractLength: 3 };
-
-function DraftTypeCard({ type, title, tagline, sample, isSnake, accent, active, onSelect, isDark }) {
+// Faux-select: styled button + popover so the closed control can show a muted
+// unit suffix ("players", "years") next to the bold value.
+function Select({ value, onChange, options, suffix, width, isDark }) {
   const t = makeTheme(isDark);
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
   return (
-    <button type="button" onClick={onSelect} style={{
-      flex: 1, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
-      border: `2px solid ${active ? accent : t.border}`,
-      background: active ? `${accent}10` : t.cardBg,
-      borderRadius: tokens.radiusLg, padding: tokens.spaceSm,
-      display: 'flex', flexDirection: 'column', gap: tokens.spaceXs,
-      transition: 'border-color 0.15s, background 0.15s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceXs }}>
-        <span style={{ ...tokens.typeHeadingCard, color: active ? accent : t.textPrimary }}>{title}</span>
-        <span aria-hidden="true" style={{
-          width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
-          border: `2px solid ${active ? accent : t.border}`,
-          background: active ? accent : 'transparent',
-          boxShadow: active ? `inset 0 0 0 2px ${t.cardBg}` : 'none',
-        }} />
-      </div>
-      <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, lineHeight: 1.4, minHeight: 32 }}>{tagline}</div>
-      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginTop: tokens.space2xs }}>Sample keeper</div>
-      <div style={{ width: 156 }}>
-        <SampleKeeperCell slot={sample} isSnake={isSnake} isDark={isDark} gridAccent={accent} />
-      </div>
-    </button>
-  );
-}
-
-function StepFormat({ form, set, isDark }) {
-  const t = makeTheme(isDark);
-  const isSnake = form.draftType === 'snake';
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceLg }}>
-      <div>
-        <FieldLabel t={t}>Draft type</FieldLabel>
-        <div style={{ display: 'flex', gap: tokens.spaceSm, alignItems: 'stretch' }}>
-          <DraftTypeCard
-            type="auction" title="Auction" isSnake={false} sample={SAMPLE_AUCTION}
-            tagline="Bid dollars; keepers cost more each year."
-            accent={tokens.warning} active={form.draftType === 'auction'}
-            onSelect={() => set({ draftType: 'auction' })} isDark={isDark}
-          />
-          <DraftTypeCard
-            type="snake" title="Snake" isSnake={true} sample={SAMPLE_SNAKE}
-            tagline="Draft in order; keepers run on contracts."
-            accent={tokens.info} active={form.draftType === 'snake'}
-            onSelect={() => set({ draftType: 'snake' })} isDark={isDark}
-          />
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: tokens.spaceLg, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div>
-          <FieldLabel t={t}>Keeper slots</FieldLabel>
-          <NumberField value={form.keeperSlots} onChange={v => set({ keeperSlots: v })}
-            min={1} max={20} suffix="players" isDark={isDark} />
-        </div>
-
-        {isSnake ? (
-          <div>
-            <FieldLabel t={t}>Contract length</FieldLabel>
-            <NumberField value={form.contractYears} onChange={v => set({ contractYears: v })}
-              min={1} max={10} suffix="years" isDark={isDark} />
-          </div>
-        ) : (
-          <>
-            <div>
-              <FieldLabel t={t}>Annual increase</FieldLabel>
-              <NumberField value={form.costIncreasePerYear} onChange={v => set({ costIncreasePerYear: v })}
-                min={0} max={100} step={1} prefix="+$" suffix="/yr"
-                valueColor={tokens.warning} isDark={isDark} />
-            </div>
-            <div>
-              <FieldLabel t={t}>Auction budget</FieldLabel>
-              <NumberField value={form.budget} onChange={v => set({ budget: v })}
-                min={1} max={1000} step={5} prefix="$" suffix="/team"
-                valueColor={tokens.warning} width={72} isDark={isDark} />
-            </div>
-          </>
-        )}
-      </div>
-
-      {isSnake && (
-        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
-          Contract length is how many seasons a player can be kept before returning to the draft.
+    <div ref={ref} style={{ position: 'relative', width, boxSizing: 'border-box' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{
+        width: '100%', boxSizing: 'border-box',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+        background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
+        borderRadius: tokens.radiusSm, padding: '8px 10px', cursor: 'pointer', fontFamily: 'inherit',
+      }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{value}</span>
+          {suffix && <span style={{ fontSize: 13, fontWeight: 400, color: t.textMuted }}>{suffix}</span>}
+        </span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M1 1L5 5L9 1" stroke={t.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, width: '100%',
+          maxHeight: 220, overflowY: 'auto',
+          background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusSm, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+          zIndex: 50, padding: 4,
+        }}>
+          {options.map(opt => {
+            const sel = String(opt) === String(value);
+            return (
+              <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  background: sel ? t.sectionBg : 'transparent', border: 'none', borderRadius: 4,
+                  padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 13, fontWeight: sel ? 700 : 500, color: t.textPrimary,
+                }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = t.sectionBg; }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
+                {opt}{suffix ? ` ${suffix}` : ''}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ── Step 3: Teams ──────────────────────────────────────────────────────────
-function StepTeams({ form, set, isDark }) {
+// ── Sport picker (choose-your-fighter) ─────────────────────────────────────
+function SportPicker({ value, onChange, isDark }) {
   const t = makeTheme(isDark);
-  function setTeamCount(n) {
-    const names = [...form.teamNames];
-    while (names.length < n) names.push(`Team ${names.length + 1}`);
-    names.length = n;
-    set({ teamCount: n, teamNames: names });
-  }
-  function setName(i, value) {
-    const names = [...form.teamNames];
-    names[i] = value;
-    set({ teamNames: names });
-  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceSm }}>
+      {Object.entries(SPORT_CONFIG).map(([id, cfg]) => {
+        const sel = value === id;
+        return (
+          <button key={id} type="button" onClick={() => onChange(id)}
+            className={`kh-fighter-card kh-fighter-card--${sel ? 'selected' : 'unselected'}`}
+            style={{
+              position: 'relative', height: 160, borderRadius: tokens.radiusMd,
+              padding: '0 0 12px 0', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden',
+              cursor: 'pointer', fontFamily: 'inherit',
+              border: `${sel ? 2 : 1}px solid ${sel ? cfg.color : t.border}`,
+              background: sel ? cfg.tint : (isDark ? '#1c2130' : '#fff'),
+              boxShadow: sel ? `0 8px 20px ${cfg.color}33` : 'none',
+            }}>
+            {sel && (
+              <div aria-hidden="true" style={{
+                position: 'absolute', bottom: 38, left: '50%', transform: 'translateX(-50%)',
+                width: 130, height: 130, borderRadius: '50%',
+                background: `radial-gradient(circle, ${cfg.color}44 0%, transparent 65%)`,
+                pointerEvents: 'none',
+              }} />
+            )}
+            {sel && (
+              <span aria-hidden="true" style={{
+                position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: '50%',
+                background: cfg.color, color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 800, boxShadow: `0 2px 4px ${cfg.color}66`,
+              }}>✓</span>
+            )}
+            <img className="kh-fighter-char" src={cfg.logo} alt="" height={108}
+              style={{
+                height: 108, width: 'auto', imageRendering: 'pixelated', display: 'block', position: 'relative',
+                filter: sel ? `drop-shadow(0 6px 8px ${cfg.color}77)` : 'grayscale(0.65) opacity(0.55)',
+              }} />
+            <span style={{
+              ...tokens.typeBody, fontSize: 14, fontWeight: 700, position: 'relative',
+              color: sel ? cfg.color : t.textSecondary,
+            }}>{cfg.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Draft-type tile (roomy RadioCard) ──────────────────────────────────────
+function DraftTypeCard({ title, tagline, sample, isSnake, accent, active, onSelect, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <button type="button" onClick={onSelect} style={{
+      position: 'relative', flex: 1, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+      border: `${active ? 2 : 1}px solid ${active ? accent : t.border}`,
+      background: active ? `${accent}0e` : (isDark ? '#1c2130' : '#fff'),
+      borderRadius: tokens.radiusLg, padding: tokens.spaceLg,
+      display: 'flex', flexDirection: 'column', gap: tokens.spaceSm,
+      boxShadow: active ? `0 4px 14px ${accent}22` : 'none',
+      transition: 'border-color 0.15s, background 0.15s, box-shadow 0.2s',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceXs }}>
+        <span style={{ ...tokens.typeHeadingCard, fontSize: 19, color: active ? accent : t.textPrimary }}>{title}</span>
+        <span aria-hidden="true" style={{
+          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `2px solid ${active ? accent : t.border}`,
+          background: active ? accent : 'transparent',
+          color: '#fff', fontSize: 10, fontWeight: 800,
+        }}>{active ? '✓' : ''}</span>
+      </div>
+      <div style={{ ...tokens.typeBody, fontWeight: 500, color: t.textBody, lineHeight: 1.4 }}>{tagline}</div>
+      <div style={{ ...tokens.typeLabelEyebrow, fontSize: 9.5, color: t.textMuted, marginTop: tokens.space2xs }}>Sample keeper</div>
+      <div style={{ width: 180 }}>
+        <SampleKeeperCell slot={sample} isSnake={isSnake} isDark={isDark} gridAccent={accent} />
+      </div>
+    </button>
+  );
+}
+
+function SectionDivider({ label, t }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceSm, margin: `${tokens.spaceXl}px 0 ${tokens.spaceMd}px 0` }}>
+      <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary, flexShrink: 0 }}>{label}</span>
+      <span style={{ flex: 1, borderTop: `1px dashed ${t.border}` }} />
+    </div>
+  );
+}
+
+// ── Step 1: Basics ──────────────────────────────────────────────────────────
+function StepBasics({ s, dispatch, isDark }) {
+  const t = makeTheme(isDark);
+  const seasons = seasonOptions(s.sport);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceLg, maxWidth: 520 }}>
+      <div>
+        <FieldLabel t={t}>League name</FieldLabel>
+        <Input value={s.name} onChange={e => dispatch({ type: 'set', patch: { name: e.target.value } })}
+          placeholder="e.g. Beer League Bandits" width="100%" isDark={isDark} autoFocus />
+      </div>
+      <div>
+        <FieldLabel t={t}>Sport</FieldLabel>
+        <SportPicker value={s.sport} onChange={id => dispatch({ type: 'sport', sport: id })} isDark={isDark} />
+      </div>
+      <div style={{ maxWidth: 260 }}>
+        <FieldLabel t={t}>Season</FieldLabel>
+        <Select value={s.season} onChange={v => dispatch({ type: 'set', patch: { season: v } })}
+          options={seasons} width="100%" isDark={isDark} />
+        <FieldHelp t={t}>The off-season you're setting up keepers for.</FieldHelp>
+      </div>
+    </div>
+  );
+}
+
+// ── Step 2: League Format ─────────────────────────────────────────────────
+function StepFormat({ s, dispatch, isDark }) {
+  const t = makeTheme(isDark);
+  const isSnake = s.draftType === 'snake';
+  const CTRL = 140;
+  return (
+    <div>
+      <FieldLabel t={t}>Draft type</FieldLabel>
+      <FieldHelp t={t}>How your draft works. Branches the keeper rules below.</FieldHelp>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spaceLg, marginTop: tokens.spaceSm }}>
+        <DraftTypeCard title="Auction" isSnake={false} sample={SAMPLE_AUCTION}
+          tagline="Keepers cost dollars from your budget."
+          accent={tokens.warning} active={s.draftType === 'auction'}
+          onSelect={() => dispatch({ type: 'draftType', draftType: 'auction' })} isDark={isDark} />
+        <DraftTypeCard title="Snake" isSnake={true} sample={SAMPLE_SNAKE}
+          tagline="Keepers serve a fixed contract length."
+          accent={tokens.info} active={s.draftType === 'snake'}
+          onSelect={() => dispatch({ type: 'draftType', draftType: 'snake' })} isDark={isDark} />
+      </div>
+
+      {s.draftType && (
+        <>
+          <SectionDivider label="Keeper rules" t={t} />
+          <div style={{ display: 'flex', gap: tokens.spaceLg, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <FieldLabel t={t}>Keeper slots</FieldLabel>
+              <FieldHelp t={t}>Per team.</FieldHelp>
+              <div style={{ marginTop: tokens.spaceXs }}>
+                <Select value={s.keeperSlots} onChange={v => dispatch({ type: 'set', patch: { keeperSlots: Number(v) } })}
+                  options={Array.from({ length: 10 }, (_, i) => i + 1)} suffix="players" width={CTRL} isDark={isDark} />
+              </div>
+            </div>
+
+            {isSnake ? (
+              <div>
+                <FieldLabel t={t}>Contract length</FieldLabel>
+                <FieldHelp t={t}>Years before a keeper expires.</FieldHelp>
+                <div style={{ marginTop: tokens.spaceXs }}>
+                  <Select value={s.contractYears} onChange={v => dispatch({ type: 'set', patch: { contractYears: Number(v) } })}
+                    options={[2, 3, 4, 5]} suffix="years" width={CTRL} isDark={isDark} />
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <FieldLabel t={t}>Annual increase</FieldLabel>
+                  <FieldHelp t={t}>Cost each year held.</FieldHelp>
+                  <div style={{ marginTop: tokens.spaceXs }}>
+                    <Input size="sm" type="number" prefix="+$" width={CTRL} isDark={isDark}
+                      value={s.auctionInflation}
+                      onChange={e => dispatch({ type: 'set', patch: { auctionInflation: e.target.value === '' ? '' : Number(e.target.value) } })}
+                      onBlur={e => dispatch({ type: 'set', patch: { auctionInflation: clamp(Number(e.target.value) || 0, 0, 50) } })} />
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel t={t}>Auction budget</FieldLabel>
+                  <FieldHelp t={t}>Per team, total cap.</FieldHelp>
+                  <div style={{ marginTop: tokens.spaceXs }}>
+                    <Input size="sm" type="number" prefix="$" width={CTRL} isDark={isDark}
+                      value={s.budget}
+                      onChange={e => dispatch({ type: 'set', patch: { budget: e.target.value === '' ? '' : Number(e.target.value) } })}
+                      onBlur={e => dispatch({ type: 'set', patch: { budget: clamp(Number(e.target.value) || 50, 50, 1000) } })} />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Step 3: Teams ──────────────────────────────────────────────────────────
+function StepTeams({ s, dispatch, isDark }) {
+  const t = makeTheme(isDark);
   const counts = [];
-  for (let n = 4; n <= 20; n++) counts.push(n);
+  for (let n = 4; n <= 20; n += 2) counts.push(n);
+  const names = s.teamNames.slice(0, s.teamCount);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceLg }}>
-      <div>
-        <FieldLabel t={t}>Number of teams</FieldLabel>
-        <select value={form.teamCount} onChange={e => setTeamCount(Number(e.target.value))} style={selectStyle(t, isDark)}>
-          {counts.map(n => <option key={n} value={n}>{n} teams</option>)}
-        </select>
+      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceMd, flexWrap: 'wrap' }}>
+        <div>
+          <FieldLabel t={t}>Team count</FieldLabel>
+          <Select value={s.teamCount} onChange={v => dispatch({ type: 'teamCount', count: Number(v) })}
+            options={counts} suffix="teams" width={160} isDark={isDark} />
+        </div>
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, fontStyle: 'italic', flex: 1, minWidth: 200, alignSelf: 'flex-end', paddingBottom: 8 }}>
+          Adjust to grow or shrink the list. Names are editable below.
+        </div>
       </div>
 
-      <div style={{
-        ...tokens.typeBodyMeta, color: t.textSecondary, lineHeight: 1.45,
-        background: t.noteBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd,
-        padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`,
-      }}>
-        Placeholder names for your own tracking — not pulled from Yahoo. Use whatever you actually call each team.
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, flexWrap: 'wrap' }}>
+        <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>Team names ({s.teamCount})</span>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>You're commissioner of team #1 by default.</span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: tokens.spaceSm }}>
-        {form.teamNames.map((nm, i) => (
-          <div key={i}>
-            <div style={{ ...tokens.typeLabelEyebrow, color: i === 0 ? tokens.info : t.textMuted, marginBottom: tokens.space2xs, display: 'flex', alignItems: 'center', gap: 6 }}>
-              Team {i + 1}
-              {i === 0 && (
-                <span style={{
-                  ...tokens.typePill, fontSize: '9px', color: tokens.info,
-                  background: tokens.infoBg, border: `1px solid ${tokens.infoBorder}`,
-                  borderRadius: tokens.radiusPill, padding: '1px 6px', letterSpacing: '0.04em',
-                }}>Commissioner</span>
-              )}
-            </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spaceSm, maxWidth: 640 }}>
+        {names.map((nm, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+            background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
+            borderRadius: tokens.radiusMd, padding: '8px 12px',
+          }}>
+            <span style={{
+              width: 24, height: 24, flexShrink: 0, borderRadius: tokens.radiusSm,
+              background: t.sectionBg, color: t.textSecondary,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, fontWeight: 800,
+            }}>{i + 1}</span>
             <input
               value={nm}
-              onChange={e => setName(i, e.target.value)}
+              onChange={e => dispatch({ type: 'teamName', i, value: e.target.value })}
+              onBlur={e => { if (!e.target.value.trim()) dispatch({ type: 'teamName', i, value: `Team ${i + 1}` }); }}
               placeholder={`Team ${i + 1}`}
-              style={textInputStyle(t, isDark)}
-            />
+              style={{
+                flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
+                fontSize: 13, fontWeight: 600, color: t.textPrimary, fontFamily: 'inherit',
+              }} />
+            {i === 0 && (
+              <span style={{
+                ...tokens.typePillEmphatic, fontSize: 9.5, flexShrink: 0,
+                background: `${tokens.info}14`, color: tokens.info, border: `1px solid ${tokens.info}55`,
+                borderRadius: tokens.radiusPill, padding: '2px 8px',
+              }}>Commish</span>
+            )}
           </div>
         ))}
       </div>
+
+      <div style={{
+        maxWidth: 640, border: `1px dashed ${t.border}`, borderRadius: tokens.radiusMd,
+        padding: '10px 12px', ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5,
+      }}>
+        <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Heads up —</span> Placeholder names for your own tracking — not pulled from Yahoo. Use whatever you actually call each team.
+      </div>
     </div>
   );
 }
 
-// ── Step 4: Review ─────────────────────────────────────────────────────────
-function ReviewRow({ label, value, t }) {
+// ── Step 4: Review ───────────────────────────────────────────────────────
+function ReviewRow({ label, value, t, last }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: tokens.spaceMd, padding: `${tokens.spaceXs}px 0`, borderBottom: `1px solid ${t.dividerFaint}` }}>
-      <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{label}</span>
-      <span style={{ ...tokens.typeBody, fontWeight: 600, color: t.textPrimary, textAlign: 'right' }}>{value}</span>
+    <div style={{
+      display: 'flex', alignItems: 'baseline', gap: tokens.spaceMd, padding: `${tokens.spaceXs}px 0`,
+      borderBottom: last ? 'none' : `1px dashed ${t.dividerFaint}`,
+    }}>
+      <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, width: 160, flexShrink: 0 }}>{label}</span>
+      <span style={{ ...tokens.typeBody, fontWeight: 600, color: t.textPrimary }}>{value}</span>
     </div>
   );
 }
 
-function StepReview({ form, isDark }) {
+function ReviewSection({ title, accent, onEdit, editLabel, t, isDark, children }) {
+  return (
+    <div style={{ background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: tokens.spaceMd }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceXs }}>
+        <span style={{ ...tokens.typeLabelEyebrow, color: accent }}>{title}</span>
+        <button type="button" onClick={onEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 700, color: accent }}>
+          {editLabel} →
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StepReview({ s, dispatch, isDark, accent }) {
   const t = makeTheme(isDark);
-  const isSnake = form.draftType === 'snake';
-  const commish = (form.teamNames[0] || '').trim() || 'Team 1';
+  const isSnake = s.draftType === 'snake';
+  const names = s.teamNames.slice(0, s.teamCount);
+  const teamsLine = names.length <= 4
+    ? names.join(', ')
+    : <>{names.slice(0, 4).join(', ')}<span style={{ color: t.textMuted }}>{` …and ${names.length - 4} more`}</span></>;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceMd }}>
-      <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, lineHeight: 1.45 }}>
-        Everything here is editable later in Settings — this is a fast first pass.
+    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceSm, maxWidth: 560 }}>
+      <div style={{ ...tokens.typeBody, color: t.textSecondary, marginTop: -tokens.spaceSm, marginBottom: tokens.spaceMd }}>
+        Last look before we cut the card. Click <span style={{ color: accent, fontWeight: 700 }}>Edit</span> on any section to jump back.
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        <ReviewRow t={t} label="League name" value={(form.name || '').trim() || 'Untitled League'} />
-        <ReviewRow t={t} label="Sport" value={SPORT_CONFIG[form.sport]?.label || form.sport} />
-        <ReviewRow t={t} label="Season" value={form.season} />
+
+      <ReviewSection title="Basics" accent={accent} editLabel="Edit step 1" onEdit={() => dispatch({ type: 'goto', step: 0 })} t={t} isDark={isDark}>
+        <ReviewRow t={t} label="Name" value={s.name.trim() || 'Untitled League'} />
+        <ReviewRow t={t} label="Sport" value={SPORT_CONFIG[s.sport]?.label || '—'} />
+        <ReviewRow t={t} label="Season" value={s.season} last />
+      </ReviewSection>
+
+      <ReviewSection title="League format" accent={accent} editLabel="Edit step 2" onEdit={() => dispatch({ type: 'goto', step: 1 })} t={t} isDark={isDark}>
         <ReviewRow t={t} label="Draft type" value={isSnake ? 'Snake' : 'Auction'} />
-        <ReviewRow t={t} label="Keeper slots" value={`${form.keeperSlots} per team`} />
-        {isSnake
-          ? <ReviewRow t={t} label="Contract length" value={`${form.contractYears} years`} />
-          : <>
-              <ReviewRow t={t} label="Annual cost increase" value={`+$${form.costIncreasePerYear}/yr`} />
-              <ReviewRow t={t} label="Auction budget" value={`$${form.budget} per team`} />
-            </>
-        }
-        <ReviewRow t={t} label="Teams" value={`${form.teamCount}`} />
-        <ReviewRow t={t} label="Commissioner" value={commish} />
+        {isSnake ? (
+          <ReviewRow t={t} label="Contract length" value={`${s.contractYears} years`} />
+        ) : (
+          <>
+            <ReviewRow t={t} label="Budget per team" value={`$${s.budget}`} />
+            <ReviewRow t={t} label="Annual increase" value={`+$${s.auctionInflation} per year held`} />
+          </>
+        )}
+        <ReviewRow t={t} label="Keeper slots" value={`${s.keeperSlots} players`} last />
+      </ReviewSection>
+
+      <ReviewSection title="Teams" accent={accent} editLabel="Edit step 3" onEdit={() => dispatch({ type: 'goto', step: 2 })} t={t} isDark={isDark}>
+        <ReviewRow t={t} label="Count" value={`${s.teamCount} teams`} />
+        <div style={{ ...tokens.typeBody, fontWeight: 500, color: t.textPrimary, lineHeight: 1.6, paddingTop: tokens.spaceXs }}>{teamsLine}</div>
+      </ReviewSection>
+
+      <div style={{
+        background: t.warningBg, border: `1px solid ${tokens.warning}4d`, borderRadius: tokens.radiusMd,
+        padding: tokens.spaceMd, display: 'flex', alignItems: 'flex-start', gap: tokens.spaceSm,
+      }}>
+        <img src="/mascot-empty.png" alt="" height={36} style={{ height: 36, width: 'auto', imageRendering: 'pixelated', flexShrink: 0 }} />
+        <div style={{ ...tokens.typeBodyMeta, color: t.textBody, lineHeight: 1.5 }}>
+          <span style={{ fontWeight: 700, color: tokens.warning }}>Next up — </span>
+          once your league is created, set up buy-ins, payouts and player invites from the league overview.
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Progress rail ──────────────────────────────────────────────────────────
-function ProgressRail({ step, setStep, isDark }) {
+// ── Left rail ──────────────────────────────────────────────────────────────
+function LeftRail({ step, accent, onGoto, isDark }) {
   const t = makeTheme(isDark);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
       {STEPS.map((label, i) => {
-        const n = i + 1;
-        const active = n === step;
-        const done = n < step;
+        const active = i === step;
+        const done = i < step;
+        const clickable = i <= step;
         return (
-          <button key={label} type="button" onClick={() => setStep(n)} style={{
+          <button key={label} type="button" disabled={!clickable} onClick={() => clickable && onGoto(i)} style={{
             display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-            background: active ? tokens.infoBg : 'transparent',
-            border: 'none', borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
-            cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', width: '100%',
+            background: active ? `${accent}14` : 'transparent',
+            border: active ? `1px solid ${accent}55` : '1px solid transparent',
+            borderRadius: tokens.radiusMd, padding: '8px 10px',
+            cursor: clickable ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', width: '100%',
           }}>
             <span style={{
-              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+              width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '12px', fontWeight: 700,
-              background: active ? tokens.info : done ? tokens.successBg : t.sectionBg,
-              color: active ? '#fff' : done ? tokens.success : t.textMuted,
-              border: done ? `1px solid ${tokens.successBorder}` : 'none',
-            }}>{done ? '✓' : n}</span>
+              fontSize: 11, fontWeight: 800,
+              background: done ? tokens.success : active ? accent : (isDark ? '#1c2130' : '#fff'),
+              color: done ? '#0f2018' : active ? '#fff' : t.textMuted,
+              border: done ? 'none' : active ? 'none' : `1px solid ${t.border}`,
+            }}>{done ? '✓' : i + 1}</span>
             <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 500, color: active ? t.textPrimary : t.textSecondary }}>
               {label}
             </span>
@@ -444,106 +632,88 @@ function ProgressRail({ step, setStep, isDark }) {
 // ── Wizard shell ───────────────────────────────────────────────────────────
 function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
   const t = makeTheme(isDark);
-  const [step, setStep] = React.useState(1);
-  const [form, setForm] = React.useState(() => ({
-    name: '',
-    sport: 'hockey',
-    season: defaultSeason('hockey'),
-    draftType: 'snake',
-    keeperSlots: 4,
-    contractYears: 3,
-    costIncreasePerYear: 5,
-    budget: 200,
-    teamCount: 12,
-    teamNames: Array.from({ length: 12 }, (_, i) => `Team ${i + 1}`),
-  }));
-  const set = patch => setForm(f => ({ ...f, ...patch }));
-
-  const preview = React.useMemo(
-    () => buildLeague({ ...form, name: (form.name || '').trim() || 'Your League' }, existingLeagues),
-    [form, existingLeagues]
-  );
+  const [s, dispatch] = React.useReducer(reducer, undefined, makeInitial);
+  const accent = SPORT_CONFIG[s.sport]?.color || tokens.info;
+  const canContinue = stepValid(s, s.step);
+  const isReview = s.step === 3;
+  const preview = React.useMemo(() => buildPreview(s), [s]);
 
   function handleCreate() {
-    onCreate(buildLeague(form, existingLeagues));
+    onCreate(buildLeague(s, existingLeagues));
   }
 
-  const primary = tokens.info;
-  const btnBase = {
-    border: 'none', borderRadius: tokens.radiusMd, padding: '10px 20px',
-    fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+  const backBtn = {
+    border: `1px solid ${t.border}`, background: 'transparent', color: t.textSecondary,
+    borderRadius: tokens.radiusMd, padding: '9px 18px', ...tokens.typePill, cursor: 'pointer', fontFamily: 'inherit',
   };
-  const ghostBtn = {
-    ...btnBase, background: 'transparent', border: `1px solid ${t.border}`, color: t.textSecondary,
+  const primaryBtn = {
+    border: 'none', background: accent, color: '#fff', borderRadius: tokens.radiusMd,
+    padding: isReview ? '11px 24px' : '9px 20px', ...tokens.typePill, fontWeight: 700,
+    fontSize: isReview ? 13 : 11,
+    boxShadow: `0 2px 0 ${accent}88`, cursor: 'pointer', fontFamily: 'inherit',
   };
+  const colMuted = isDark ? 'rgba(255,255,255,0.03)' : '#fafbfc';
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
-      <style>{SPORT_PICKER_STYLES}</style>
-      {/* Header */}
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: tokens.space2xl }}>
+      <style>{CARD_STYLES}</style>
+      <style>{WIZARD_STYLES}</style>
+
+      {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceLg, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create new league</h1>
-          <p style={{ ...tokens.typeBodyMeta, color: t.textSecondary, margin: `${tokens.space2xs}px 0 0` }}>
-            Set the basics now — everything is editable later in Settings.
-          </p>
-        </div>
-        <button type="button" onClick={onCancel} style={{ ...ghostBtn, padding: '6px 14px' }}>Cancel</button>
+        <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create new league</h1>
+        <button type="button" onClick={onCancel} style={{ ...tokens.typeBodyMeta, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+          Cancel
+        </button>
       </div>
 
-      {/* Columns: rail · content · live preview. align-items:flex-start so the
-          content column sizes to its own content and the Continue button sits
-          just below the fields — not stretched to the preview's height. */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: tokens.spaceXl, flexWrap: 'wrap' }}>
-        {/* Rail */}
-        <div style={{ flex: '0 0 200px', minWidth: 180 }}>
-          <ProgressRail step={step} setStep={setStep} isDark={isDark} />
-        </div>
+      {/* Card */}
+      <div style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
+        overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+      }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 320px', alignItems: 'start' }}>
+          {/* Rail */}
+          <div style={{ background: colMuted, borderRight: `1px solid ${t.divider}`, padding: `${tokens.spaceXl}px ${tokens.spaceSm}px` }}>
+            <LeftRail step={s.step} accent={accent} onGoto={i => dispatch({ type: 'goto', step: i })} isDark={isDark} />
+          </div>
 
-        {/* Content */}
-        <div style={{ flex: '1 1 420px', minWidth: 320, maxWidth: 560 }}>
-          <div style={{
-            background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
-            boxShadow: t.cardShadow, padding: `${tokens.spaceLg}px ${tokens.spaceXl}px`,
-          }}>
-            <div style={{ marginBottom: tokens.spaceLg }}>
-              <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.space2xs }}>
-                Step {step} of 4
-              </div>
-              <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>
-                {STEP_TITLES[step - 1]}
-              </div>
-            </div>
-            {step === 1 && <StepBasics form={form} set={set} isDark={isDark} />}
-            {step === 2 && <StepFormat form={form} set={set} isDark={isDark} />}
-            {step === 3 && <StepTeams form={form} set={set} isDark={isDark} />}
-            {step === 4 && <StepReview form={form} isDark={isDark} />}
+          {/* Form column */}
+          <div style={{ padding: `${tokens.spaceXl}px ${tokens.space2xl}px` }}>
+            <div style={{ ...tokens.typeLabelEyebrow, color: accent }}>Step {s.step + 1} of 4</div>
+            <h2 style={{ ...tokens.typeHeadingCard, fontSize: 20, color: t.textPrimary, margin: `${tokens.space2xs}px 0 ${tokens.spaceLg}px` }}>
+              {STEP_TITLES[s.step]}
+            </h2>
 
-            {/* Nav — sits a comfortable gap below the last field, in flow. */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: tokens.spaceSm, marginTop: tokens.spaceXl }}>
-              <button type="button" onClick={() => setStep(step - 1)} disabled={step === 1}
-                style={{ ...ghostBtn, opacity: step === 1 ? 0.45 : 1, cursor: step === 1 ? 'not-allowed' : 'pointer' }}>
+            {s.step === 0 && <StepBasics s={s} dispatch={dispatch} isDark={isDark} />}
+            {s.step === 1 && <StepFormat s={s} dispatch={dispatch} isDark={isDark} />}
+            {s.step === 2 && <StepTeams s={s} dispatch={dispatch} isDark={isDark} />}
+            {s.step === 3 && <StepReview s={s} dispatch={dispatch} isDark={isDark} accent={accent} />}
+
+            {/* Footer — not pinned; sits below the last field */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: tokens.spaceSm, marginTop: tokens.space2xl }}>
+              <button type="button" onClick={() => dispatch({ type: 'back' })} disabled={s.step === 0}
+                style={{ ...backBtn, opacity: s.step === 0 ? 0.5 : 1, cursor: s.step === 0 ? 'not-allowed' : 'pointer' }}>
                 Back
               </button>
-              {step < 4 ? (
-                <button type="button" onClick={() => setStep(step + 1)} style={{ ...btnBase, background: primary, color: '#fff' }}>
-                  Continue
-                </button>
+              {isReview ? (
+                <button type="button" onClick={handleCreate} style={primaryBtn}>Create league ✓</button>
               ) : (
-                <button type="button" onClick={handleCreate} style={{ ...btnBase, background: primary, color: '#fff' }}>
-                  Create league
+                <button type="button" onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}
+                  style={{ ...primaryBtn, opacity: canContinue ? 1 : 0.5, cursor: canContinue ? 'pointer' : 'not-allowed' }}>
+                  Continue
                 </button>
               )}
             </div>
           </div>
-        </div>
 
-        {/* Live preview — the real TradingCard, non-interactive */}
-        <div style={{ flex: '0 0 380px', minWidth: 320, maxWidth: 400, position: 'sticky', top: 88 }}>
-          <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>Live preview</div>
-          <TradingCard league={preview} isDark={isDark} building />
-          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceSm, lineHeight: 1.4 }}>
-            Card fills in as you go.
+          {/* Live preview column */}
+          <div style={{ background: colMuted, borderLeft: `1px solid ${t.divider}`, padding: tokens.spaceXl }}>
+            <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceSm }}>Live preview</div>
+            <TradingCard league={preview} isDark={isDark} state={isReview ? 'ready' : 'building'} />
+            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, fontStyle: 'italic', textAlign: 'center', marginTop: tokens.spaceSm }}>
+              Card fills in as you go.
+            </div>
           </div>
         </div>
       </div>
