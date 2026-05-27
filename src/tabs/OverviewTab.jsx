@@ -28,7 +28,7 @@ function ChecklistCard({ icon, title, subtitle, value, total, status, accentColo
           </div>
         </div>
         {done && (
-          <span style={{ fontSize: '11px', fontWeight: 700, color: '#6dd4a8', background: 'rgba(76,175,125,0.15)', borderRadius: 20, padding: '3px 10px', flexShrink: 0 }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: t.success, background: t.successBg, borderRadius: 20, padding: '3px 10px', flexShrink: 0 }}>
             {status === 'locked' ? '🔒 Locked' : '✓ Done'}
           </span>
         )}
@@ -40,10 +40,10 @@ function ChecklistCard({ icon, title, subtitle, value, total, status, accentColo
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: '12px', color: t.textMuted }}>{value} of {total}</span>
-              <span style={{ fontSize: '12px', fontWeight: 700, color: done ? '#6dd4a8' : accentColor }}>{pct}%</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: done ? t.success : accentColor }}>{pct}%</span>
             </div>
             <div style={{ background: t.progressBg, borderRadius: 4, height: 5 }}>
-              <div style={{ background: done ? '#4caf7d' : accentColor, height: '100%', borderRadius: 4, width: `${pct}%`, transition: 'width 0.4s' }}></div>
+              <div style={{ background: done ? t.success : accentColor, height: '100%', borderRadius: 4, width: `${pct}%`, transition: 'width 0.4s' }}></div>
             </div>
           </div>
         )}
@@ -295,7 +295,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                     <td style={{ position: 'sticky', left: 0, zIndex: 2, background: t.cardBg, padding: '12px 8px 12px 16px', whiteSpace: 'nowrap', width: TEAM_W, minWidth: TEAM_W, borderBottom: rowBorder, boxShadow: scrollCanLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none' }}>
                       <div style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis' }}>{team.name}</div>
                       {needsMore && (
-                        <div style={{ fontSize: '10px', color: '#e8832a', marginTop: 2, fontWeight: 600 }}>
+                        <div style={{ fontSize: '10px', color: t.warning, marginTop: 2, fontWeight: 600 }}>
                           {activeCount}/{requiredCount} required
                         </div>
                       )}
@@ -408,8 +408,8 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
 
   if (state === 'complete') {
     return (
-      <div style={{ background: t.cardBg, border: `1px solid rgba(76,175,125,0.3)`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'rgba(76,175,125,0.2)', color: '#6dd4a8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>✓</span>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.successBorder}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ width: 24, height: 24, borderRadius: '50%', background: t.successBg, color: t.success, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>✓</span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Season is set up</div>
           <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>All {teamsAtCap}/{teams.length} teams locked in. Keepers below.</div>

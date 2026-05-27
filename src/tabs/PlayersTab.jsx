@@ -207,13 +207,13 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
         bg = 'transparent'; fg = t.textMuted;
       } else if (status === 'expired') {
         label = `Expired · ${entry.teamName}`;
-        bg = 'rgba(232,82,82,0.10)'; fg = '#e85252';
+        bg = t.dangerBg; fg = t.danger;
       } else if (status === 'keeper') {
         label = `Keeper · ${entry.teamName}`;
         bg = 'rgba(107,77,230,0.14)'; fg = '#9d8cf0';
       } else {
         label = entry.teamName;
-        bg = 'rgba(76,175,125,0.12)'; fg = '#6dd4a8';
+        bg = t.successBg; fg = t.success;
       }
       return (
         <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
@@ -234,7 +234,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
             {onUpdateLeague && <span style={{ opacity: 0.7, fontSize: 10 }}>✎</span>}
           </button>
           {entry?.tradedToTeamName && (
-            <span style={{ fontSize: 10, color: '#e8832a', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 10, color: t.warning, fontWeight: 700, whiteSpace: 'nowrap' }}>
               → traded to {entry.tradedToTeamName}
             </span>
           )}
@@ -245,7 +245,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
     if (c.key === 'gaa') return p.gaa ? p.gaa.toFixed(2) : '—';
     if (c.key === 'plusMinus') {
       const v = p.plusMinus || 0;
-      return <span style={{ color: v > 0 ? '#6dd4a8' : v < 0 ? '#e85252' : t.textBody }}>{v > 0 ? `+${v}` : v}</span>;
+      return <span style={{ color: v > 0 ? t.success : v < 0 ? t.danger : t.textBody }}>{v > 0 ? `+${v}` : v}</span>;
     }
     if (c.key === 'name') {
       return (
@@ -539,7 +539,7 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
             </div>
           )}
           {isExpired && (
-            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(232,82,82,0.08)', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, fontSize: 12, color: '#e85252' }}>
+            <div style={{ marginTop: 8, padding: '8px 10px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger }}>
               Contract expired — this player returns to the draft and can't be kept.
             </div>
           )}
@@ -549,7 +549,7 @@ function ManageModal({ managing, league, t, accentColor, isDark, targetTeamId, s
           <div>
             {status === 'rostered' && (
               <button onClick={onRelease}
-                style={{ background: 'none', border: 'none', color: '#e85252', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit' }}>
+                style={{ background: 'none', border: 'none', color: t.danger, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '6px 0', fontFamily: 'inherit' }}>
                 Remove from team
               </button>
             )}

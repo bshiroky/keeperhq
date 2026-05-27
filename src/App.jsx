@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate, Link, useLocation, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useParams, useNavigate } from 'react-router-dom';
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
@@ -73,32 +73,6 @@ function loadLeagues() {
   return APP_DATA.leagues;
 }
 
-function PageTitleBar({ leagues, isDark, textPrimary, textSecondary, headerBorder }) {
-  const location = useLocation();
-  const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
-  const league = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
-
-  return (
-    <div style={{ background: isDark ? '#111520' : '#e8edf5', borderBottom: `1px solid ${headerBorder}`, padding: '8px 24px' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        {!league && (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
-            <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: textPrimary, letterSpacing: '-0.01em' }}>My Leagues</h2>
-            <p style={{ margin: 0, fontSize: '12px', color: textSecondary }}>Overview of all your keeper leagues</p>
-          </div>
-        )}
-        {league && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-            <Link to="/" style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSecondary, fontSize: '12px', fontWeight: 600, padding: 0, textDecoration: 'none' }}>Leagues</Link>
-            <span style={{ color: textSecondary, fontSize: '12px' }}>/</span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: textPrimary }}>{league.name}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function HomeRoute({ leagues, isDark }) {
   const navigate = useNavigate();
   return (
@@ -166,7 +140,6 @@ function App() {
   const headerBg = isDark ? '#161a22' : '#ffffff';
   const headerBorder = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
   const textPrimary = isDark ? '#e8ecf4' : '#1a1f2e';
-  const textSecondary = isDark ? '#6b7489' : '#6b7489';
 
   function handleUpdateLeague(updated) {
     setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
@@ -221,14 +194,6 @@ function App() {
           }
         `}</style>
       </header>
-
-      <PageTitleBar
-        leagues={leagues}
-        isDark={isDark}
-        textPrimary={textPrimary}
-        textSecondary={textSecondary}
-        headerBorder={headerBorder}
-      />
 
       {/* Main content */}
       <main style={{ padding: '16px 0 40px' }}>
