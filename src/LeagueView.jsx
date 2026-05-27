@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -835,7 +835,7 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
             }}>
               <SportLogo sport={league.sport} height={32} />
             </div>
-            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: t.textPrimary, letterSpacing: '-0.01em', whiteSpace: 'nowrap' }}>{league.name}</h1>
+            <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary, whiteSpace: 'nowrap' }}>{league.name}</h1>
             <SportBadge sport={league.sport} />
             <DraftBadge draftType={league.draftType} />
             <StatusPill status={league.status} />
@@ -853,8 +853,8 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
                 : []),
             ].map(s => (
               <div key={s.label}>
-                <div style={{ fontSize: '9px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
-                <div style={{ fontSize: '17px', fontWeight: 700, color: s.accent || t.textPrimary, lineHeight: 1.1, marginTop: 2 }}>{s.value}</div>
+                <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
+                <div style={{ ...tokens.typeNumericInline, color: s.accent || t.textPrimary, lineHeight: 1.1, marginTop: 2 }}>{s.value}</div>
               </div>
             ))}
           </div>
