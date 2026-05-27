@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -200,11 +200,11 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Prize Structure</div>
           {isEditing ? (
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={cancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-              <button onClick={save} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
+              <Button variant="secondary" size="sm" isDark={isDark} onClick={cancel}>Cancel</Button>
+              <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={save}>Save</Button>
             </div>
           ) : (
-            <button onClick={startEdit} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
+            <Button variant="secondary" size="sm" isDark={isDark} onClick={startEdit}>Edit</Button>
           )}
         </div>
 
@@ -514,11 +514,11 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
         <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{title}</div>
         {isEditing ? (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={cancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-            <button onClick={save} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
+            <Button variant="secondary" size="sm" isDark={isDark} onClick={cancel}>Cancel</Button>
+            <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={save}>Save</Button>
           </div>
         ) : (
-          <button onClick={startEdit} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Edit</button>
+          <Button variant="secondary" size="sm" isDark={isDark} onClick={startEdit}>Edit</Button>
         )}
       </div>
       <div style={{ padding: '0 20px' }}>
@@ -655,9 +655,9 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
               Advances {league.season} to {/* show next */}the next year. Current keepers move to last-season history (contract years +1, expired contracts dropped). Keeper submissions reset.
             </div>
           </div>
-          <button onClick={() => setShowRolloverConfirm(true)} style={{ flexShrink: 0, background: accentColor, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: '12px', fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+          <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowRolloverConfirm(true)} style={{ flexShrink: 0 }}>
             Start New Season
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -667,7 +667,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Import Last Year's Draft</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Paste your fantasy site's draft results to pre-populate every team's eligible keeper pool with player names and prices.</div>
         </div>
-        <button onClick={() => setShowImport(true)} style={{ flexShrink: 0, background: accentColor, border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: '12px', fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Paste Draft</button>
+        <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowImport(true)} style={{ flexShrink: 0 }}>Paste Draft</Button>
       </div>
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
@@ -683,10 +683,9 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
             <span style={{ fontSize: 12, color: rostersLoaded === totalTeams ? t.success : t.textMuted, fontWeight: 700 }}>
               {rostersLoaded}/{totalTeams} loaded
             </span>
-            <button onClick={() => setShowRosterImport('new')}
-              style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: '12px', fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>
+            <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowRosterImport('new')}>
               + Add Roster
-            </button>
+            </Button>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
@@ -756,8 +755,8 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
         </ul>
         <p style={{ margin: '14px 0 0', fontSize: 12, color: t.textMuted }}>You can't undo this from inside the app, but your previous data still lives in browser storage until you make further changes.</p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onCancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={onConfirm} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '7px 16px', fontSize: 13, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit' }}>Start New Season</button>
+          <Button variant="secondary" size="md" isDark={isDark} onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" size="md" accent={accentColor} isDark={isDark} onClick={onConfirm}>Start New Season</Button>
         </div>
       </div>
     </div>
@@ -795,9 +794,9 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {league.season} season is complete</div>
             <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Roll the league forward to set up next season's keepers.</div>
           </div>
-          <button onClick={() => navigate(`${basePath}/settings`)} style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+          <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => navigate(`${basePath}/settings`)} style={{ flexShrink: 0 }}>
             Go to Settings
-          </button>
+          </Button>
         </div>
       )}
 

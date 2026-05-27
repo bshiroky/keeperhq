@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme, tokens } from '../components.jsx';
+import { makeTheme, tokens, Button } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { SampleKeeperCell } from './keeper-grid-variants.jsx';
@@ -414,7 +414,7 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
           <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Season is set up</div>
           <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>All {teamsAtCap}/{teams.length} teams locked in. Keepers below.</div>
         </div>
-        <button onClick={onStart} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit' }}>Edit Setup</button>
+        <Button variant="secondary" size="sm" isDark={isDark} onClick={onStart}>Edit Setup</Button>
       </div>
     );
   }
@@ -449,12 +449,9 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
           </div>
         )}
       </div>
-      <button onClick={onStart} style={{
-        background: accentColor, color: '#fff', border: 'none', borderRadius: 8,
-        padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap',
-      }}>
+      <Button variant="primary" size="md" accent={accentColor} isDark={isDark} onClick={onStart} style={{ flexShrink: 0 }}>
         {ctaLabel}
-      </button>
+      </Button>
     </div>
   );
 }

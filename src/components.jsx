@@ -860,9 +860,85 @@ function Select({ value, onChange, options, suffix, placeholder, width, isDark, 
   );
 }
 
+// Darken a #rrggbb hex toward black by `amt` (0–1). Used for the chunky
+// button ledge — a darker shade of the fill color, so the ledge reads as a
+// solid edge under any accent (sport color or token).
+function shade(hex, amt) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = Math.round(((n >> 16) & 255) * (1 - amt));
+  const g = Math.round(((n >> 8) & 255) * (1 - amt));
+  const b = Math.round((n & 255) * (1 - amt));
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+// The button. One recipe, three variants, two sizes.
+//   primary     — chunky-shadow filled CTA (the wizard's recipe, standardized).
+//                 Fill defaults to tokens.info; pass `accent` for a sport color.
+//   secondary   — neutral outline (Cancel, Edit, dismiss). No shadow.
+//   destructive — chunky-shadow filled in tokens.danger (Reset, delete confirm).
+// Chunky shadow: a `0 Npx 0 {shade(fill,0.3)}` ledge; hover lifts the button
+// 1px (ledge grows 3→4), active presses it down 2px (ledge shrinks 3→1).
+// Focus uses the shared focusRing token. Standard <button> props pass through.
+function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, children, style, type = 'button',
+  onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, onFocus, onBlur, ...rest }) {
+  const t = makeTheme(isDark);
+  const [hover, setHover] = React.useState(false);
+  const [active, setActive] = React.useState(false);
+  const [focus, setFocus] = React.useState(false);
+  const sm = size === 'sm';
+  const chunky = variant === 'primary' || variant === 'destructive';
+  const fill = variant === 'destructive' ? tokens.danger : (accent || tokens.info);
+
+  const base = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    boxSizing: 'border-box', whiteSpace: 'nowrap', fontFamily: 'inherit',
+    borderRadius: tokens.radiusMd,
+    padding: sm ? '7px 14px' : '10px 20px',
+    fontSize: sm ? 12 : 13,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.55 : 1,
+    transition: 'transform 0.1s ease, box-shadow 0.1s ease, background 0.12s ease, border-color 0.12s ease',
+    ...(focus ? t.focusRing : null),
+  };
+
+  let variantStyle;
+  if (chunky) {
+    const ledge = shade(fill, 0.3);
+    const lift = disabled ? 0 : (active ? 2 : (hover ? -1 : 0));
+    const ledgeH = disabled ? 3 : (active ? 1 : (hover ? 4 : 3));
+    variantStyle = {
+      background: fill, color: '#fff', border: 'none', fontWeight: 700,
+      transform: `translateY(${lift}px)`,
+      boxShadow: `0 ${ledgeH}px 0 ${ledge}`,
+    };
+  } else {
+    variantStyle = {
+      background: hover && !disabled ? t.sectionBg : 'transparent',
+      color: t.textSecondary, fontWeight: 600,
+      border: `1px solid ${hover && !disabled ? t.textMuted : t.border}`,
+    };
+  }
+
+  return (
+    <button type={type} disabled={disabled}
+      onMouseEnter={e => { setHover(true); onMouseEnter && onMouseEnter(e); }}
+      onMouseLeave={e => { setHover(false); setActive(false); onMouseLeave && onMouseLeave(e); }}
+      onMouseDown={e => { setActive(true); onMouseDown && onMouseDown(e); }}
+      onMouseUp={e => { setActive(false); onMouseUp && onMouseUp(e); }}
+      onFocus={e => { setFocus(true); onFocus && onFocus(e); }}
+      onBlur={e => { setFocus(false); onBlur && onBlur(e); }}
+      {...rest}
+      style={{ ...base, ...variantStyle, ...style }}>
+      {children}
+    </button>
+  );
+}
+
 Object.assign(window, {
   makeTheme, tokens,
-  Input, Select, NumberInput,
+  Input, Select, NumberInput, Button,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
@@ -873,7 +949,7 @@ Object.assign(window, {
 
 export {
   makeTheme, tokens,
-  Input, Select, NumberInput,
+  Input, Select, NumberInput, Button,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
