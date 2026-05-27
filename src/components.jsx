@@ -860,9 +860,8 @@ function Select({ value, onChange, options, suffix, placeholder, width, isDark, 
   );
 }
 
-// Darken a #rrggbb hex toward black by `amt` (0–1). Used for the chunky
-// button ledge — a darker shade of the fill color, so the ledge reads as a
-// solid edge under any accent (sport color or token).
+// Darken a #rrggbb hex toward black by `amt` (0–1). Used for Button's
+// hover/active fill darkening (a darker shade of the accent on press).
 function shade(hex, amt) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
   if (!m) return hex;
@@ -874,13 +873,13 @@ function shade(hex, amt) {
 }
 
 // The button. One recipe, three variants, two sizes.
-//   primary     — chunky-shadow filled CTA (the wizard's recipe, standardized).
-//                 Fill defaults to tokens.info; pass `accent` for a sport color.
-//   secondary   — neutral outline (Cancel, Edit, dismiss). No shadow.
-//   destructive — chunky-shadow filled in tokens.danger (Reset, delete confirm).
-// Chunky shadow: a `0 Npx 0 {shade(fill,0.3)}` ledge; hover lifts the button
-// 1px (ledge grows 3→4), active presses it down 2px (ledge shrinks 3→1).
-// Focus uses the shared focusRing token. Standard <button> props pass through.
+//   primary     — flat solid fill CTA. Fill defaults to tokens.info; pass
+//                 `accent` for a sport color. Presence comes from fill + weight.
+//   secondary   — neutral outline (Cancel, Edit, dismiss).
+//   destructive — flat solid fill in tokens.danger (Reset, delete confirm).
+// Filled variants darken the fill on interaction — shade(fill, 0.08) on hover,
+// shade(fill, 0.15) on active — with no movement or shadow. Focus uses the
+// shared focusRing token. Standard <button> props pass through.
 function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, children, style, type = 'button',
   onMouseEnter, onMouseLeave, onMouseDown, onMouseUp, onFocus, onBlur, ...rest }) {
   const t = makeTheme(isDark);
@@ -888,7 +887,7 @@ function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, ch
   const [active, setActive] = React.useState(false);
   const [focus, setFocus] = React.useState(false);
   const sm = size === 'sm';
-  const chunky = variant === 'primary' || variant === 'destructive';
+  const filled = variant === 'primary' || variant === 'destructive';
   const fill = variant === 'destructive' ? tokens.danger : (accent || tokens.info);
 
   const base = {
@@ -899,19 +898,15 @@ function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, ch
     fontSize: sm ? 12 : 13,
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.55 : 1,
-    transition: 'transform 0.1s ease, box-shadow 0.1s ease, background 0.12s ease, border-color 0.12s ease',
+    transition: 'background 0.12s ease, border-color 0.12s ease',
     ...(focus ? t.focusRing : null),
   };
 
   let variantStyle;
-  if (chunky) {
-    const ledge = shade(fill, 0.3);
-    const lift = disabled ? 0 : (active ? 2 : (hover ? -1 : 0));
-    const ledgeH = disabled ? 3 : (active ? 1 : (hover ? 4 : 3));
+  if (filled) {
+    const bg = disabled ? fill : (active ? shade(fill, 0.15) : (hover ? shade(fill, 0.08) : fill));
     variantStyle = {
-      background: fill, color: '#fff', border: 'none', fontWeight: 700,
-      transform: `translateY(${lift}px)`,
-      boxShadow: `0 ${ledgeH}px 0 ${ledge}`,
+      background: bg, color: '#fff', border: 'none', fontWeight: 700,
     };
   } else {
     variantStyle = {
