@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES, Input, Select, NumberInput } from './components.jsx';
+import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES, Input, Select, NumberInput, Button } from './components.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
 // Create New League — 4-step wizard (Basics / League Format / Teams / Review).
@@ -542,16 +542,6 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
     onCreate(buildLeague(s, existingLeagues));
   }
 
-  const backBtn = {
-    border: `1px solid ${t.border}`, background: 'transparent', color: t.textSecondary,
-    borderRadius: tokens.radiusMd, padding: '9px 18px', ...tokens.typePill, cursor: 'pointer', fontFamily: 'inherit',
-  };
-  const primaryBtn = {
-    border: 'none', background: accent, color: '#fff', borderRadius: tokens.radiusMd,
-    padding: isReview ? '11px 24px' : '9px 20px', ...tokens.typePill, fontWeight: 700,
-    fontSize: isReview ? 13 : 11,
-    boxShadow: `0 2px 0 ${accent}88`, cursor: 'pointer', fontFamily: 'inherit',
-  };
   const colMuted = isDark ? 'rgba(255,255,255,0.03)' : '#fafbfc';
 
   return (
@@ -592,17 +582,15 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
 
             {/* Footer — not pinned; sits below the last field */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: tokens.spaceSm, marginTop: tokens.space2xl }}>
-              <button type="button" onClick={() => dispatch({ type: 'back' })} disabled={s.step === 0}
-                style={{ ...backBtn, opacity: s.step === 0 ? 0.5 : 1, cursor: s.step === 0 ? 'not-allowed' : 'pointer' }}>
+              <Button variant="secondary" size="md" isDark={isDark} onClick={() => dispatch({ type: 'back' })} disabled={s.step === 0}>
                 Back
-              </button>
+              </Button>
               {isReview ? (
-                <button type="button" onClick={handleCreate} style={primaryBtn}>Create league ✓</button>
+                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={handleCreate}>Create league ✓</Button>
               ) : (
-                <button type="button" onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}
-                  style={{ ...primaryBtn, opacity: canContinue ? 1 : 0.5, cursor: canContinue ? 'pointer' : 'not-allowed' }}>
+                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}>
                   Continue
-                </button>
+                </Button>
               )}
             </div>
           </div>

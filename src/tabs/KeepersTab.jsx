@@ -1,5 +1,5 @@
 import React from 'react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, Button } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
 
@@ -243,12 +243,10 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                    <button onClick={() => { setTradingIdx(null); setTradeForm({ toTeamId: '', note: '' }); }}
-                      style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: t.textSecondary }}>Cancel</button>
-                    <button onClick={saveTrade}
-                      style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#fff' }}>
+                    <Button variant="secondary" size="sm" isDark={isDark} onClick={() => { setTradingIdx(null); setTradeForm({ toTeamId: '', note: '' }); }}>Cancel</Button>
+                    <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={saveTrade}>
                       {tradeForm.toTeamId ? 'Save Trade' : 'Clear Trade'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -283,8 +281,8 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
             })()}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: t.textSecondary }}>Cancel</button>
-            <button
+            <Button variant="secondary" size="md" isDark={isDark} onClick={onClose}>Cancel</Button>
+            <Button variant="primary" size="md" accent={accentColor} isDark={isDark}
               onClick={() => {
                 const names = keepers.map(k => normalizeName(k.player)).filter(Boolean);
                 if (new Set(names).size !== names.length) return; // block save
@@ -293,10 +291,9 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
               disabled={(() => {
                 const names = keepers.map(k => normalizeName(k.player)).filter(Boolean);
                 return new Set(names).size !== names.length;
-              })()}
-              style={{ background: accentColor, border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#fff', opacity: 1 }}>
+              })()}>
               Save
-            </button>
+            </Button>
           </div>
         </div>
       </div>
