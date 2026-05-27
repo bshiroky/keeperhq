@@ -1,6 +1,5 @@
 import React from 'react';
-import { createPortal } from 'react-dom';
-import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES } from './components.jsx';
+import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES, Input, Select, NumberInput } from './components.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
 // Create New League — 4-step wizard (Basics / League Format / Teams / Review).
@@ -165,124 +164,6 @@ function FieldHelp({ children, t }) {
   return <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs }}>{children}</div>;
 }
 
-function Input({ value, onChange, onBlur, placeholder, size, prefix, width, isDark, type = 'text', autoFocus, min, max, step }) {
-  const t = makeTheme(isDark);
-  const sm = size === 'sm';
-  const filled = value !== '' && value != null;
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'stretch', width, boxSizing: 'border-box',
-      background: isDark ? '#161a22' : '#f7f9fc',
-      border: `1px solid ${t.border}`, borderRadius: sm ? tokens.radiusSm : tokens.radiusMd,
-      overflow: 'hidden',
-    }}>
-      {prefix != null && (
-        <span style={{
-          display: 'inline-flex', alignItems: 'center',
-          padding: sm ? '0 8px' : '0 10px',
-          borderRight: `1px solid ${t.border}`,
-          background: 'rgba(0,0,0,0.025)', color: t.textMuted,
-          fontWeight: 400, fontSize: sm ? 13 : 14,
-        }}>{prefix}</span>
-      )}
-      <input
-        type={type} value={value} placeholder={placeholder} onChange={onChange} onBlur={onBlur} autoFocus={autoFocus}
-        min={min} max={max} step={step}
-        style={{
-          flex: 1, minWidth: 0, boxSizing: 'border-box',
-          background: 'transparent', border: 'none', outline: 'none',
-          padding: sm ? '8px 10px' : '8px 12px',
-          fontSize: sm ? 13 : 14, fontWeight: filled ? (sm ? 700 : 600) : 400,
-          color: t.textPrimary, fontFamily: 'inherit',
-        }}
-      />
-    </div>
-  );
-}
-
-// Faux-select: styled button + popover so the closed control can show a muted
-// unit suffix ("players", "years") next to the bold value. The menu renders in
-// a portal (fixed-positioned from the button's rect) so it escapes the card's
-// overflow:hidden clip. Closes on outside-click and on scroll/resize.
-function Select({ value, onChange, options, suffix, width, isDark }) {
-  const t = makeTheme(isDark);
-  const [open, setOpen] = React.useState(false);
-  const [coords, setCoords] = React.useState({ top: 0, left: 0, width: 0 });
-  const btnRef = React.useRef(null);
-  const menuRef = React.useRef(null);
-
-  function toggle() {
-    if (open) { setOpen(false); return; }
-    const r = btnRef.current?.getBoundingClientRect();
-    if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
-    setOpen(true);
-  }
-
-  React.useEffect(() => {
-    if (!open) return;
-    function onDoc(e) {
-      if (btnRef.current?.contains(e.target)) return;
-      if (menuRef.current?.contains(e.target)) return;
-      setOpen(false);
-    }
-    function onMove() { setOpen(false); }
-    document.addEventListener('mousedown', onDoc);
-    window.addEventListener('resize', onMove);
-    window.addEventListener('scroll', onMove, true);
-    return () => {
-      document.removeEventListener('mousedown', onDoc);
-      window.removeEventListener('resize', onMove);
-      window.removeEventListener('scroll', onMove, true);
-    };
-  }, [open]);
-
-  return (
-    <div style={{ position: 'relative', width, boxSizing: 'border-box' }}>
-      <button ref={btnRef} type="button" onClick={toggle} style={{
-        width: '100%', boxSizing: 'border-box',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-        background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
-        borderRadius: tokens.radiusSm, padding: '8px 10px', cursor: 'pointer', fontFamily: 'inherit',
-      }}>
-        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{value}</span>
-          {suffix && <span style={{ fontSize: 13, fontWeight: 400, color: t.textMuted }}>{suffix}</span>}
-        </span>
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ flexShrink: 0 }}>
-          <path d="M1 1L5 5L9 1" stroke={t.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      {open && createPortal(
-        <div ref={menuRef} style={{
-          position: 'fixed', top: coords.top, left: coords.left, width: coords.width,
-          maxHeight: 220, overflowY: 'auto', boxSizing: 'border-box',
-          background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`,
-          borderRadius: tokens.radiusSm, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-          zIndex: 10000, padding: 4,
-        }}>
-          {options.map(opt => {
-            const sel = String(opt) === String(value);
-            return (
-              <button key={opt} type="button" onClick={() => { onChange(opt); setOpen(false); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left',
-                  background: sel ? t.sectionBg : 'transparent', border: 'none', borderRadius: 4,
-                  padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit',
-                  fontSize: 13, fontWeight: sel ? 700 : 500, color: t.textPrimary,
-                }}
-                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = t.sectionBg; }}
-                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
-                {opt}{suffix ? ` ${suffix}` : ''}
-              </button>
-            );
-          })}
-        </div>,
-        document.body
-      )}
-    </div>
-  );
-}
-
 // ── Sport picker (choose-your-fighter) ─────────────────────────────────────
 function SportPicker({ value, onChange, isDark }) {
   const t = makeTheme(isDark);
@@ -420,7 +301,7 @@ function StepFormat({ s, dispatch, isDark }) {
               <FieldLabel t={t}>Keeper slots</FieldLabel>
               <FieldHelp t={t}>Per team.</FieldHelp>
               <div style={{ marginTop: tokens.spaceXs }}>
-                <Input size="sm" type="number" width={96} isDark={isDark} min={1} max={10} step={1}
+                <NumberInput size="sm" width={96} isDark={isDark} min={1} max={10} step={1}
                   value={s.keeperSlots}
                   onChange={e => dispatch({ type: 'set', patch: { keeperSlots: e.target.value === '' ? '' : Number(e.target.value) } })}
                   onBlur={e => dispatch({ type: 'set', patch: { keeperSlots: clamp(Number(e.target.value) || 1, 1, 10) } })} />
@@ -442,7 +323,7 @@ function StepFormat({ s, dispatch, isDark }) {
                   <FieldLabel t={t}>Annual increase</FieldLabel>
                   <FieldHelp t={t}>Cost each year held.</FieldHelp>
                   <div style={{ marginTop: tokens.spaceXs }}>
-                    <Input size="sm" type="number" prefix="+$" width={120} isDark={isDark} min={0} max={50} step={1}
+                    <NumberInput size="sm" prefix="+$" width={120} isDark={isDark} min={0} max={50} step={1}
                       value={s.auctionInflation}
                       onChange={e => dispatch({ type: 'set', patch: { auctionInflation: e.target.value === '' ? '' : Number(e.target.value) } })}
                       onBlur={e => dispatch({ type: 'set', patch: { auctionInflation: clamp(Number(e.target.value) || 0, 0, 50) } })} />
@@ -452,7 +333,7 @@ function StepFormat({ s, dispatch, isDark }) {
                   <FieldLabel t={t}>Auction budget</FieldLabel>
                   <FieldHelp t={t}>Per team, total cap.</FieldHelp>
                   <div style={{ marginTop: tokens.spaceXs }}>
-                    <Input size="sm" type="number" prefix="$" width={128} isDark={isDark} min={50} max={1000} step={5}
+                    <NumberInput size="sm" prefix="$" width={128} isDark={isDark} min={50} max={1000} step={5}
                       value={s.budget}
                       onChange={e => dispatch({ type: 'set', patch: { budget: e.target.value === '' ? '' : Number(e.target.value) } })}
                       onBlur={e => dispatch({ type: 'set', patch: { budget: clamp(Number(e.target.value) || 50, 50, 1000) } })} />
