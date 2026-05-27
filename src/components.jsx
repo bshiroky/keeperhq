@@ -86,6 +86,12 @@ function makeTheme(isDark) {
     badgeBg:      isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',
     badgeColor:   isDark ? '#9aa3b5' : '#6b7489',
 
+    // ── interaction ───────────────────────────────────────────
+    // Focus ring for form controls. Spread onto a focused field/control;
+    // theme-invariant (built on tokens.info) but lives here so makeTheme is
+    // the single place a surface reaches for it.
+    focusRing:    { outline: `2px solid ${tokens.info}`, outlineOffset: '2px' },
+
     // theme-invariants (also available via the `tokens` constant)
     ...tokens,
   };
@@ -669,8 +675,194 @@ function TradingCard({ league, onClick, isDark, state }) {
   );
 }
 
+// ── Form primitives — one recipe per gesture ──────────────────────────────
+// Canonical input recipe, extracted from KeeperEditModal (the canonical field
+// per CLAUDE.md) folded with the create-league wizard's local Input/Select.
+// A bordered wrapper carries the field background / border / radius / focus
+// ring; the inner control is transparent. `size="sm"` is the denser 13px
+// form used inside tabs (PayoutsTab); the default 14px form matches the modal
+// and wizard. The field background (#f7f9fc / #161a22) is the established
+// input color across all four old recipes; it lives in one place now (here).
+function fieldBg(isDark) { return isDark ? '#161a22' : '#f7f9fc'; }
+
+function fieldWrapStyle(t, isDark, sm, focused, extra) {
+  return {
+    display: 'flex', alignItems: 'stretch', boxSizing: 'border-box',
+    background: fieldBg(isDark),
+    border: `1px solid ${t.border}`,
+    borderRadius: sm ? tokens.radiusSm : tokens.radiusMd,
+    overflow: 'hidden',
+    ...(focused ? t.focusRing : null),
+    ...extra,
+  };
+}
+
+function fieldInputStyle(t, sm, extra) {
+  return {
+    flex: 1, minWidth: 0, boxSizing: 'border-box',
+    background: 'transparent', border: 'none', outline: 'none',
+    padding: sm ? '8px 10px' : '8px 12px',
+    fontSize: sm ? 13 : 14,
+    color: t.textPrimary, fontFamily: 'inherit',
+    ...extra,
+  };
+}
+
+function fieldAffix(t, sm, side) {
+  return {
+    display: 'inline-flex', alignItems: 'center', alignSelf: 'stretch',
+    padding: sm ? '0 8px' : '0 10px',
+    [side === 'left' ? 'borderRight' : 'borderLeft']: `1px solid ${t.border}`,
+    background: t.sectionBg, color: t.textMuted,
+    fontWeight: 400, fontSize: sm ? 13 : 14, whiteSpace: 'nowrap',
+  };
+}
+
+// Text field. Standard <input> props (placeholder, autoFocus, maxLength, …)
+// pass through via ...rest. onChange is event-based: onChange(e).
+function Input({ value, onChange, onBlur, onFocus, size, width, isDark, style, ...rest }) {
+  const t = makeTheme(isDark);
+  const sm = size === 'sm';
+  const [focused, setFocused] = React.useState(false);
+  const filled = value !== '' && value != null;
+  return (
+    <div style={fieldWrapStyle(t, isDark, sm, focused, { width })}>
+      <input
+        type="text" value={value} onChange={onChange}
+        onFocus={e => { setFocused(true); onFocus && onFocus(e); }}
+        onBlur={e => { setFocused(false); onBlur && onBlur(e); }}
+        {...rest}
+        style={fieldInputStyle(t, sm, { fontWeight: filled ? (sm ? 700 : 600) : 400, ...style })}
+      />
+    </div>
+  );
+}
+
+// Numeric field. Supports an optional bordered `prefix` slot (e.g. "$", "+$")
+// and a trailing gray `suffix` (e.g. "keepers") — the "bold value, muted unit"
+// pattern. `step` (and min/max) pass straight through to the native input.
+// onChange is event-based: onChange(e).
+function NumberInput({ value, onChange, onBlur, onFocus, prefix, suffix, size, width, isDark, min, max, step, align, style, ...rest }) {
+  const t = makeTheme(isDark);
+  const sm = size === 'sm';
+  const [focused, setFocused] = React.useState(false);
+  const filled = value !== '' && value != null;
+  return (
+    <div style={fieldWrapStyle(t, isDark, sm, focused, { width })}>
+      {prefix != null && <span style={fieldAffix(t, sm, 'left')}>{prefix}</span>}
+      <input
+        type="number" value={value} min={min} max={max} step={step} onChange={onChange}
+        onFocus={e => { setFocused(true); onFocus && onFocus(e); }}
+        onBlur={e => { setFocused(false); onBlur && onBlur(e); }}
+        {...rest}
+        style={fieldInputStyle(t, sm, { textAlign: align || 'left', fontWeight: filled ? (sm ? 700 : 600) : 400, ...style })}
+      />
+      {suffix != null && (
+        <span style={{ alignSelf: 'center', padding: sm ? '0 10px 0 2px' : '0 12px 0 2px', color: t.textMuted, fontWeight: 400, fontSize: sm ? 13 : 14, whiteSpace: 'nowrap' }}>{suffix}</span>
+      )}
+    </div>
+  );
+}
+
+// Styled select. A button + portal popover (so the menu escapes any
+// overflow:hidden ancestor — e.g. the wizard card) showing a bold value with
+// an optional muted `suffix` ("years", "players"). `options` accepts plain
+// values or {value, label} objects; onChange is value-based: onChange(value).
+// `placeholder` shows (muted) when value matches no option — used for the
+// "+ Add place…" action picker that resets to "".
+function Select({ value, onChange, options, suffix, placeholder, width, isDark, disabled }) {
+  const t = makeTheme(isDark);
+  const [open, setOpen] = React.useState(false);
+  const [focused, setFocused] = React.useState(false);
+  const [coords, setCoords] = React.useState({ top: 0, left: 0, width: 0 });
+  const btnRef = React.useRef(null);
+  const menuRef = React.useRef(null);
+
+  const opts = (options || []).map(o => (o != null && typeof o === 'object') ? o : { value: o, label: String(o) });
+  const selected = opts.find(o => String(o.value) === String(value));
+
+  function toggle() {
+    if (disabled) return;
+    if (open) { setOpen(false); return; }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setCoords({ top: r.bottom + 4, left: r.left, width: r.width });
+    setOpen(true);
+  }
+
+  React.useEffect(() => {
+    if (!open) return;
+    function onDoc(e) {
+      if (btnRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onMove() { setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('resize', onMove);
+    window.addEventListener('scroll', onMove, true);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      window.removeEventListener('resize', onMove);
+      window.removeEventListener('scroll', onMove, true);
+    };
+  }, [open]);
+
+  return (
+    <div style={{ position: 'relative', width, boxSizing: 'border-box' }}>
+      <button ref={btnRef} type="button" onClick={toggle} disabled={disabled}
+        onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+          background: t.cardBg, border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusSm, padding: '8px 10px',
+          cursor: disabled ? 'default' : 'pointer', fontFamily: 'inherit',
+          ...(focused ? t.focusRing : null),
+        }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+          <span style={{ fontSize: 13, fontWeight: selected ? 700 : 400, color: selected ? t.textPrimary : t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {selected ? selected.label : (placeholder ?? '')}
+          </span>
+          {suffix && selected && <span style={{ fontSize: 13, fontWeight: 400, color: t.textMuted }}>{suffix}</span>}
+        </span>
+        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M1 1L5 5L9 1" stroke={t.textMuted} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && createPortal(
+        <div ref={menuRef} style={{
+          position: 'fixed', top: coords.top, left: coords.left, width: coords.width,
+          maxHeight: 220, overflowY: 'auto', boxSizing: 'border-box',
+          background: t.cardBg, border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusSm, boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          zIndex: 10000, padding: 4,
+        }}>
+          {opts.map(o => {
+            const sel = String(o.value) === String(value);
+            return (
+              <button key={o.value} type="button" onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{
+                  display: 'block', width: '100%', textAlign: 'left',
+                  background: sel ? t.sectionBg : 'transparent', border: 'none', borderRadius: 4,
+                  padding: '7px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                  fontSize: 13, fontWeight: sel ? 700 : 500, color: t.textPrimary,
+                }}
+                onMouseEnter={e => { if (!sel) e.currentTarget.style.background = t.sectionBg; }}
+                onMouseLeave={e => { if (!sel) e.currentTarget.style.background = 'transparent'; }}>
+                {o.label}{suffix ? ` ${suffix}` : ''}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 Object.assign(window, {
   makeTheme, tokens,
+  Input, Select, NumberInput,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,
@@ -681,6 +873,7 @@ Object.assign(window, {
 
 export {
   makeTheme, tokens,
+  Input, Select, NumberInput,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   formatDate, getLeagueStats,

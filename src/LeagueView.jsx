@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -79,17 +79,6 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   const sumOther = other.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const allocated = sumStandings + sumOther;
   const remaining = totalPool - allocated;
-
-  const fieldStyle = {
-    background: isDark ? '#161a22' : '#f7f9fc',
-    border: `1px solid ${t.border}`,
-    borderRadius: 5,
-    padding: '5px 8px',
-    fontSize: 13,
-    color: t.textPrimary,
-    fontFamily: 'inherit',
-    outline: 'none',
-  };
 
   // Payments handlers (live, never drafted)
   function updateTeam(teamId, patch) {
@@ -225,8 +214,9 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
           {isEditing ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 13, color: t.textMuted }}>$</span>
-              <input type="number" step="25" value={buyIn || ''} onChange={e => setDraftBuyIn(e.target.value)}
-                style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700 }} />
+              <NumberInput size="sm" align="right" step={25} width={80} isDark={isDark}
+                value={buyIn || ''} onChange={e => setDraftBuyIn(e.target.value)}
+                style={{ fontWeight: 700 }} />
             </div>
           ) : (
             <span style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary }}>${buyIn.toLocaleString()}</span>
@@ -260,7 +250,8 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       <>
                         <div style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
-                          <input type="number" step="25" value={reg ?? ''}
+                          <NumberInput size="sm" align="right" step={25} width={78} placeholder="—" isDark={isDark}
+                            value={reg ?? ''}
                             onChange={e => {
                               const raw = e.target.value;
                               if (raw === '') { setDraftCell(place, 'regular', ''); return; }
@@ -268,12 +259,12 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                               if (Number.isNaN(n)) return;
                               setDraftCell(place, 'regular', n);
                             }}
-                            placeholder="—"
-                            style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: reg != null && reg !== 0 ? 700 : 500, color: amountColor(reg) }} />
+                            style={{ fontWeight: reg != null && reg !== 0 ? 700 : 500, color: amountColor(reg) }} />
                         </div>
                         <div style={{ justifySelf: 'end', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span style={{ fontSize: 12, color: t.textMuted }}>$</span>
-                          <input type="number" step="25" value={pf ?? ''}
+                          <NumberInput size="sm" align="right" step={25} width={78} placeholder="—" isDark={isDark}
+                            value={pf ?? ''}
                             onChange={e => {
                               const raw = e.target.value;
                               if (raw === '') { setDraftCell(place, 'playoffs', ''); return; }
@@ -281,8 +272,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                               if (Number.isNaN(n)) return;
                               setDraftCell(place, 'playoffs', n);
                             }}
-                            placeholder="—"
-                            style={{ ...fieldStyle, width: 78, textAlign: 'right', fontWeight: pf != null && pf !== 0 ? 700 : 500, color: amountColor(pf) }} />
+                            style={{ fontWeight: pf != null && pf !== 0 ? 700 : 500, color: amountColor(pf) }} />
                         </div>
                         <button onClick={() => removeRow(place)} title="Remove row"
                           style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit', justifySelf: 'center' }}>×</button>
@@ -308,14 +298,9 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                         Pick a place to add your first payout.
                       </div>
                     )}
-                    <select value=""
-                      onChange={e => { if (e.target.value) { addRow(Number(e.target.value)); e.target.value = ''; } }}
-                      style={{ ...fieldStyle, cursor: 'pointer', padding: '6px 8px', marginLeft: -9 }}>
-                      <option value="">+ Add place…</option>
-                      {addablePlaces.map(p => (
-                        <option key={p} value={p}>{ordinal(p)}</option>
-                      ))}
-                    </select>
+                    <Select value="" placeholder="+ Add place…" width={160} isDark={isDark}
+                      options={addablePlaces.map(p => ({ value: p, label: ordinal(p) }))}
+                      onChange={v => { if (v) addRow(Number(v)); }} />
                   </div>
                 ) : (
                   <div style={{ gridColumn: '1 / -1', paddingTop: 4, fontSize: 12, color: t.textMuted }}>
@@ -344,10 +329,14 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: i < other.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
                 {isEditing ? (
                   <>
-                    <input type="text" value={p.label} onChange={e => setDraftOther(i, { label: e.target.value })} placeholder="e.g. Weekly high score — $5/week"
-                      style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Input size="sm" width="100%" isDark={isDark} value={p.label}
+                        onChange={e => setDraftOther(i, { label: e.target.value })}
+                        placeholder="e.g. Weekly high score — $5/week" />
+                    </div>
                     <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? t.danger : t.textMuted }}>$</span>
-                    <input type="number" step="25" value={p.amount}
+                    <NumberInput size="sm" align="right" step={25} width={80} isDark={isDark}
+                      value={p.amount}
                       onChange={e => {
                         const raw = e.target.value;
                         if (raw === '') { setDraftOther(i, { amount: 0 }); return; }
@@ -355,7 +344,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                         if (Number.isNaN(n)) return;
                         setDraftOther(i, { amount: n });
                       }}
-                      style={{ ...fieldStyle, width: 80, textAlign: 'right', fontWeight: 700, color: amountColor(Number(p.amount) || 0) }} />
+                      style={{ fontWeight: 700, color: amountColor(Number(p.amount) || 0) }} />
                     <button onClick={() => removeDraftOther(i)} title="Remove payout"
                       style={{ background: 'none', border: 'none', color: t.textMuted, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: '2px 6px', fontFamily: 'inherit' }}>×</button>
                   </>
@@ -384,9 +373,9 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
         {(isEditing || payoutNote) && (
           <div style={{ padding: '16px 20px', borderTop: `1px solid ${t.divider}` }}>
             {isEditing ? (
-              <input type="text" value={payoutNote} onChange={e => setDraftPayoutNote(e.target.value)}
-                placeholder="Optional note about the payout structure…"
-                style={{ ...fieldStyle, width: '100%', boxSizing: 'border-box' }} />
+              <Input size="sm" width="100%" isDark={isDark} value={payoutNote}
+                onChange={e => setDraftPayoutNote(e.target.value)}
+                placeholder="Optional note about the payout structure…" />
             ) : (
               <div style={{ fontSize: 12, color: t.textMuted, fontStyle: 'italic' }}>{payoutNote}</div>
             )}
@@ -478,32 +467,21 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
 }
 
 // ─── Small input primitives styled to match the existing cards ──────────────
-function inputStyle(t, isDark) {
-  return {
-    background: isDark ? '#161a22' : '#f7f9fc',
-    border: `1px solid ${t.border}`,
-    borderRadius: 6,
-    padding: '6px 10px',
-    fontSize: '13px',
-    color: t.textPrimary,
-    fontFamily: 'inherit',
-    outline: 'none',
-    width: 160,
-    textAlign: 'left',
-    boxSizing: 'border-box',
-  };
+// Thin value-based binding adapters over the shared field primitives — they
+// carry no styles of their own (the recipe lives in components.jsx); they
+// just adapt the settings form's onChange(value) ergonomics to the
+// primitives' event-based onChange.
+function TextField({ value, onChange, isDark, type = 'text', width }) {
+  if (type === 'number') {
+    return <NumberInput value={value ?? ''} width={width || 160} isDark={isDark}
+      onChange={e => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
+  }
+  return <Input value={value ?? ''} width={width || 160} isDark={isDark}
+    onChange={e => onChange(e.target.value)} />;
 }
 
-function TextField({ value, onChange, t, isDark, type = 'text', width }) {
-  return <input type={type} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} style={{ ...inputStyle(t, isDark), width: width || 160 }} />;
-}
-
-function SelectField({ value, onChange, options, t, isDark }) {
-  return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={{ ...inputStyle(t, isDark), cursor: 'pointer' }}>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
+function SelectField({ value, onChange, options, isDark }) {
+  return <Select value={value} onChange={onChange} options={options} width={160} isDark={isDark} />;
 }
 
 function ToggleField({ value, onChange, t, isDark }) {
