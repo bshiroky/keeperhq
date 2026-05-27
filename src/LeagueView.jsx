@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -13,7 +13,8 @@ import { startNewSeason } from './lib/season.js';
 function TabBar({ tabs, active, basePath, accentColor, isDark }) {
   const t = makeTheme(isDark);
   return (
-    <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${t.border}`, marginBottom: 0 }}>
+    <div style={{ borderBottom: `1px solid ${t.border}`, marginBottom: 0 }}>
+      <HScrollRow isDark={isDark} t={t} gap={0}>
       {tabs.map(tab => (
         <Link key={tab.id} to={`${basePath}/${tab.id}`} style={{
           background: 'none', border: 'none', cursor: 'pointer',
@@ -35,6 +36,7 @@ function TabBar({ tabs, active, basePath, accentColor, isDark }) {
           )}
         </Link>
       ))}
+      </HScrollRow>
     </div>
   );
 }
@@ -174,7 +176,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
   function amountColor(v) {
     const n = Number(v) || 0;
     if (n === 0) return t.textPrimary;
-    return n < 0 ? '#e85252' : '#6dd4a8';
+    return n < 0 ? t.danger : t.success;
   }
   function fmtAmount(v) {
     const n = Number(v) || 0;
@@ -344,7 +346,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                   <>
                     <input type="text" value={p.label} onChange={e => setDraftOther(i, { label: e.target.value })} placeholder="e.g. Weekly high score — $5/week"
                       style={{ ...fieldStyle, flex: 1, minWidth: 0 }} />
-                    <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? '#e85252' : t.textMuted }}>$</span>
+                    <span style={{ fontSize: 13, color: (Number(p.amount) || 0) < 0 ? t.danger : t.textMuted }}>$</span>
                     <input type="number" step="25" value={p.amount}
                       onChange={e => {
                         const raw = e.target.value;
@@ -403,7 +405,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 16px', alignItems: 'baseline' }}>
             <span style={{ fontSize: '12px', color: t.textMuted }}>{remaining < 0 ? 'Over-allocated by' : 'Unallocated'}</span>
-            <span style={{ fontSize: '13px', fontWeight: 700, color: remaining < 0 ? '#e85252' : (remaining === 0 ? '#6dd4a8' : t.textSecondary) }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: remaining < 0 ? t.danger : (remaining === 0 ? t.success : t.textSecondary) }}>
               ${Math.abs(remaining).toLocaleString()}
             </span>
           </div>
@@ -417,7 +419,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
         </div>
         <div style={{ padding: '14px 20px 0' }}>
           <div style={{ background: t.progressBg, borderRadius: 4, height: 5, marginBottom: 14 }}>
-            <div style={{ background: collected >= liveTotalPool ? '#4caf7d' : '#e8832a', height: '100%', borderRadius: 4, width: `${Math.min((collected / (liveTotalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
+            <div style={{ background: collected >= liveTotalPool ? t.success : t.warning, height: '100%', borderRadius: 4, width: `${Math.min((collected / (liveTotalPool || 1)) * 100, 100)}%`, transition: 'width 0.4s' }}></div>
           </div>
         </div>
         <div style={{ padding: '0 20px' }}>
@@ -437,10 +439,10 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                   )}
                   <button onClick={() => togglePaid(team)}
                     style={{
-                      background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
-                      border: `1px solid ${team.paid ? 'rgba(109,212,168,0.3)' : 'rgba(232,82,82,0.3)'}`,
+                      background: team.paid ? t.successBg : t.dangerBg,
+                      border: `1px solid ${team.paid ? t.successBorder : t.dangerBorder}`,
                       borderRadius: 6, padding: '4px 10px', fontSize: '12px', fontWeight: 700,
-                      color: team.paid ? '#6dd4a8' : '#e85252', cursor: 'pointer', fontFamily: 'inherit',
+                      color: team.paid ? t.success : t.danger, cursor: 'pointer', fontFamily: 'inherit',
                       minWidth: 70, textAlign: 'center',
                     }}>
                     {team.paid ? `✓ $${liveBuyIn}` : 'Mark Paid'}
@@ -508,7 +510,7 @@ function ToggleField({ value, onChange, t, isDark }) {
   return (
     <button type="button" onClick={() => onChange(!value)} style={{
       width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
-      background: value ? '#6dd4a8' : (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.18)'),
+      background: value ? t.success : (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.18)'),
       position: 'relative', transition: 'background 0.15s', padding: 0,
     }}>
       <span style={{ position: 'absolute', top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
@@ -700,7 +702,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: rostersLoaded === totalTeams ? '#6dd4a8' : t.textMuted, fontWeight: 700 }}>
+            <span style={{ fontSize: 12, color: rostersLoaded === totalTeams ? t.success : t.textMuted, fontWeight: 700 }}>
               {rostersLoaded}/{totalTeams} loaded
             </span>
             <button onClick={() => setShowRosterImport('new')}
@@ -715,7 +717,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
             const rowBorder = i < arr.length - 2 ? `1px solid ${t.dividerFaint}` : 'none';
             return (
               <div key={tm.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px', borderBottom: rowBorder, borderRight: i % 2 === 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? '#6dd4a8' : t.border, flexShrink: 0 }} />
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? t.success : t.border, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>{tm.name}</div>
                   <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
@@ -841,13 +843,13 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
           <div style={{ display: 'flex', gap: 22, alignItems: 'center', textAlign: 'center' }}>
             {[
               { label: 'Teams', value: totalTeams },
-              { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? '#6dd4a8' : undefined },
-              { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? '#e8832a' : '#6dd4a8' },
+              { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? t.success : undefined },
+              { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? t.warning : t.success },
               // POOL is universal (prize money). EXPIRING is an additional
               // snake-only stat (count of contracts going back to the draft).
               { label: 'Pool', value: `$${league.totalPool.toLocaleString()}` },
               ...(league.draftType === 'snake'
-                ? [{ label: 'Expiring', value: stats.expiring || '—', accent: stats.expiring > 0 ? '#e85252' : undefined }]
+                ? [{ label: 'Expiring', value: stats.expiring || '—', accent: stats.expiring > 0 ? t.danger : undefined }]
                 : []),
             ].map(s => (
               <div key={s.label}>
