@@ -1,4 +1,5 @@
 import React from 'react';
+import { Pencil } from 'lucide-react';
 import { makeTheme } from '../components.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { posForRoster } from '../PlayerAutocomplete.jsx';
@@ -231,7 +232,7 @@ export function PlayersTab({ league, isDark, accentColor, onUpdateLeague }) {
               maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-            {onUpdateLeague && <span style={{ opacity: 0.7, fontSize: 10 }}>✎</span>}
+            {onUpdateLeague && <span style={{ opacity: 0.7, display: 'inline-flex', alignItems: 'center' }}><Pencil size={10} strokeWidth={1.75} /></span>}
           </button>
           {entry?.tradedToTeamName && (
             <span style={{ fontSize: 10, color: t.warning, fontWeight: 700, whiteSpace: 'nowrap' }}>

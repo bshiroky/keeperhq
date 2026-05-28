@@ -1,4 +1,5 @@
 import React from 'react';
+import { Pencil, ArrowLeftRight } from 'lucide-react';
 import { makeTheme, Tooltip, tokens } from '../components.jsx';
 
 // The single keeper-cell renderer shared by the Overview grid (interactive)
@@ -8,8 +9,8 @@ import { makeTheme, Tooltip, tokens } from '../components.jsx';
 // share one footprint; the cell suite asserts uniform height.
 //
 // Interactive bits are opt-in props so the static sample can omit them:
-//   onReassignClick → renders the hover-fade ✎ reassign pencil (grid only)
-//   tradedToName    → destination team name for the ⇄ swap-badge tooltip
+//   onReassignClick → renders the hover-fade reassign pencil (grid only)
+//   tradedToName    → destination team name for the swap-badge tooltip
 //   children        → the move popover (grid only)
 function SampleKeeperCell({
   slot,
@@ -53,10 +54,10 @@ function SampleKeeperCell({
             className="kh-keeper-pencil"
             onClick={onReassignClick}
             title="Reassign to another team (mid-season trade)"
-            style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', fontSize: '11px', color: t.textMuted, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}
+            style={{ background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer', color: t.textMuted, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
             onMouseEnter={e => { e.currentTarget.style.color = gridAccent; }}
             onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
-          >✎</button>
+          ><Pencil size={11} strokeWidth={1.75} /></button>
         )}
       </div>
       {/* Line 2: value + FINAL YR badge — left-grouped so the cell holds the
@@ -87,8 +88,8 @@ function SampleKeeperCell({
           content={`${slot.player} · traded to ${tradedToName}`}
           style={{ position: 'absolute', bottom: 6, right: 8 }}>
           <span aria-label={`traded to ${tradedToName}`}
-            style={{ fontSize: '12px', lineHeight: 1, fontWeight: 700, color: gridAccent, cursor: 'default' }}>
-            ⇄
+            style={{ lineHeight: 1, color: gridAccent, cursor: 'default', display: 'inline-flex', alignItems: 'center' }}>
+            <ArrowLeftRight size={12} strokeWidth={1.75} />
           </span>
         </Tooltip>
       )}

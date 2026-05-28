@@ -1,4 +1,5 @@
 import React from 'react';
+import { RotateCcw, Lock, Pencil, ArrowLeftRight } from 'lucide-react';
 import { makeTheme } from '../components.jsx';
 
 // Lottery Tab — bottom 4 teams compete for picks 1-4; top 8 get 5-12 in reverse standings.
@@ -151,11 +152,13 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                 <button onClick={resetLottery} style={{
                   background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '10px 16px',
                   fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: t.textMuted, fontFamily: 'inherit',
-                }}>🔄 Re-run</button>
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}><RotateCcw size={14} strokeWidth={1.5} />Re-run</button>
                 <button onClick={lockResults} style={{
                   background: '#4caf7d', border: 'none', borderRadius: 8, padding: '10px 20px',
                   fontSize: '13px', fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit',
-                }}>🔒 Lock Results</button>
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}><Lock size={14} strokeWidth={1.5} />Lock Results</button>
               </>
             )}
             {locked && (
@@ -168,7 +171,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
         </div>
         {locked && (
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(76,175,125,0.1)', borderRadius: 8 }}>
-            <span style={{ fontSize: 16 }}>🔒</span>
+            <Lock size={16} strokeWidth={1.5} color="#6dd4a8" />
             <span style={{ fontSize: '13px', color: '#6dd4a8', fontWeight: 600 }}>Results locked. You can still reassign picks for trades.</span>
           </div>
         )}
@@ -212,11 +215,11 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                       <div onClick={() => setEditingPick(i + 1)} style={{ cursor: 'pointer' }}>
                         <div style={{ fontSize: '15px', fontWeight: 600, color: t.textPrimary, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {eligibleOwner}
-                          <span style={{ fontSize: 10, color: t.textMuted, opacity: 0.6 }}>✎</span>
+                          <span style={{ color: t.textMuted, opacity: 0.6, display: 'inline-flex' }}><Pencil size={12} strokeWidth={1.5} /></span>
                         </div>
                         {traded && (
-                          <div style={{ fontSize: '11px', color: '#e8832a', fontWeight: 600, marginTop: 1 }}>
-                            ↔ traded from {tm.name}
+                          <div style={{ fontSize: '11px', color: '#e8832a', fontWeight: 600, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <ArrowLeftRight size={12} strokeWidth={1.5} />traded from {tm.name}
                           </div>
                         )}
                       </div>
@@ -237,8 +240,9 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
       {drawn && (
         <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden' }}>
           <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Draft Order {locked ? '🔒' : '· Drawn'}
+            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>Draft Order</span>
+              {locked ? <Lock size={13} strokeWidth={1.5} /> : <span>· Drawn</span>}
             </div>
           </div>
           <div style={{ padding: '8px 0' }}>
@@ -282,11 +286,11 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                       <div onClick={() => isRevealed && setEditingPick(row.pick)} style={{ cursor: isRevealed ? 'pointer' : 'default' }}>
                         <div style={{ fontSize: '15px', fontWeight: 600, color: isRevealed ? t.textPrimary : t.textMuted, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {displayOwner}
-                          {isRevealed && <span style={{ fontSize: 10, color: t.textMuted, opacity: 0.6 }}>✎</span>}
+                          {isRevealed && <span style={{ color: t.textMuted, opacity: 0.6, display: 'inline-flex' }}><Pencil size={12} strokeWidth={1.5} /></span>}
                         </div>
                         {traded && (
-                          <div style={{ fontSize: '11px', color: '#e8832a', fontWeight: 600, marginTop: 1 }}>
-                            ↔ traded from {original}
+                          <div style={{ fontSize: '11px', color: '#e8832a', fontWeight: 600, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <ArrowLeftRight size={12} strokeWidth={1.5} />traded from {original}
                           </div>
                         )}
                         {row.lottery && row.owner && !traded && (

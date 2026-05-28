@@ -192,6 +192,8 @@ function App() {
             .kh-nav-wordmark { display: none !important; }
             .kh-nav-icon { display: block !important; }
           }
+          @keyframes kh-spin { to { transform: rotate(360deg); } }
+          .kh-spin { animation: kh-spin 1s linear infinite; transform-origin: center; }
         `}</style>
       </header>
 

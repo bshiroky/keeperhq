@@ -1,4 +1,5 @@
 import React from 'react';
+import { Pencil, Check } from 'lucide-react';
 import { makeTheme } from '../components.jsx';
 
 // Per-team Keeper Collection View — sidebar of teams + main pane with prior keepers as suggestion chips
@@ -126,8 +127,8 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
                   Clear
                 </button>
               )}
-              <button onClick={() => onEditTeam(selected)} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit' }}>
-                Edit Contracts ✎
+              <button onClick={() => onEditTeam(selected)} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                Edit Contracts <Pencil size={12} strokeWidth={1.75} />
               </button>
             </div>
           </div>
@@ -138,8 +139,8 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
               <span>Last Year's Eligible Keepers</span>
               <span style={{ color: t.textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· click to add as suggestion</span>
               {hasRoster && (
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6dd4a8', background: 'rgba(76,175,125,0.12)', border: '1px solid rgba(76,175,125,0.3)', padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none' }}>
-                  ✓ Pre-playoff roster loaded · {(selected.roster || []).length} players{selected.rosterAsOfDate ? ` · ${selected.rosterAsOfDate}` : ''}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6dd4a8', background: 'rgba(76,175,125,0.12)', border: '1px solid rgba(76,175,125,0.3)', padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Check size={11} strokeWidth={2} /> Pre-playoff roster loaded · {(selected.roster || []).length} players{selected.rosterAsOfDate ? ` · ${selected.rosterAsOfDate}` : ''}
                 </span>
               )}
             </div>
@@ -174,7 +175,7 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
                       onMouseLeave={e => { if (!used && !blocked) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.background = t.cardBg; } }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: used ? t.textMuted : t.textPrimary }}>{p.player}</span>
-                        {used && <span style={{ fontSize: 10, color: '#4caf7d', fontWeight: 700 }}>✓ Added</span>}
+                        {used && <span style={{ fontSize: 10, color: '#4caf7d', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Check size={11} strokeWidth={2} /> Added</span>}
                         {!used && offRoster && !expired && <span style={{ fontSize: 9, color: '#e85252', fontWeight: 700, background: 'rgba(232,82,82,0.12)', padding: '1px 5px', borderRadius: 3, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Not on roster</span>}
                       </div>
                       <div style={{ fontSize: 10, color: t.textMuted }}>

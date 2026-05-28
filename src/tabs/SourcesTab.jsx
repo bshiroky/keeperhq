@@ -1,4 +1,5 @@
 import React from 'react';
+import { Download, DollarSign, Check } from 'lucide-react';
 import { makeTheme } from '../components.jsx';
 import { DraftImportModal } from './ImportTab.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
@@ -216,7 +217,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
   if (isAuction) {
     sources.push({
       key: 'draft',
-      icon: '💰',
+      Icon: DollarSign,
       label: "Last season's draft",
       desc: 'Sets each kept player\'s base cost; +$' + ((league.auctionRules?.costIncreasePerYear) || 5) + '/yr per keeper rule.',
       loaded: draftLoaded,
@@ -227,7 +228,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
   }
   sources.push({
     key: 'rosters',
-    icon: '📥',
+    Icon: Download,
     label: "Last season's rosters",
     desc: 'Who was on each team. Used to verify keeper eligibility.',
     loaded: rostersLoaded,
@@ -242,7 +243,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
     <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, overflow: 'hidden' }}>
       <button onClick={() => setExpanded(!expanded)}
         style={{ width: '100%', background: t.sectionBg, border: 'none', borderBottom: expanded ? `1px solid ${t.divider}` : 'none', padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontFamily: 'inherit' }}>
-        <span style={{ fontSize: 16 }}>📥</span>
+        <Download size={16} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1, textAlign: 'left' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Data Sources</div>
           <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1, fontWeight: 500, letterSpacing: 0, textTransform: 'none' }}>
@@ -259,7 +260,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
             const done = s.loaded > 0;
             return (
               <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>{done ? '✓' : s.icon}</div>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? '#6dd4a8' : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{s.label}</span>
@@ -282,7 +283,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
             return (
               <div style={{ borderTop: `1px solid ${t.dividerFaint}`, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>{done ? '✓' : s.icon}</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? '#6dd4a8' : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{s.label}</span>

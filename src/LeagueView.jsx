@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Pencil, Check, RefreshCw, ClipboardList, Download } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
@@ -423,7 +424,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       style={{ background: 'none', border: 'none', fontSize: '11px', color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 4 }}>
                       <span>{team.paidDate ? fmtDate(team.paidDate) : 'no date'}</span>
                       {team.paidNote && <span style={{ color: accentColor }} title={team.paidNote}>· note</span>}
-                      <span>{isOpen ? '▾' : '✎'}</span>
+                      {isOpen ? <span>▾</span> : <Pencil size={12} strokeWidth={1.5} />}
                     </button>
                   )}
                   <button onClick={() => togglePaid(team)}
@@ -433,8 +434,9 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       borderRadius: 6, padding: '4px 10px', fontSize: '12px', fontWeight: 700,
                       color: team.paid ? t.success : t.danger, cursor: 'pointer', fontFamily: 'inherit',
                       minWidth: 70, textAlign: 'center',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
                     }}>
-                    {team.paid ? `✓ $${liveBuyIn}` : 'Mark Paid'}
+                    {team.paid ? <><Check size={14} strokeWidth={1.5} /> ${liveBuyIn}</> : 'Mark Paid'}
                   </button>
                 </div>
                 {isOpen && team.paid && (
@@ -648,7 +650,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Season</div>
         </div>
         <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 18 }}>🔄</span>
+          <RefreshCw size={18} strokeWidth={1.5} color={t.textSecondary} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Start New Season</div>
             <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
@@ -662,7 +664,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
       </div>
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span style={{ fontSize: 18 }}>📋</span>
+        <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Import Last Year's Draft</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Paste your fantasy site's draft results to pre-populate every team's eligible keeper pool with player names and prices.</div>
@@ -673,7 +675,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 16 }}>📥</span>
+            <Download size={16} strokeWidth={1.5} color={t.textSecondary} />
             <div>
               <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Pre-Playoff Rosters</div>
               <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 2 }}>Snapshot who was on each team's roster before fantasy playoffs — used to verify keeper eligibility (no waiver pickups).</div>
@@ -854,7 +856,7 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       {/* Season-complete banner — prompts the commissioner to roll forward */}
       {league.status === 'completed' && (
         <div style={{ background: 'linear-gradient(135deg, rgba(59,138,230,0.18), rgba(107,77,230,0.12))', border: `1px solid ${accentColor}55`, borderRadius: 10, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 22 }}>🔄</span>
+          <RefreshCw size={22} strokeWidth={1.5} color={accentColor} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {league.season} season is complete</div>
             <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Roll the league forward to set up next season's keepers.</div>

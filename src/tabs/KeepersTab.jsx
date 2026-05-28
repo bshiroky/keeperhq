@@ -1,4 +1,5 @@
 import React from 'react';
+import { ArrowLeftRight, Check } from 'lucide-react';
 import { makeTheme, Button } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
@@ -208,8 +209,8 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                   </div>
                 )}
                 <button onClick={() => startTrade(i)} title={k.tradedTo ? `Traded to ${teamName(k.tradedTo)}` : 'Trade this player'}
-                  style={{ background: k.tradedTo ? 'rgba(217,119,87,0.15)' : 'none', border: `1px solid ${k.tradedTo ? '#d97757' : t.border}`, borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: k.tradedTo ? '#d97757' : t.textMuted, fontSize: 13, lineHeight: 1, flexShrink: 0, fontWeight: 600 }}>
-                  ⇄
+                  style={{ background: k.tradedTo ? 'rgba(217,119,87,0.15)' : 'none', border: `1px solid ${k.tradedTo ? '#d97757' : t.border}`, borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: k.tradedTo ? '#d97757' : t.textMuted, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}>
+                  <ArrowLeftRight size={14} strokeWidth={1.75} />
                 </button>
                 <button onClick={() => removeKeeper(i)} style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: '#e85252', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
@@ -349,7 +350,8 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                     border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
                     borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
                     cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252',
-                  }}>{team.paid ? '✓ Paid' : 'Unpaid'}</button>
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  }}>{team.paid ? <><Check size={12} strokeWidth={2} /> Paid</> : 'Unpaid'}</button>
                   {team.keepersSubmitted
                     ? <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 6, padding: '4px 10px' }}>Submitted</span>
                     : <span style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, background: t.sectionBg, borderRadius: 6, padding: '4px 10px' }}>Pending</span>
@@ -408,7 +410,8 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                 border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
                 borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
                 cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252',
-              }}>{team.paid ? '✓ Paid' : 'Unpaid'}</button>
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>{team.paid ? <><Check size={12} strokeWidth={2} /> Paid</> : 'Unpaid'}</button>
               {team.keepersSubmitted
                 ? <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor, background: `${accentColor}18`, borderRadius: 6, padding: '4px 10px' }}>Submitted</span>
                 : <span style={{ fontSize: '11px', fontWeight: 600, color: t.textMuted, background: t.sectionBg, borderRadius: 6, padding: '4px 10px' }}>Pending</span>

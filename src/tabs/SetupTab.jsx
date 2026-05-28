@@ -1,4 +1,5 @@
 import React from 'react';
+import { ClipboardList, Users, Check, Pencil, ArrowLeftRight, AlertTriangle, Download, Trophy } from 'lucide-react';
 import { makeTheme, getLeagueStats, HScrollRow, Tooltip } from '../components.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
 import { DataSourcesPanel } from './SourcesTab.jsx';
@@ -10,9 +11,9 @@ const SETUP_STEPS_SNAKE = ['keepers', 'done'];
 const SETUP_STEPS_AUCTION = ['keepers', 'done'];
 
 const STEP_META = {
-  'intro':    { label: 'Overview', icon: '📋' },
-  'keepers':  { label: 'Keepers',  icon: '👥' },
-  'done':     { label: 'Ready',    icon: '✓'  },
+  'intro':    { label: 'Overview', Icon: ClipboardList },
+  'keepers':  { label: 'Keepers',  Icon: Users },
+  'done':     { label: 'Ready',    Icon: Check },
 };
 
 // ── Step progress bar ────────────────────────────────────────────────────────
@@ -33,10 +34,9 @@ function WizardProgress({ steps, currentStep, accentColor, isDark }) {
                 background: done ? '#4caf7d' : active ? accentColor : t.sectionBg,
                 border: `2px solid ${done ? '#4caf7d' : active ? accentColor : t.border}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 14, fontWeight: 700,
                 color: done || active ? '#fff' : t.textMuted,
                 transition: 'all 0.2s',
-              }}>{done ? '✓' : meta.icon}</div>
+              }}>{done ? <Check size={16} strokeWidth={2.25} /> : <meta.Icon size={16} strokeWidth={1.75} />}</div>
               <div style={{ fontSize: '11px', fontWeight: active ? 700 : 500, color: active ? accentColor : done ? t.textSecondary : t.textMuted, whiteSpace: 'nowrap' }}>
                 {meta.label}
               </div>
@@ -226,7 +226,7 @@ function StepReviewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12, boxShadow: t.cardShadow, padding: '16px 20px' }}>
         <div style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary }}>Review Existing Keepers</div>
-        <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Players staying with their team will auto-roll over. <strong style={{ color: '#e85252' }}>Drop</strong> any you're releasing back to the draft pool. Drag a card to another team for offseason trades. Click the ✎ to change a player's team.</div>
+        <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Players staying with their team will auto-roll over. <strong style={{ color: '#e85252' }}>Drop</strong> any you're releasing back to the draft pool. Drag a card to another team for offseason trades. Click the <Pencil size={11} strokeWidth={1.75} style={{ display: 'inline', verticalAlign: '-2px' }} /> to change a player's team.</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
@@ -276,7 +276,7 @@ function StepReviewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary }}>{k.player}</span>
                           <button onClick={() => setEditingPlayer({ teamId: team.id, idx: i })} title="Change team"
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '11px', color: t.textMuted, opacity: 0.7 }}>✎</button>
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: t.textMuted, opacity: 0.7, display: 'inline-flex', alignItems: 'center' }}><Pencil size={11} strokeWidth={1.75} /></button>
                         </div>
                         {isEditing && (
                           <select autoFocus
@@ -288,15 +288,16 @@ function StepReviewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                           </select>
                         )}
                         {league.draftType === 'snake' && (
-                          <div style={{ fontSize: '11px', color: expiring ? '#e85252' : t.textMuted, marginTop: 1 }}>
-                            Y{k.contractYear}/{k.contractLength}{expiring && ' · last year ⚠'}
+                          <div style={{ fontSize: '11px', color: expiring ? '#e85252' : t.textMuted, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span>Y{k.contractYear}/{k.contractLength}</span>
+                            {expiring && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>· last year <AlertTriangle size={10} strokeWidth={2} /></span>}
                           </div>
                         )}
                         {league.draftType === 'auction' && (
                           <div style={{ fontSize: '11px', color: accentColor, fontWeight: 700, marginTop: 1 }}>${k.keptFor}</div>
                         )}
                         {k.movedFrom && (
-                          <div style={{ fontSize: '10px', color: '#e8832a', fontWeight: 600, marginTop: 2 }}>↔ from {k.movedFrom}</div>
+                          <div style={{ fontSize: '10px', color: '#e8832a', fontWeight: 600, marginTop: 2, display: 'flex', alignItems: 'center', gap: 3 }}><ArrowLeftRight size={10} strokeWidth={1.75} /> from {k.movedFrom}</div>
                         )}
                       </div>
                       <button onClick={() => dropPlayer(team.id, i)} title="Drop to draft pool"
@@ -637,16 +638,16 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: t.textPrimary }}>{activeTeam.name}</div>
-                <div style={{ fontSize: '11px', color: overSlots ? '#e8832a' : t.textMuted, marginTop: 1 }}>
-                  {activeKeepers.length}/{league.keeperSlots} slots
-                  {overSlots && ` · ⚠ ${activeKeepers.length - league.keeperSlots} over`}
-                  {!overSlots && slotsLeft > 0 && ` · ${slotsLeft} remaining`}
+                <div style={{ fontSize: '11px', color: overSlots ? '#e8832a' : t.textMuted, marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span>{activeKeepers.length}/{league.keeperSlots} slots</span>
+                  {overSlots && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <AlertTriangle size={11} strokeWidth={2} /> {activeKeepers.length - league.keeperSlots} over</span>}
+                  {!overSlots && slotsLeft > 0 && <span>· {slotsLeft} remaining</span>}
                 </div>
               </div>
             </div>
             {!adding && slotsLeft > 0 && (
               <div style={{ display: 'flex', gap: 6 }}>
-                <button onClick={() => setShowRosterImport(true)} title="Import this team's roster from Yahoo (paste or screenshot)" style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '6px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit' }}>📥 Import Roster</button>
+                <button onClick={() => setShowRosterImport(true)} title="Import this team's roster from Yahoo (paste or screenshot)" style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '6px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} strokeWidth={1.75} /> Import Roster</button>
                 <button onClick={() => setAdding(true)} style={{ background: accentColor, border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', color: '#fff', fontFamily: 'inherit' }}>+ Add Manually</button>
               </div>
             )}
@@ -758,7 +759,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
             ) : filteredPool.length === 0 ? (
               <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 11, color: t.textMuted }}>
                 {poolFilter === 'ineligible'
-                  ? '✓ No ineligible players — everyone on file can be kept.'
+                  ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={11} strokeWidth={2} /> No ineligible players — everyone on file can be kept.</span>
                   : poolFilter === 'own'
                     ? `No eligible keepers found for ${activeTeam.name}.`
                     : 'No players match'}
@@ -779,8 +780,8 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                       const nextYr = (p.contractYear || 0) + 1;
                       const isLastYr = nextYr === (p.contractLength || 3);
                       statusLabel = (
-                        <span style={{ fontSize: 10, color: isLastYr ? '#e8832a' : t.textMuted, fontWeight: 600, flexShrink: 0 }}>
-                          Y{nextYr}/{p.contractLength || 3}{isLastYr && ' ⚠'}
+                        <span style={{ fontSize: 10, color: isLastYr ? '#e8832a' : t.textMuted, fontWeight: 600, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          Y{nextYr}/{p.contractLength || 3}{isLastYr && <AlertTriangle size={10} strokeWidth={2} />}
                         </span>
                       );
                       chipTooltip = isLastYr
@@ -907,7 +908,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                         <span style={{ fontSize: 9, fontWeight: 700, color: t.textMuted, width: 18 }}>K{i + 1}</span>
                         <span style={{ flex: 1, color: t.textPrimary, fontWeight: 600 }}>{k.player || <em style={{ color: t.textMuted, fontWeight: 400 }}>(unnamed)</em>}</span>
                         {league.draftType === 'snake' && k.contractYear != null && (
-                          <span style={{ fontSize: 10, color: expiring ? '#e8832a' : t.textMuted, fontWeight: 600 }}>Y{k.contractYear}/{k.contractLength}{expiring && ' ⚠'}</span>
+                          <span style={{ fontSize: 10, color: expiring ? '#e8832a' : t.textMuted, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>Y{k.contractYear}/{k.contractLength}{expiring && <AlertTriangle size={10} strokeWidth={2} />}</span>
                         )}
                         {league.draftType === 'auction' && k.keptFor != null && (
                           <span style={{ fontSize: 10, color: accentColor, fontWeight: 700 }}>${k.keptFor}</span>
@@ -973,8 +974,8 @@ function StepPayments({ league, accentColor, isDark, onUpdateLeague, onNext, onB
             <div key={team.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', gap: 8 }}>
               <span style={{ fontSize: '14px', color: t.textBody, flex: 1 }}>{team.name}</span>
               {team.paid && team.paidDate && editingDateFor !== team.id && (
-                <button onClick={() => setEditingDateFor(team.id)} style={{ background: 'none', border: 'none', fontSize: '11px', color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  paid {new Date(team.paidDate + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} ✎
+                <button onClick={() => setEditingDateFor(team.id)} style={{ background: 'none', border: 'none', fontSize: '11px', color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  paid {new Date(team.paidDate + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} <Pencil size={10} strokeWidth={1.75} />
                 </button>
               )}
               {team.paid && editingDateFor === team.id && (
@@ -988,7 +989,8 @@ function StepPayments({ league, accentColor, isDark, onUpdateLeague, onNext, onB
                 border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
                 borderRadius: 6, padding: '5px 12px', fontSize: '12px', fontWeight: 700,
                 cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252', fontFamily: 'inherit',
-              }}>{team.paid ? `✓ $${league.buyIn} paid` : 'Mark paid'}</button>
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              }}>{team.paid ? <><Check size={12} strokeWidth={2} /> ${league.buyIn} paid</> : 'Mark paid'}</button>
             </div>
           ))}
         </div>
@@ -1013,7 +1015,7 @@ function StepDone({ league, accentColor, isDark, onFinish }) {
   const totalTeams = league.teams.length;
   return (
     <div style={{ background: t.cardBg, border: `1px solid ${accentColor}44`, borderRadius: 12, boxShadow: t.cardShadow, padding: '32px 28px', textAlign: 'center' }}>
-      <div style={{ fontSize: 48, marginBottom: 12 }}>🏆</div>
+      <div style={{ marginBottom: 12, color: accentColor, display: 'flex', justifyContent: 'center' }}><Trophy size={48} strokeWidth={1.5} /></div>
       <div style={{ fontSize: '20px', fontWeight: 800, color: t.textPrimary, marginBottom: 8 }}>Setup complete!</div>
       <div style={{ fontSize: '14px', color: t.textMuted, marginBottom: 24, lineHeight: 1.6 }}>
         {stats.submitted}/{totalTeams} teams have submitted keepers · {stats.paid}/{totalTeams} have paid.
