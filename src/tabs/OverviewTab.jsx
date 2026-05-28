@@ -1,4 +1,5 @@
 import React from 'react';
+import { Lock, Check, Loader, ClipboardList } from 'lucide-react';
 import { makeTheme, tokens, Button } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
@@ -28,8 +29,8 @@ function ChecklistCard({ icon, title, subtitle, value, total, status, accentColo
           </div>
         </div>
         {done && (
-          <span style={{ fontSize: '11px', fontWeight: 700, color: t.success, background: t.successBg, borderRadius: 20, padding: '3px 10px', flexShrink: 0 }}>
-            {status === 'locked' ? '🔒 Locked' : '✓ Done'}
+          <span style={{ fontSize: '11px', fontWeight: 700, color: t.success, background: t.successBg, borderRadius: 20, padding: '3px 10px', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            {status === 'locked' ? <><Lock size={11} strokeWidth={2} /> Locked</> : <><Check size={11} strokeWidth={2} /> Done</>}
           </span>
         )}
       </div>
@@ -409,7 +410,7 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
   if (state === 'complete') {
     return (
       <div style={{ background: t.cardBg, border: `1px solid ${t.successBorder}`, borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ width: 24, height: 24, borderRadius: '50%', background: t.successBg, color: t.success, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>✓</span>
+        <span style={{ width: 24, height: 24, borderRadius: '50%', background: t.successBg, color: t.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Check size={14} strokeWidth={2.25} /></span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>Season is set up</div>
           <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>All {teamsAtCap}/{teams.length} teams locked in. Keepers below.</div>
@@ -432,8 +433,8 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
       border: `1px solid ${state === 'inprogress' ? `${accentColor}55` : t.border}`,
       borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14,
     }}>
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-        {state === 'inprogress' ? '⏳' : '📋'}
+      <div style={{ width: 38, height: 38, borderRadius: 10, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: accentColor }}>
+        {state === 'inprogress' ? <Loader size={18} strokeWidth={1.5} className="kh-spin" /> : <ClipboardList size={18} strokeWidth={1.5} />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

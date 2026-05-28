@@ -838,6 +838,11 @@ buttons, no member login until (B)'s trigger is hit.
    was producing inconsistent frame alignment when last tried; defer
    until user has both frames matching.
 2. **Season-complete celebration banner** using `mascot-celebrate.png`.
+   Also a candidate: the **"Setup complete!"** screen at the end of
+   `SeasonSetupWizard` (`src/tabs/SetupTab.jsx` `StepDone`) —
+   currently a `Trophy` line icon (post-emoji-swap PR) but its
+   celebration-moment nature makes it a natural fit for
+   `mascot-celebrate.png`. Ties to audit items G2/G5.
 3. **priorKeepers trade gap** — trading a player whose contract lives
    in `priorKeepers` (not yet declared a `keepers`) sets `tradedTo` on
    the entry, but `OverviewTab` only iterates `keepers`, so the

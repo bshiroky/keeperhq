@@ -1,4 +1,5 @@
 import React from 'react';
+import { Check } from 'lucide-react';
 import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES, Input, Select, NumberInput, Button } from './components.jsx';
 import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
 
@@ -196,8 +197,8 @@ function SportPicker({ value, onChange, isDark }) {
                 position: 'absolute', top: 8, right: 8, width: 18, height: 18, borderRadius: '50%',
                 background: cfg.color, color: '#fff',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10, fontWeight: 800, boxShadow: `0 2px 4px ${cfg.color}66`,
-              }}>✓</span>
+                boxShadow: `0 2px 4px ${cfg.color}66`,
+              }}><Check size={12} strokeWidth={2.25} /></span>
             )}
             <img className="kh-fighter-char" src={cfg.logo} alt="" height={108}
               style={{
@@ -235,8 +236,8 @@ function DraftTypeCard({ title, tagline, sample, isSnake, accent, active, onSele
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           border: `2px solid ${active ? accent : t.border}`,
           background: active ? accent : 'transparent',
-          color: '#fff', fontSize: 10, fontWeight: 800,
-        }}>{active ? '✓' : ''}</span>
+          color: '#fff',
+        }}>{active && <Check size={11} strokeWidth={2.5} />}</span>
       </div>
       <div style={{ ...tokens.typeBody, fontWeight: 500, color: t.textBody, lineHeight: 1.4 }}>{tagline}</div>
       <div style={{ ...tokens.typeLabelEyebrow, fontSize: 9.5, color: t.textMuted, marginTop: tokens.space2xs }}>Sample keeper</div>
@@ -518,7 +519,7 @@ function LeftRail({ step, accent, onGoto, isDark }) {
               background: done ? tokens.success : active ? accent : (isDark ? '#1c2130' : '#fff'),
               color: done ? '#0f2018' : active ? '#fff' : t.textMuted,
               border: done ? 'none' : active ? 'none' : `1px solid ${t.border}`,
-            }}>{done ? '✓' : i + 1}</span>
+            }}>{done ? <Check size={12} strokeWidth={2.5} /> : i + 1}</span>
             <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 500, color: active ? t.textPrimary : t.textSecondary }}>
               {label}
             </span>
@@ -586,7 +587,11 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
                 Back
               </Button>
               {isReview ? (
-                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={handleCreate}>Create league ✓</Button>
+                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={handleCreate}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    Create league <Check size={16} strokeWidth={2} />
+                  </span>
+                </Button>
               ) : (
                 <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}>
                   Continue
