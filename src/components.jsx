@@ -427,6 +427,45 @@ const CARD_STYLES = `
   .kh-add-slot { transition: border-color 0.18s, color 0.18s; }
 `;
 
+// ── Save-acknowledgement motion (audit X6) ─────────────────────────────────
+// Ambient feedback for state changes — smooth 180ms fades on red↔green / on↔off
+// toggles, and a one-shot left-border flash when an EditableCard exits edit
+// mode. All motion is behind a prefers-reduced-motion guard; the base ::before
+// is invisible (opacity 0) so reduced-motion users simply get no flash. Inject
+// MOTION_STYLES once on any surface that uses these classes.
+const MOTION_STYLES = `
+  @keyframes kh-save-flash {
+    0%   { opacity: 0; }
+    23%  { opacity: 1; }
+    69%  { opacity: 1; }
+    100% { opacity: 0; }
+  }
+  .kh-save-flash-card { position: relative; }
+  .kh-save-flash-card::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: ${tokens.success};
+    opacity: 0; pointer-events: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .kh-state-fade { transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease; }
+    .kh-toggle-knob { transition: left 180ms ease; }
+    .kh-save-flash-card.kh-flash::before { animation: kh-save-flash 1.3s ease-out; }
+  }
+`;
+
+// Drives the EditableCard save flash: returns props to spread on the card root
+// and a trigger() to call when edit→view commits. The class is cleared on
+// animationend so it can re-fire on the next save.
+function useSaveFlash() {
+  const [flashing, setFlashing] = React.useState(false);
+  const flashProps = {
+    className: 'kh-save-flash-card' + (flashing ? ' kh-flash' : ''),
+    onAnimationEnd: e => { if (e.animationName === 'kh-save-flash') setFlashing(false); },
+  };
+  return [flashProps, () => setFlashing(true)];
+}
+
 function nextAction(league) {
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
@@ -1021,5 +1060,6 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
+  MOTION_STYLES, useSaveFlash,
   nextAction, leagueFlavor, leagueVoiceColor,
 };
