@@ -4,7 +4,6 @@ import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
-import { SuccessGreenCompare } from './SuccessGreenCompare.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 
 // Root App + Tweaks
@@ -205,7 +204,6 @@ function App() {
           <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} onCreate={handleAddLeague} />} />
           <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
-          <Route path="/success-compare" element={<SuccessGreenCompare isDark={isDark} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

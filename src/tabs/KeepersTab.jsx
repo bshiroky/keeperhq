@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeftRight, Check } from 'lucide-react';
-import { makeTheme, Button } from '../components.jsx';
+import { makeTheme, tokens, Button } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
 
@@ -349,7 +349,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                     background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
                     border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
                     borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
-                    cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252',
+                    cursor: 'pointer', color: team.paid ? tokens.success : '#e85252',
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                   }}>{team.paid ? <><Check size={12} strokeWidth={2} /> Paid</> : 'Unpaid'}</button>
                   {team.keepersSubmitted
@@ -409,7 +409,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                 background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
                 border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
                 borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
-                cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252',
+                cursor: 'pointer', color: team.paid ? tokens.success : '#e85252',
                 display: 'inline-flex', alignItems: 'center', gap: 4,
               }}>{team.paid ? <><Check size={12} strokeWidth={2} /> Paid</> : 'Unpaid'}</button>
               {team.keepersSubmitted

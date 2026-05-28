@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pencil, Check } from 'lucide-react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, tokens } from '../components.jsx';
 
 // Per-team Keeper Collection View — sidebar of teams + main pane with prior keepers as suggestion chips
 
@@ -139,7 +139,7 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
               <span>Last Year's Eligible Keepers</span>
               <span style={{ color: t.textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· click to add as suggestion</span>
               {hasRoster && (
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6dd4a8', background: 'rgba(76,175,125,0.12)', border: '1px solid rgba(76,175,125,0.3)', padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: tokens.success, background: 'rgba(76,175,125,0.12)', border: '1px solid rgba(76,175,125,0.3)', padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Check size={11} strokeWidth={2} /> Pre-playoff roster loaded · {(selected.roster || []).length} players{selected.rosterAsOfDate ? ` · ${selected.rosterAsOfDate}` : ''}
                 </span>
               )}

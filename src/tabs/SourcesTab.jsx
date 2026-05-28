@@ -1,6 +1,6 @@
 import React from 'react';
 import { Download, DollarSign, Check } from 'lucide-react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, tokens } from '../components.jsx';
 import { DraftImportModal } from './ImportTab.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
 
@@ -149,7 +149,7 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
               <>
                 <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
                   Parsed <strong>{preview.length}</strong> contract{preview.length === 1 ? '' : 's'} across <strong>{teamNames.length}</strong> teams.
-                  {matchedTeams.length > 0 && <span style={{ color: '#6dd4a8' }}> {matchedTeams.length} matched.</span>}
+                  {matchedTeams.length > 0 && <span style={{ color: tokens.success }}> {matchedTeams.length} matched.</span>}
                   {unmatched.length > 0 && <span style={{ color: '#e85252' }}> {unmatched.length} unmatched: {unmatched.join(', ')}</span>}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
@@ -160,7 +160,7 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{name}</span>
                           {matched ? (
-                            <span style={{ fontSize: 9, color: '#6dd4a8', background: 'rgba(76,175,125,0.15)', padding: '1px 6px', borderRadius: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>matched</span>
+                            <span style={{ fontSize: 9, color: tokens.success, background: 'rgba(76,175,125,0.15)', padding: '1px 6px', borderRadius: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>matched</span>
                           ) : (
                             <span style={{ fontSize: 9, color: '#e85252', background: 'rgba(232,82,82,0.12)', padding: '1px 6px', borderRadius: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>no match</span>
                           )}
@@ -260,11 +260,11 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
             const done = s.loaded > 0;
             return (
               <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? '#6dd4a8' : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? tokens.success : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{s.label}</span>
-                    <span style={{ fontSize: 11, color: done ? '#6dd4a8' : t.textMuted, fontWeight: 600 }}>{s.loaded}/{s.total} teams</span>
+                    <span style={{ fontSize: 11, color: done ? tokens.success : t.textMuted, fontWeight: 600 }}>{s.loaded}/{s.total} teams</span>
                   </div>
                   <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>{s.desc}</div>
                 </div>
@@ -283,11 +283,11 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
             return (
               <div style={{ borderTop: `1px solid ${t.dividerFaint}`, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? '#6dd4a8' : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: done ? 'rgba(76,175,125,0.15)' : t.sectionBg, border: `1px solid ${done ? 'rgba(76,175,125,0.3)' : t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: done ? tokens.success : t.textSecondary }}>{done ? <Check size={14} strokeWidth={1.75} /> : <s.Icon size={14} strokeWidth={1.5} />}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>{s.label}</span>
-                      <span style={{ fontSize: 11, color: done ? '#6dd4a8' : t.textMuted, fontWeight: 600 }}>{s.loaded}/{s.total} teams</span>
+                      <span style={{ fontSize: 11, color: done ? tokens.success : t.textMuted, fontWeight: 600 }}>{s.loaded}/{s.total} teams</span>
                     </div>
                     <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>{s.desc}</div>
                   </div>
@@ -309,7 +309,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
                         onMouseLeave={e => { e.currentTarget.style.borderColor = hasRoster ? 'rgba(76,175,125,0.3)' : t.border; e.currentTarget.style.background = hasRoster ? 'rgba(76,175,125,0.06)' : t.sectionBg; }}>
                         {hasRoster ? (
                           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                            <path d="M3 8.5L6.5 12L13 4.5" stroke="#6dd4a8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M3 8.5L6.5 12L13 4.5" stroke={tokens.success} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         ) : (
                           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
@@ -318,7 +318,7 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
                           </svg>
                         )}
                         <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tm.name}</span>
-                        <span style={{ fontSize: 10, color: hasRoster ? '#6dd4a8' : t.textMuted, fontWeight: 700, flexShrink: 0 }}>
+                        <span style={{ fontSize: 10, color: hasRoster ? tokens.success : t.textMuted, fontWeight: 700, flexShrink: 0 }}>
                           {hasRoster ? `${tm.roster.length}` : 'Upload'}
                         </span>
                       </button>

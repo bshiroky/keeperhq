@@ -51,9 +51,9 @@ const tokens = {
   radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
 
   // ── semantic color ────────────────────────────────────────
-  success:       '#6dd4a8',
-  successBg:     'rgba(109,212,168,0.14)',
-  successBorder: 'rgba(109,212,168,0.33)',
+  success:       '#2dd4bf',
+  successBg:     'rgba(45,212,191,0.14)',
+  successBorder: 'rgba(45,212,191,0.33)',
   warning:       '#e8832a',
   warningBg:     'rgba(232,131,42,0.12)',
   warningBorder: 'rgba(232,131,42,0.33)',

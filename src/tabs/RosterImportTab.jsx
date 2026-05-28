@@ -1,6 +1,6 @@
 import React from 'react';
 import { Camera, Loader, Check } from 'lucide-react';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, tokens } from '../components.jsx';
 import '../claudeStub.js';
 
 // Per-Team Roster Import
@@ -236,7 +236,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             </select>
           </div>
           {existingRoster.length > 0 && (
-            <div style={{ padding: '7px 10px', background: 'rgba(76,175,125,0.1)', border: '1px solid rgba(76,175,125,0.3)', borderRadius: 6, fontSize: 11, color: '#6dd4a8', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{ padding: '7px 10px', background: 'rgba(76,175,125,0.1)', border: '1px solid rgba(76,175,125,0.3)', borderRadius: 6, fontSize: 11, color: tokens.success, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
               <Check size={12} strokeWidth={2} /> {existingRoster.length} players already imported — re-import will overwrite.
             </div>
           )}
