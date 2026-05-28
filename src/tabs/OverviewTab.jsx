@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock, Check, Loader, ClipboardList } from 'lucide-react';
+import { Lock, Check, Clock, ClipboardList } from 'lucide-react';
 import { makeTheme, tokens, Button } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
@@ -434,7 +434,7 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
       borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14,
     }}>
       <div style={{ width: 38, height: 38, borderRadius: 10, background: `${accentColor}22`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: accentColor }}>
-        {state === 'inprogress' ? <Loader size={18} strokeWidth={1.5} className="kh-spin" /> : <ClipboardList size={18} strokeWidth={1.5} />}
+        {state === 'inprogress' ? <Clock size={18} strokeWidth={1.5} /> : <ClipboardList size={18} strokeWidth={1.5} />}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

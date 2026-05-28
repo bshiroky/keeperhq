@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lightbulb, Dices, RotateCcw, Lock, Pencil, ArrowLeftRight } from 'lucide-react';
+import { RotateCcw, Lock, Pencil, ArrowLeftRight } from 'lucide-react';
 import { makeTheme } from '../components.jsx';
 
 // Lottery Tab — bottom 4 teams compete for picks 1-4; top 8 get 5-12 in reverse standings.
@@ -133,9 +133,8 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
               Bottom {lotteryCount} teams compete for picks <strong>1–{lotteryCount}</strong>.
               Top {totalTeams - lotteryCount} teams get picks {lotteryCount + 1}–{totalTeams} in reverse standings order.
             </div>
-            <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Lightbulb size={14} strokeWidth={1.5} />
-              <span>Click any owner below to reassign for traded picks — works before or after the draw.</span>
+            <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 8 }}>
+              💡 Click any owner below to reassign for traded picks — works before or after the draw.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -146,8 +145,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                 fontSize: '13px', fontWeight: 700, cursor: running ? 'default' : 'pointer',
                 color: running ? t.textMuted : '#fff',
                 opacity: running ? 0.7 : 1, fontFamily: 'inherit',
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-              }}><Dices size={16} strokeWidth={1.5} />{running ? 'Drawing…' : 'Run Lottery'}</button>
+              }}>{running ? '🎱 Drawing…' : '🎱 Run Lottery'}</button>
             )}
             {!locked && drawn && (
               <>
@@ -199,8 +197,8 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                     width: 36, height: 36, borderRadius: 8, flexShrink: 0,
                     background: `${accentColor}22`, border: `1px solid ${accentColor}44`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: accentColor,
-                  }}><Dices size={18} strokeWidth={1.5} /></div>
+                    fontSize: 18,
+                  }}>🎱</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {editingPick === i + 1 ? (
                       <select autoFocus defaultValue={eligibleOwner}
@@ -301,7 +299,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                       </div>
                     )}
                   </div>
-                  {row.lottery && row.owner && <div style={{ display: 'flex', alignItems: 'center', color: accentColor }}><Dices size={18} strokeWidth={1.5} /></div>}
+                  {row.lottery && row.owner && <div style={{ fontSize: 18 }}>🎱</div>}
                 </div>
               );
             })}
