@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -825,11 +825,31 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
     { id: 'settings', label: 'Settings' },
   ];
 
+  // Next-event timestamp for the utility row. Today: draft date only; expand
+  // as other phase-specific deadlines (keeper deadline, payment deadline) get
+  // wired into the data model.
+  const draftWhen = (() => {
+    if (!league.draftDate) return null;
+    const d = new Date(league.draftDate + 'T12:00:00');
+    return `Draft · ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`;
+  })();
+
+  const promotedStats = [
+    { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`,
+      accent: stats.withKeepers === totalTeams && totalTeams > 0 ? tokens.success : tokens.warning },
+    { label: 'Paid',    value: `${stats.paid}/${totalTeams}`,
+      accent: stats.paid === totalTeams && totalTeams > 0 ? tokens.success : stats.paid < totalTeams ? tokens.warning : undefined },
+    { label: 'Pool',    value: `$${league.totalPool.toLocaleString()}` },
+  ];
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 24px 40px' }}>
-      <Link to="/" style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, padding: '0 0 10px', letterSpacing: '0.02em', whiteSpace: 'nowrap', textDecoration: 'none' }}>
-        ← All Leagues
-      </Link>
+      <style>{`
+        @media (max-width: 720px) {
+          .kh-header-body { grid-template-columns: 1fr !important; }
+          .kh-header-divider { display: none !important; }
+        }
+      `}</style>
 
       {/* Season-complete banner — prompts the commissioner to roll forward */}
       {league.status === 'completed' && (
@@ -846,41 +866,54 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       )}
 
       {/* League header card with tabs integrated */}
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: 12, boxShadow: t.cardShadow, marginBottom: 16 }}>
-        <div style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
-            <div style={{
-              width: 40, height: 40, borderRadius: '50%',
-              background: `${accentColor}1f`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, overflow: 'hidden',
-            }}>
-              <SportLogo sport={league.sport} height={32} />
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, marginBottom: tokens.spaceMd }}>
+        {/* Utility row: back link + next-event timestamp */}
+        <div style={{ padding: `${tokens.spaceXs}px ${tokens.spaceLg}px 0`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceMd }}>
+          <Link
+            to="/"
+            style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
+            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
+          >
+            ← All Leagues
+          </Link>
+          {draftWhen && (
+            <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, whiteSpace: 'nowrap' }}>{draftWhen}</span>
+          )}
+        </div>
+
+        {/* Body: commissioner anchor | divider | identity + stats */}
+        <div className="kh-header-body" style={{
+          padding: `${tokens.spaceSm}px ${tokens.spaceLg}px ${tokens.spaceLg}px`,
+          display: 'grid', gridTemplateColumns: '1fr 1px 1fr',
+          gap: tokens.spaceXl, alignItems: 'start',
+        }}>
+          <HeaderAnchor league={league} isDark={isDark} />
+          <div className="kh-header-divider" style={{ width: 1, alignSelf: 'stretch', background: t.divider }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, flexWrap: 'wrap', marginBottom: tokens.spaceSm }}>
+              <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>{league.name}</h1>
+              <SportBadge sport={league.sport} />
+              <DraftBadge draftType={league.draftType} />
+              <StatusPill status={league.status} />
             </div>
-            <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary, whiteSpace: 'nowrap' }}>{league.name}</h1>
-            <SportBadge sport={league.sport} />
-            <DraftBadge draftType={league.draftType} />
-            <StatusPill status={league.status} />
-          </div>
-          <div style={{ display: 'flex', gap: 22, alignItems: 'center', textAlign: 'center' }}>
-            {[
-              { label: 'Teams', value: totalTeams },
-              { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`, accent: stats.withKeepers === totalTeams ? t.success : undefined },
-              { label: 'Paid', value: `${stats.paid}/${totalTeams}`, accent: stats.paid < totalTeams ? t.warning : t.success },
-              // POOL is universal (prize money). EXPIRING is an additional
-              // snake-only stat (count of contracts going back to the draft).
-              { label: 'Pool', value: `$${league.totalPool.toLocaleString()}` },
-              ...(league.draftType === 'snake'
-                ? [{ label: 'Expiring', value: stats.expiring || '—', accent: stats.expiring > 0 ? t.danger : undefined }]
-                : []),
-            ].map(s => (
-              <div key={s.label}>
-                <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
-                <div style={{ ...tokens.typeNumericInline, color: s.accent || t.textPrimary, lineHeight: 1.1, marginTop: 2 }}>{s.value}</div>
-              </div>
-            ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spaceLg }}>
+              {promotedStats.map(s => (
+                <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
+                  <div style={{ ...tokens.typeNumericInline, color: s.accent || t.textPrimary, lineHeight: 1.1 }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceXs }}>
+              <strong style={{ color: t.textSecondary, fontWeight: 600 }}>{totalTeams} teams</strong>
+              {league.draftType === 'snake' && stats.expiring > 0 && (
+                <> · <strong style={{ color: t.textSecondary, fontWeight: 600 }}>{stats.expiring} expiring</strong> contracts going back to the draft</>
+              )}
+            </div>
           </div>
         </div>
+
         <div style={{ borderTop: `1px solid ${t.divider}`, padding: '0 20px' }}>
           <TabBar tabs={tabs} active={activeTab} basePath={basePath} accentColor={accentColor} isDark={isDark} />
         </div>
