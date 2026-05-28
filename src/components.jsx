@@ -51,9 +51,9 @@ const tokens = {
   radiusPill: 999,  // true pills (StatusPill, DraftBadge, filter chips)
 
   // ── semantic color ────────────────────────────────────────
-  success:       '#6dd4a8',
-  successBg:     'rgba(109,212,168,0.14)',
-  successBorder: 'rgba(109,212,168,0.33)',
+  success:       '#2dd4bf',
+  successBg:     'rgba(45,212,191,0.14)',
+  successBorder: 'rgba(45,212,191,0.33)',
   warning:       '#e8832a',
   warningBg:     'rgba(232,131,42,0.12)',
   warningBorder: 'rgba(232,131,42,0.33)',
@@ -134,7 +134,7 @@ function SportLogo({ sport, height = 32 }) {
 const DRAFT_LABEL = { snake: 'Contract Snake', auction: 'Auction' };
 const STATUS_CONFIG = {
   'pre-draft': { label: 'Pre-Draft',  bg: 'rgba(59,138,230,0.15)',  color: '#6ab0f5' },
-  'active':    { label: 'Active',     bg: 'rgba(76,175,125,0.15)',  color: '#6dd4a8' },
+  'active':    { label: 'Active',     bg: tokens.successBg,         color: tokens.success },
   'completed': { label: 'Completed',  bg: 'rgba(150,150,170,0.15)', color: '#9999bb' },
   'setup':     { label: 'Setup',      bg: 'rgba(232,131,42,0.15)',  color: '#f0a868' },
 };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { ClipboardList, Users, Check, Pencil, ArrowLeftRight, AlertTriangle, Download, Trophy } from 'lucide-react';
-import { makeTheme, getLeagueStats, HScrollRow, Tooltip } from '../components.jsx';
+import { makeTheme, tokens, getLeagueStats, HScrollRow, Tooltip } from '../components.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
 import { DataSourcesPanel } from './SourcesTab.jsx';
 import '../claudeStub.js';
@@ -329,7 +329,7 @@ function StepReviewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                   <span style={{ fontSize: '13px', fontWeight: 600, color: t.textPrimary }}>{p.player}</span>
                   <span style={{ fontSize: '11px', color: t.textMuted, marginLeft: 8 }}>dropped from {p.fromTeam}</span>
                 </div>
-                <button onClick={() => undropPlayer(i)} style={{ background: 'rgba(76,175,125,0.12)', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: '#6dd4a8', cursor: 'pointer', fontFamily: 'inherit' }}>↶ Undo</button>
+                <button onClick={() => undropPlayer(i)} style={{ background: tokens.successBg, border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.success, cursor: 'pointer', fontFamily: 'inherit' }}>↶ Undo</button>
               </div>
             ))}
           </div>
@@ -619,8 +619,8 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                   <span>{team.name}</span>
                   <span style={{
                     fontSize: 10, fontWeight: 700,
-                    color: isActive ? '#fff' : (complete ? '#6dd4a8' : (count > 0 ? accentColor : t.textMuted)),
-                    background: isActive ? 'rgba(255,255,255,0.18)' : (complete ? 'rgba(76,175,125,0.15)' : t.cardBg),
+                    color: isActive ? '#fff' : (complete ? tokens.success : (count > 0 ? accentColor : t.textMuted)),
+                    background: isActive ? 'rgba(255,255,255,0.18)' : (complete ? tokens.successBg : t.cardBg),
                     padding: '1px 6px', borderRadius: 10, lineHeight: 1.4, letterSpacing: '0.02em',
                   }}>{count}/{league.keeperSlots}</span>
                 </button>
@@ -663,7 +663,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                       {league.draftType === 'snake' && <span style={{ fontSize: '11px', color: t.textMuted, marginLeft: 8 }}>Y{k.contractYear}/{k.contractLength}</span>}
                       {league.draftType === 'auction' && <span style={{ fontSize: '11px', color: accentColor, marginLeft: 8, fontWeight: 700 }}>${k.keptFor}</span>}
                       {k.fromTeam && <span style={{ fontSize: '10px', color: '#4caf7d', marginLeft: 8, fontWeight: 700 }}>← {k.fromTeam}</span>}
-                      {k.isNew && <span style={{ fontSize: '10px', color: '#6dd4a8', marginLeft: 8, fontWeight: 700, background: 'rgba(76,175,125,0.15)', padding: '2px 6px', borderRadius: 10 }}>NEW</span>}
+                      {k.isNew && <span style={{ fontSize: '10px', color: tokens.success, marginLeft: 8, fontWeight: 700, background: tokens.successBg, padding: '2px 6px', borderRadius: 10 }}>NEW</span>}
                     </div>
                     <button onClick={() => removeNewKeeper(i)} title="Remove"
                       style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 4, padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: '#e85252', cursor: 'pointer', fontFamily: 'inherit' }}>Remove</button>
@@ -879,7 +879,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                 onClick={() => { setActiveTeamIdx(idx); setViewMode('team'); setAdding(false); }}
                 style={{
                   background: t.cardBg,
-                  border: `1px solid ${complete ? 'rgba(76,175,125,0.4)' : empty ? t.border : `${accentColor}55`}`,
+                  border: `1px solid ${complete ? tokens.successBorder : empty ? t.border : `${accentColor}55`}`,
                   borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden', cursor: 'pointer',
                   transition: 'transform 0.12s, box-shadow 0.12s',
                 }}
@@ -891,9 +891,9 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                   <span style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary, flex: 1 }}>{team.name}</span>
                   <span style={{
                     fontSize: 10, fontWeight: 700,
-                    color: complete ? '#6dd4a8' : (partial ? accentColor : t.textMuted),
-                    background: complete ? 'rgba(76,175,125,0.15)' : (partial ? `${accentColor}18` : t.cardBg),
-                    border: `1px solid ${complete ? 'rgba(76,175,125,0.3)' : (partial ? `${accentColor}55` : t.border)}`,
+                    color: complete ? tokens.success : (partial ? accentColor : t.textMuted),
+                    background: complete ? tokens.successBg : (partial ? `${accentColor}18` : t.cardBg),
+                    border: `1px solid ${complete ? tokens.successBorder : (partial ? `${accentColor}55` : t.border)}`,
                     padding: '2px 7px', borderRadius: 10, letterSpacing: '0.02em',
                   }}>{count}/{league.keeperSlots}</span>
                 </div>
@@ -985,10 +985,10 @@ function StepPayments({ league, accentColor, isDark, onUpdateLeague, onNext, onB
                   style={{ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${accentColor}`, borderRadius: 4, padding: '3px 6px', fontSize: '11px', color: t.textPrimary, fontFamily: 'inherit' }} />
               )}
               <button onClick={() => togglePaid(team.id)} style={{
-                background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
-                border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
+                background: team.paid ? tokens.successBg : 'rgba(232,82,82,0.1)',
+                border: `1px solid ${team.paid ? tokens.successBorder : 'rgba(232,82,82,0.3)'}`,
                 borderRadius: 6, padding: '5px 12px', fontSize: '12px', fontWeight: 700,
-                cursor: 'pointer', color: team.paid ? '#6dd4a8' : '#e85252', fontFamily: 'inherit',
+                cursor: 'pointer', color: team.paid ? tokens.success : '#e85252', fontFamily: 'inherit',
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
               }}>{team.paid ? <><Check size={12} strokeWidth={2} /> ${league.buyIn} paid</> : 'Mark paid'}</button>
             </div>
