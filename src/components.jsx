@@ -497,6 +497,75 @@ function ruleMod(league) {
   return null;
 }
 
+// Commissioner-voice copy for the LeagueView HeaderAnchor bubble.
+// Narrower-scope cousin of flavorLine — the home page says "4 unpaid across
+// 3 leagues"; the league page says "3 of 12 paid — Linus is your laggard".
+// Pure function over `league` + the result of nextAction(league).
+function leagueFlavor(league, action) {
+  const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const teamsWithKeepers = teams.filter(tm => (tm.keepers || []).length > 0).length;
+  const paid = teams.filter(tm => tm.paid).length;
+  const expiring = getLeagueStats(league).expiring || 0;
+
+  if (teamCount === 0) return "Fresh league. Add some teams in Settings.";
+  if (league.status === 'setup')     return "Fresh league. Open Settings and wire it up.";
+  if (league.status === 'active')    return "Season's running. Most of the action's on Yahoo now.";
+  if (league.status === 'completed') return "Season's done. Time to roll it forward.";
+
+  if (action.kind === 'action') {
+    if (action.label && action.label.startsWith('Upload rosters')) {
+      const rostersLoaded = teams.filter(tm => (tm.roster || []).length > 0).length;
+      if (rostersLoaded === 0) return "Rosters first — can't verify keepers without 'em.";
+      return `${rostersLoaded} of ${teamCount} rosters loaded — finish the import and keepers come next.`;
+    }
+    if (action.label === "Import last year's draft") return "Last year's draft isn't in yet — need it for keeper costs.";
+    if (action.label === 'Set draft date')           return "Everything's in. Just pick a draft date.";
+  }
+
+  if (action.kind === 'waiting') {
+    if (teamsWithKeepers === 0) return "Pre-draft. Nobody's declared yet — nudge the league.";
+    const laggard = laggardName(league) || 'someone';
+    if (teamsWithKeepers === teamCount - 1) return `One more — ${laggard} hasn't declared.`;
+    return `${teamsWithKeepers} of ${teamCount} keepers in — ${laggard} is your laggard.`;
+  }
+
+  // action.kind === 'ready' — keepers in, draft date set
+  if (paid < teamCount) {
+    if (paid === 0)              return "Keepers locked. Dues haven't started — Venmo time.";
+    if (paid === teamCount - 1)  return `One team to go — ${soleUnpaidName(league) || 'one team'} owes.`;
+    return `Keepers locked. ${paid} of ${teamCount} paid — collect dues before draft day.`;
+  }
+  if (league.draftType === 'snake' && expiring > 0) {
+    return `Ready for draft. ${expiring} contracts head back to the pool.`;
+  }
+  return "Locked and loaded. Bring on draft day.";
+}
+
+function leagueVoiceColor(league, action) {
+  if (league.status === 'active' || league.status === 'completed') return tokens.info;
+  const teams = league.teams || [];
+  const teamCount = league.teamCount || teams.length;
+  const paid = teams.filter(tm => tm.paid).length;
+  if (action.kind === 'ready' && paid === teamCount && league.draftDate) return tokens.success;
+  return tokens.warning;
+}
+
+// Alphabetically-first team without keepers — the "laggard" the bubble names.
+function laggardName(league) {
+  const teams = (league.teams || []).filter(tm => !(tm.keepers || []).length);
+  if (!teams.length) return null;
+  const sorted = [...teams].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return sorted[0].name || null;
+}
+
+// Only meaningful when exactly one team is unpaid — names them in the bubble.
+function soleUnpaidName(league) {
+  const unpaid = (league.teams || []).filter(tm => !tm.paid);
+  if (unpaid.length !== 1) return null;
+  return unpaid[0].name || null;
+}
+
 function TradingCard({ league, onClick, isDark, state }) {
   const sport  = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const t      = makeTheme(isDark);
@@ -940,6 +1009,7 @@ Object.assign(window, {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
+  nextAction, leagueFlavor, leagueVoiceColor,
 });
 
 export {
@@ -951,4 +1021,5 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
+  nextAction, leagueFlavor, leagueVoiceColor,
 };
