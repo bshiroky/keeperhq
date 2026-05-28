@@ -236,7 +236,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             </select>
           </div>
           {existingRoster.length > 0 && (
-            <div style={{ padding: '7px 10px', background: 'rgba(76,175,125,0.1)', border: '1px solid rgba(76,175,125,0.3)', borderRadius: 6, fontSize: 11, color: tokens.success, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{ padding: '7px 10px', background: tokens.successBg, border: `1px solid ${tokens.successBorder}`, borderRadius: 6, fontSize: 11, color: tokens.success, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
               <Check size={12} strokeWidth={2} /> {existingRoster.length} players already imported — re-import will overwrite.
             </div>
           )}

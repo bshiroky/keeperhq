@@ -170,7 +170,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
           </div>
         </div>
         {locked && (
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'rgba(76,175,125,0.1)', borderRadius: 8 }}>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: tokens.successBg, borderRadius: 8 }}>
             <Lock size={16} strokeWidth={1.5} color={tokens.success} />
             <span style={{ fontSize: '13px', color: tokens.success, fontWeight: 600 }}>Results locked. You can still reassign picks for trades.</span>
           </div>

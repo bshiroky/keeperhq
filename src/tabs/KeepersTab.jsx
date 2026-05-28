@@ -346,8 +346,8 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
                   <button onClick={() => togglePaid(team.id)} style={{
-                    background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
-                    border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
+                    background: team.paid ? tokens.successBg : 'rgba(232,82,82,0.1)',
+                    border: `1px solid ${team.paid ? tokens.successBorder : 'rgba(232,82,82,0.3)'}`,
                     borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
                     cursor: 'pointer', color: team.paid ? tokens.success : '#e85252',
                     display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -406,8 +406,8 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
               <button onClick={() => togglePaid(team.id)} style={{
-                background: team.paid ? 'rgba(76,175,125,0.12)' : 'rgba(232,82,82,0.1)',
-                border: `1px solid ${team.paid ? 'rgba(76,175,125,0.3)' : 'rgba(232,82,82,0.3)'}`,
+                background: team.paid ? tokens.successBg : 'rgba(232,82,82,0.1)',
+                border: `1px solid ${team.paid ? tokens.successBorder : 'rgba(232,82,82,0.3)'}`,
                 borderRadius: 6, padding: '4px 10px', fontSize: '11px', fontWeight: 700,
                 cursor: 'pointer', color: team.paid ? tokens.success : '#e85252',
                 display: 'inline-flex', alignItems: 'center', gap: 4,

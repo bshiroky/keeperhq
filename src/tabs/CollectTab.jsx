@@ -7,7 +7,7 @@ import { makeTheme, tokens } from '../components.jsx';
 function StatusDot({ state, size = 10 }) {
   // state: 'submitted' (green), 'pending' (gray), 'partial' (amber)
   const color = state === 'submitted' ? '#4caf7d' : state === 'partial' ? '#e8832a' : '#9aa3b2';
-  const bg = state === 'submitted' ? 'rgba(76,175,125,0.18)' : state === 'partial' ? 'rgba(232,131,42,0.18)' : 'rgba(154,163,178,0.18)';
+  const bg = state === 'submitted' ? tokens.successBg : state === 'partial' ? 'rgba(232,131,42,0.18)' : 'rgba(154,163,178,0.18)';
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size + 6, height: size + 6, borderRadius: '50%', background: bg, flexShrink: 0 }}>
       <span style={{ width: size - 2, height: size - 2, borderRadius: '50%', background: color, display: 'block' }} />
@@ -139,7 +139,7 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
               <span>Last Year's Eligible Keepers</span>
               <span style={{ color: t.textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· click to add as suggestion</span>
               {hasRoster && (
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: tokens.success, background: 'rgba(76,175,125,0.12)', border: '1px solid rgba(76,175,125,0.3)', padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: tokens.success, background: tokens.successBg, border: `1px solid ${tokens.successBorder}`, padding: '2px 7px', borderRadius: 10, fontWeight: 700, letterSpacing: 0, textTransform: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Check size={11} strokeWidth={2} /> Pre-playoff roster loaded · {(selected.roster || []).length} players{selected.rosterAsOfDate ? ` · ${selected.rosterAsOfDate}` : ''}
                 </span>
               )}
