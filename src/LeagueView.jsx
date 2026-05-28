@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor, MOTION_STYLES, SaveToast } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -53,7 +53,7 @@ function ordinal(n) {
   }
 }
 
-function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
+function PayoutsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
@@ -122,6 +122,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
     setIsEditing(false);
     setDraft(null);
     setExtraRows([]);
+    onSaved?.();
   }
 
   // Draft mutators
@@ -427,7 +428,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor }) {
                       {isOpen ? <span>▾</span> : <Pencil size={12} strokeWidth={1.5} />}
                     </button>
                   )}
-                  <button onClick={() => togglePaid(team)}
+                  <button onClick={() => togglePaid(team)} className="kh-state-fade"
                     style={{
                       background: team.paid ? t.successBg : t.dangerBg,
                       border: `1px solid ${team.paid ? t.successBorder : t.dangerBorder}`,
@@ -488,25 +489,25 @@ function SelectField({ value, onChange, options, isDark }) {
 
 function ToggleField({ value, onChange, t, isDark }) {
   return (
-    <button type="button" onClick={() => onChange(!value)} style={{
+    <button type="button" onClick={() => onChange(!value)} className="kh-state-fade" style={{
       width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer',
       background: value ? t.success : (isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.18)'),
-      position: 'relative', transition: 'background 0.15s', padding: 0,
+      position: 'relative', padding: 0,
     }}>
-      <span style={{ position: 'absolute', top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
+      <span className="kh-toggle-knob" style={{ position: 'absolute', top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
     </button>
   );
 }
 
 // EditableCard: header with title + Edit (or Save/Cancel). Body switches between
 // the supplied viewRows (read-only) and editRows (form inputs).
-function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSave, initialDraft }) {
+function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSave, initialDraft, onSaved }) {
   const [isEditing, setIsEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(initialDraft);
 
   function startEdit() { setDraft(initialDraft); setIsEditing(true); }
   function cancel() { setIsEditing(false); }
-  function save() { onSave(draft); setIsEditing(false); }
+  function save() { onSave(draft); setIsEditing(false); onSaved?.(); }
 
   const rows = isEditing ? editRows(draft, setDraft) : viewRows;
 
@@ -545,7 +546,7 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
   );
 }
 
-function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
+function SettingsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const [showImport, setShowImport] = React.useState(false);
@@ -642,7 +643,7 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <EditableCard title="Keeper Rules" t={t} isDark={isDark} accentColor={accentColor}
-        viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} />
+        viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} onSaved={onSaved} />
 
       {/* Season rollover */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
@@ -819,6 +820,11 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const totalTeams = league.teamCount || league.teams.length;
   const basePath = `/league/${league.id}`;
 
+  // Bumped on a deliberate edit-card Save (Keeper Rules / Prize Structure) to
+  // fire the "Saved" toast. Intentionally NOT wired to Mark Paid or toggles.
+  const [savedAt, setSavedAt] = React.useState(0);
+  const notifySaved = () => setSavedAt(Date.now());
+
   const tabs = [
     { id: 'overview', label: 'Overview', badge: `${stats.withKeepers}/${totalTeams}` },
     ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
@@ -852,6 +858,7 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
           .kh-header-divider { display: none !important; }
         }
       `}</style>
+      <style>{MOTION_STYLES}</style>
 
       {/* Season-complete banner — prompts the commissioner to roll forward */}
       {league.status === 'completed' && (
@@ -924,8 +931,10 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       {activeTab === 'overview' && <OverviewTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
       {activeTab === 'lottery' && league.draftType === 'snake' && <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
       {activeTab === 'players' && <PlayersTab league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />}
-      {activeTab === 'payouts' && <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />}
-      {activeTab === 'settings' && <SettingsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />}
+      {activeTab === 'payouts' && <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
+      {activeTab === 'settings' && <SettingsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
+
+      <SaveToast trigger={savedAt} isDark={isDark} />
     </div>
   );
 }

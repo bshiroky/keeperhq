@@ -823,7 +823,7 @@ function StepAddNewKeepers({ league, accentColor, isDark, onUpdateLeague, onNext
                         </div>
                       )}
                       <Tooltip content={chipTooltip} isDark={isDark} style={{ display: 'block' }}>
-                      <button onClick={() => p.isExpired ? null : addFromPool(p)} disabled={slotsLeft <= 0 || p.isExpired}
+                      <button onClick={() => p.isExpired ? null : addFromPool(p)} disabled={slotsLeft <= 0 || p.isExpired} className="kh-state-fade"
                         style={{
                           display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, width: '100%', boxSizing: 'border-box',
                           background: p.isOwn && p.eligible ? `${accentColor}10` : 'transparent',
