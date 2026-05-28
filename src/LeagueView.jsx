@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, SportLogo, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor } from './components.jsx';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -758,6 +758,51 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
           <Button variant="secondary" size="md" isDark={isDark} onClick={onCancel}>Cancel</Button>
           <Button variant="primary" size="md" accent={accentColor} isDark={isDark} onClick={onConfirm}>Start New Season</Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Commissioner anchor — pixel-art mascot + speech bubble with state-driven
+// border. Bubble construction (border / shadow / tail) lifted from PackStats
+// in HomeView so the two anchor surfaces share a visual rhythm.
+function HeaderAnchor({ league, isDark }) {
+  const t = makeTheme(isDark);
+  const action = nextAction(league);
+  const voice  = leagueFlavor(league, action);
+  const accent = leagueVoiceColor(league, action);
+  const bubbleBg = isDark ? '#1c2130' : '#ffffff';
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: tokens.spaceSm }}>
+      <img
+        src="/commissioner.png" alt="" height={72}
+        onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = '/mascot-empty.png'; }}
+        style={{
+          height: 72, width: 'auto', imageRendering: 'pixelated', display: 'block', flexShrink: 0,
+          filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.15))',
+        }}
+      />
+      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+        <div style={{
+          background: bubbleBg,
+          border: `1.5px solid ${accent}`,
+          color: t.textBody,
+          borderRadius: tokens.radiusLg,
+          padding: '9px 13px',
+          boxShadow: `0 2px 0 ${accent}22`,
+        }}>
+          <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: 2 }}>Commish brief</div>
+          <div style={{ ...tokens.typeBody, fontWeight: 600, color: t.textPrimary, lineHeight: 1.35 }}>{voice}</div>
+        </div>
+        <div style={{
+          position: 'absolute', left: -7, top: 22,
+          width: 12, height: 12,
+          background: bubbleBg,
+          borderLeft: `1.5px solid ${accent}`,
+          borderBottom: `1.5px solid ${accent}`,
+          transform: 'rotate(45deg)',
+        }} />
       </div>
     </div>
   );
