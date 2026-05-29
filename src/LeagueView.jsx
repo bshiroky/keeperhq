@@ -4,7 +4,7 @@ import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-rea
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
-import { SeasonSetupWizard } from './tabs/SetupTab.jsx';
+import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
@@ -947,10 +947,9 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       {view === 'overview' ? (
         <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
       ) : (
-        <SeasonSetupWizard
+        <SetKeepersWorkbench
           league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague}
-          onComplete={() => { if (onUpdateLeague) onUpdateLeague({ ...league, setupComplete: true }); setView('overview'); }}
-          onExit={() => setView('overview')}
+          selectedTeamId={selectedTeamId} onSelectTeam={setSelectedTeamId}
         />
       )}
 
