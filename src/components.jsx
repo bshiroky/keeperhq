@@ -71,6 +71,9 @@ function makeTheme(isDark) {
     // ── surface ───────────────────────────────────────────────
     cardBg:       isDark ? '#1c2130' : '#ffffff',
     cardBg2:      isDark ? '#161a22' : '#ffffff',
+    // Modal backdrop. Dark needs the heavier 72% to separate the card from the
+    // near-black app bg; light sits at 55%.
+    scrim:        isDark ? 'rgba(0,0,0,0.72)' : 'rgba(18,22,33,0.55)',
     cardShadow:   isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)',
     border:       isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
     divider:      isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
