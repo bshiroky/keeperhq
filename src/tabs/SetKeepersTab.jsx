@@ -418,17 +418,24 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
 
-              {/* + Add manually */}
+              {/* + Add manually. Selecting an autocomplete suggestion adds
+                  immediately; the Add button commits a typed name, which is the
+                  only path for non-NHL sports (no directory → plain input). */}
               {!isFull && slots > 0 && (
                 <div style={{ marginTop: 4 }}>
                   <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: 6 }}>Add manually</div>
-                  <PlayerAutocomplete
-                    value={manualValue}
-                    onChange={(name, picked) => { if (picked) addManual(name); else setManualValue(name); }}
-                    sport={league.sport} isDark={isDark} placeholder="Search a free agent to keep…"
-                    league={league} disabledNames={keptAnywhere}
-                    inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: '9px 12px', fontSize: 14, color: t.textPrimary, outline: 'none', fontFamily: 'inherit' }}
-                  />
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <PlayerAutocomplete
+                        value={manualValue}
+                        onChange={(name, picked) => { if (picked) addManual(name); else setManualValue(name); }}
+                        sport={league.sport} isDark={isDark} placeholder="Player name…"
+                        league={league} disabledNames={keptAnywhere}
+                        inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: '9px 12px', fontSize: 14, color: t.textPrimary, outline: 'none', fontFamily: 'inherit' }}
+                      />
+                    </div>
+                    <Button variant="primary" size="md" accent={accentColor} isDark={isDark} disabled={!manualValue.trim()} onClick={() => addManual(manualValue)}>Add</Button>
+                  </div>
                 </div>
               )}
 

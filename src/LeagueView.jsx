@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
@@ -10,7 +10,7 @@ import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
 
-// League Detail — shell + PayoutsTab + SettingsTab
+// League Detail — Keepers home shell + PayoutsTab + SettingsPanel/ImportPanel
 
 function TabBar({ tabs, active, basePath, accentColor, isDark }) {
   const t = makeTheme(isDark);
