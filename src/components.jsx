@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
+import { totalKeepers } from './lib/celebration.js';
 
 // Shared UI components — exported to window
 
@@ -71,6 +72,9 @@ function makeTheme(isDark) {
     // ── surface ───────────────────────────────────────────────
     cardBg:       isDark ? '#1c2130' : '#ffffff',
     cardBg2:      isDark ? '#161a22' : '#ffffff',
+    // Modal backdrop. Dark needs the heavier 72% to separate the card from the
+    // near-black app bg; light sits at 55%.
+    scrim:        isDark ? 'rgba(0,0,0,0.72)' : 'rgba(18,22,33,0.55)',
     cardShadow:   isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.06)',
     border:       isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
     divider:      isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
@@ -1055,6 +1059,201 @@ function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, ch
   );
 }
 
+// ── Keepers-declared celebration ──────────────────────────────────────────
+// Entry motion is class-driven off a mount flag so the scrim fade / card rise /
+// mascot pop play on first paint. opacity transitions live outside the
+// reduced-motion guard (reduced users get a clean ~180ms cross-fade); the
+// transform/overshoot/pop are inside @media (prefers-reduced-motion:
+// no-preference) — no JS branch.
+const CELEBRATION_STYLES = `
+  .kh-celebrate-scrim  { opacity: 0; transition: opacity 220ms ease; }
+  .kh-celebrate-card   { opacity: 0; transition: opacity 180ms ease; }
+  .kh-celebrate-mascot { opacity: 0; transition: opacity 180ms ease; }
+  .kh-celebrate-glow   { opacity: 0; transition: opacity 320ms ease; }
+  .kh-celebrate--in .kh-celebrate-scrim,
+  .kh-celebrate--in.kh-celebrate-scrim,
+  .kh-celebrate--in .kh-celebrate-card,
+  .kh-celebrate--in .kh-celebrate-mascot,
+  .kh-celebrate--in .kh-celebrate-glow { opacity: 1; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .kh-celebrate-card {
+      transform: translateY(16px) scale(0.96);
+      transition: opacity 340ms ease, transform 340ms cubic-bezier(.2,.9,.25,1.1);
+    }
+    .kh-celebrate--in .kh-celebrate-card { transform: translateY(0) scale(1); }
+
+    .kh-celebrate-mascot {
+      transform: scale(0.7);
+      transition: opacity 240ms ease 100ms, transform 320ms cubic-bezier(.2,.8,.2,1.5) 100ms;
+    }
+    .kh-celebrate--in .kh-celebrate-mascot { transform: scale(1); }
+  }
+`;
+
+// The once-per-season "all keepers declared" moment. variant="modal" (default)
+// portals over a scrim; variant="inline" drops the scrim/portal for the
+// StepDone takeover inside SeasonSetupWizard. Same anatomy, voice, art.
+// onSetDraft is optional — when omitted, the quiet secondary CTA isn't rendered
+// (keeps the moment decoupled from the draft-date concept).
+function KeepersCelebration({ league, isDark, variant = 'modal', onDismiss, onSetDraft }) {
+  const t = makeTheme(isDark);
+  const n = league.teamCount || (league.teams || []).length;
+  const k = totalKeepers(league);
+  const [shown, setShown] = React.useState(false);
+
+  // Toggle the mount flag on first paint so the entry transitions run.
+  React.useEffect(() => {
+    const raf = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Esc dismisses + body scroll-lock — modal only.
+  React.useEffect(() => {
+    if (variant !== 'modal') return;
+    const onKey = (e) => { if (e.key === 'Escape') onDismiss?.(); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [variant, onDismiss]);
+
+  const card = (
+    <div
+      className={`kh-celebrate-card${shown ? ' kh-celebrate--in' : ''}`}
+      style={{
+        position: 'relative',
+        // 408px width + 188px mascot are asset-role values (this mascot's role on
+        // this one surface), inlined per the commissioner-72px precedent — not
+        // reusable scale steps. paddingTop clears the mascot's overhang into the
+        // card, so it's likewise a function of the mascot, not a scale step.
+        width: '100%', maxWidth: 408, margin: '0 auto',
+        background: t.cardBg,
+        borderTop: `3px solid ${t.success}`,
+        border: `1px solid ${t.border}`,
+        borderRadius: tokens.radiusLg,
+        boxShadow: '0 12px 48px rgba(0,0,0,0.32)',
+        padding: `110px ${tokens.space2xl}px ${tokens.spaceXl}px`,
+        textAlign: 'center',
+        overflow: 'visible',
+      }}
+    >
+      {variant === 'modal' && (
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          style={{
+            position: 'absolute', top: tokens.spaceSm, right: tokens.spaceSm,
+            width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'transparent', border: 'none', borderRadius: tokens.radiusSm,
+            color: t.textMuted, cursor: 'pointer', padding: 0,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; e.currentTarget.style.background = t.sectionBg; }}
+          onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; e.currentTarget.style.background = 'transparent'; }}
+        >
+          <X size={16} strokeWidth={2} />
+        </button>
+      )}
+
+      {/* successBg radial glow behind the mascot — the only flourish, no confetti */}
+      <div
+        className={`kh-celebrate-glow${shown ? ' kh-celebrate--in' : ''}`}
+        aria-hidden
+        style={{
+          position: 'absolute', top: -70, left: '50%', transform: 'translateX(-50%)',
+          width: 240, height: 240, borderRadius: '50%',
+          background: `radial-gradient(circle, ${t.successBg}, transparent 68%)`,
+          pointerEvents: 'none',
+        }}
+      />
+
+      {/* Wrapper centers (translateX); inner img carries the pop scale so the
+          two transforms don't collide (inline transform would beat the CSS). */}
+      <div
+        aria-hidden
+        style={{
+          position: 'absolute', top: -118, left: '50%', transform: 'translateX(-50%)',
+          pointerEvents: 'none', transformOrigin: 'center bottom',
+        }}
+      >
+        <img
+          src="/mascot-celebrate.png"
+          alt=""
+          className={`kh-celebrate-mascot${shown ? ' kh-celebrate--in' : ''}`}
+          onError={(e) => { e.target.src = '/mascot-empty.png'; }}
+          style={{
+            display: 'block', height: 188, width: 'auto',
+            transformOrigin: 'center bottom',
+            imageRendering: 'pixelated',
+            filter: 'drop-shadow(0 8px 14px rgba(0,0,0,0.28))',
+          }}
+        />
+      </div>
+
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.success, marginBottom: tokens.spaceXs }}>
+        Rosters locked
+      </div>
+      <h3 style={{ ...tokens.typeHeadingCard, color: t.textPrimary, margin: 0 }}>
+        Every keeper's in.
+      </h3>
+      <p style={{ ...tokens.typeBody, color: t.textBody, margin: `${tokens.spaceSm}px 0 ${tokens.spaceMd}px`, lineHeight: 1.55 }}>
+        All {n} teams declared. The heavy lifting of the off-season is behind you
+        — the rest is just draft prep.
+      </p>
+
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: tokens.spaceXs,
+        ...tokens.typePill, color: t.success,
+        background: t.successBg, border: `1px solid ${t.successBorder}`,
+        borderRadius: tokens.radiusPill, padding: `${tokens.space2xs}px ${tokens.spaceSm}px`,
+        marginBottom: tokens.spaceLg,
+      }}>
+        {n}/{n} teams · {k} keepers locked
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs, alignItems: 'center' }}>
+        <Button variant="primary" size="md" accent={t.success} isDark={isDark} onClick={onDismiss} style={{ width: '100%' }}>
+          See the league
+        </Button>
+        {onSetDraft && (
+          <Button variant="secondary" size="md" isDark={isDark} onClick={onSetDraft} style={{ width: '100%' }}>
+            Set the draft →
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
+  if (variant === 'inline') {
+    return (
+      <>
+        <style>{CELEBRATION_STYLES}</style>
+        {card}
+      </>
+    );
+  }
+
+  return createPortal(
+    <div
+      className={`kh-celebrate-scrim${shown ? ' kh-celebrate--in' : ''}`}
+      onClick={(e) => { if (e.target === e.currentTarget) { /* scrim click = no-op */ } }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 3000,
+        background: t.scrim, backdropFilter: 'blur(2px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: tokens.spaceLg, boxSizing: 'border-box',
+      }}
+    >
+      <style>{CELEBRATION_STYLES}</style>
+      {card}
+    </div>,
+    document.body
+  );
+}
+
 Object.assign(window, {
   makeTheme, tokens,
   Input, Select, NumberInput, Button,
@@ -1065,6 +1264,7 @@ Object.assign(window, {
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
   nextAction, leagueFlavor, leagueVoiceColor,
+  KeepersCelebration,
 });
 
 export {
@@ -1078,4 +1278,5 @@ export {
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
   MOTION_STYLES, SaveToast,
   nextAction, leagueFlavor, leagueVoiceColor,
+  KeepersCelebration,
 };

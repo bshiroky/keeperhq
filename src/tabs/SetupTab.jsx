@@ -1,6 +1,7 @@
 import React from 'react';
-import { ClipboardList, Users, Check, Pencil, ArrowLeftRight, AlertTriangle, Download, Trophy } from 'lucide-react';
-import { makeTheme, tokens, getLeagueStats, HScrollRow, Tooltip } from '../components.jsx';
+import { ClipboardList, Users, Check, Pencil, ArrowLeftRight, AlertTriangle, Download } from 'lucide-react';
+import { makeTheme, tokens, getLeagueStats, HScrollRow, Tooltip, KeepersCelebration } from '../components.jsx';
+import { allKeepersIn, markSeen } from '../lib/celebration.js';
 import { RosterImportModal } from './RosterImportTab.jsx';
 import { DataSourcesPanel } from './SourcesTab.jsx';
 import '../claudeStub.js';
@@ -1009,16 +1010,36 @@ function StepPayments({ league, accentColor, isDark, onUpdateLeague, onNext, onB
 }
 
 // ── Step: Done ───────────────────────────────────────────────────────────────
+// Phase-aware finish screen. If the wizard ended with every team's keepers in,
+// this IS the league-wide "all keepers declared" moment — render it inline
+// (a modal over a dedicated screen would be silly) and write the season flag so
+// the LeagueView modal doesn't double-fire on the way back. Otherwise it's just
+// the end of a wizard session that may have only some teams in — show honest
+// progress, no false payoff.
 function StepDone({ league, accentColor, isDark, onFinish }) {
   const t = makeTheme(isDark);
-  const stats = getLeagueStats(league);
   const totalTeams = league.teams.length;
+  const complete = allKeepersIn(league);
+
+  React.useEffect(() => {
+    if (complete) markSeen(league.id, league.season);
+  }, [complete, league.id, league.season]);
+
+  if (complete) {
+    return <KeepersCelebration league={league} isDark={isDark} variant="inline" onDismiss={onFinish} />;
+  }
+
+  const teamsWithKeepers = (league.teams || []).filter(tm => (tm.keepers || []).length > 0).length;
   return (
     <div style={{ background: t.cardBg, border: `1px solid ${accentColor}44`, borderRadius: 12, boxShadow: t.cardShadow, padding: '32px 28px', textAlign: 'center' }}>
-      <div style={{ marginBottom: 12, color: accentColor, display: 'flex', justifyContent: 'center' }}><Trophy size={48} strokeWidth={1.5} /></div>
-      <div style={{ fontSize: '20px', fontWeight: 800, color: t.textPrimary, marginBottom: 8 }}>Setup complete!</div>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+        <span style={{ width: 48, height: 48, borderRadius: '50%', background: t.successBg, color: t.success, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Check size={26} strokeWidth={2.25} />
+        </span>
+      </div>
+      <div style={{ fontSize: '20px', fontWeight: 800, color: t.textPrimary, marginBottom: 8 }}>Progress saved</div>
       <div style={{ fontSize: '14px', color: t.textMuted, marginBottom: 24, lineHeight: 1.6 }}>
-        {stats.submitted}/{totalTeams} teams have submitted keepers · {stats.paid}/{totalTeams} have paid.
+        {teamsWithKeepers}/{totalTeams} teams in. Pick up where you left off whenever you're ready.
       </div>
       <button onClick={onFinish} style={{ background: accentColor, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 28px', fontSize: '14px', fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Go to League Dashboard →</button>
     </div>
