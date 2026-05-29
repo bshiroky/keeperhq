@@ -1,11 +1,11 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-react';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
-import { OverviewTab } from './tabs/OverviewTab.jsx';
+import { CompactKeeperGrid } from './tabs/OverviewTab.jsx';
+import { SeasonSetupWizard } from './tabs/SetupTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
-import { PlayersTab } from './tabs/PlayersTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
@@ -547,14 +547,12 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
   );
 }
 
-function SettingsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
+// ── Settings panel — league rules + season rollover ──────────────────────────
+// (Roster / draft imports live in ImportPanel, reached from the Import door.)
+function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
-  const [showImport, setShowImport] = React.useState(false);
-  const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
   const [showRolloverConfirm, setShowRolloverConfirm] = React.useState(false);
-  const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
-  const totalTeams = league.teamCount || (league.teams || []).length;
 
   function rolloverSeason() {
     onUpdateLeague(startNewSeason(league));
@@ -665,6 +663,24 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
         </div>
       </div>
 
+      {showRolloverConfirm && (
+        <RolloverConfirmModal league={league} accentColor={accentColor} isDark={isDark}
+          onConfirm={rolloverSeason} onCancel={() => setShowRolloverConfirm(false)} />
+      )}
+    </div>
+  );
+}
+
+// ── Import panel — rosters & last-year's-draft upload (the Import door) ───────
+function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
+  const t = makeTheme(isDark);
+  const [showImport, setShowImport] = React.useState(false);
+  const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
+  const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
+  const totalTeams = league.teamCount || (league.teams || []).length;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1 }}>
@@ -721,11 +737,6 @@ function SettingsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}
         accentColor={accentColor} isDark={isDark}
         onImport={onUpdateLeague} onClose={() => setShowRosterImport(null)} />}
-
-      {showRolloverConfirm && (
-        <RolloverConfirmModal league={league} accentColor={accentColor} isDark={isDark}
-          onConfirm={rolloverSeason} onCancel={() => setShowRolloverConfirm(false)} />
-      )}
     </div>
   );
 }
@@ -767,47 +778,79 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
   );
 }
 
-// Commissioner anchor — pixel-art mascot + speech bubble with state-driven
-// border. Bubble construction (border / shadow / tail) lifted from PackStats
-// in HomeView so the two anchor surfaces share a visual rhythm.
-function HeaderAnchor({ league, isDark }) {
+// ── Section sheet (Import / Pool / Settings) ─────────────────────────────────
+// A right-anchored slide-in panel over a scrim. It's driven by the URL — the
+// section doors are <Link>s and closing routes back to the Keepers home — so
+// deep links and refresh land on the open panel. Lottery is a full page, not a
+// sheet, so it isn't routed through here.
+const SHEET_STYLES = `
+  @keyframes kh-sheet-slide { from { transform: translateX(24px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
+  @keyframes kh-scrim-fade  { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: no-preference) {
+    .kh-sheet       { animation: kh-sheet-slide 0.24s cubic-bezier(.2,.8,.2,1); }
+    .kh-sheet-scrim { animation: kh-scrim-fade 0.2s ease; }
+  }
+  @media (max-width: 760px) { .kh-sheet { max-width: 100% !important; } }
+`;
+
+function SectionPanel({ title, isDark, onClose, children }) {
   const t = makeTheme(isDark);
-  const action = nextAction(league);
-  const voice  = leagueFlavor(league, action);
-  const accent = leagueVoiceColor(league, action);
-  const bubbleBg = isDark ? '#1c2130' : '#ffffff';
+  React.useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: tokens.spaceSm }}>
-      <img
-        src="/commissioner.png" alt="" height={72}
-        onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = '/mascot-empty.png'; }}
-        style={{
-          height: 72, width: 'auto', imageRendering: 'pixelated', display: 'block', flexShrink: 0,
-          filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.15))',
-        }}
-      />
-      <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-        <div style={{
-          background: bubbleBg,
-          border: `1.5px solid ${accent}`,
-          color: t.textBody,
-          borderRadius: tokens.radiusLg,
-          padding: '9px 13px',
-          boxShadow: `0 2px 0 ${accent}22`,
-        }}>
-          <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: 2 }}>Commish brief</div>
-          <div style={{ ...tokens.typeBody, fontWeight: 600, color: t.textPrimary, lineHeight: 1.35 }}>{voice}</div>
+    <div className="kh-sheet-scrim"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, zIndex: 900, display: 'flex', justifyContent: 'flex-end', background: t.scrim, backdropFilter: 'blur(2px)' }}>
+      <div className="kh-sheet" role="dialog" aria-label={title} style={{
+        width: '100%', maxWidth: 720, height: '100%', boxSizing: 'border-box',
+        background: t.cardBg2, borderLeft: `1px solid ${t.border}`,
+        boxShadow: '-12px 0 40px rgba(0,0,0,0.18)',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: `${tokens.spaceMd}px ${tokens.spaceLg}px`, borderBottom: `1px solid ${t.divider}`, flexShrink: 0 }}>
+          <h2 style={{ margin: 0, ...tokens.typeHeadingCard, color: t.textPrimary }}>{title}</h2>
+          <button onClick={onClose} aria-label="Close"
+            style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: tokens.radiusSm, color: t.textMuted, cursor: 'pointer', padding: 0 }}
+            onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = t.textSecondary; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textMuted; }}>
+            <X size={18} strokeWidth={2} />
+          </button>
         </div>
-        <div style={{
-          position: 'absolute', left: -7, top: 22,
-          width: 12, height: 12,
-          background: bubbleBg,
-          borderLeft: `1.5px solid ${accent}`,
-          borderBottom: `1.5px solid ${accent}`,
-          transform: 'rotate(45deg)',
-        }} />
+        <div style={{ overflowY: 'auto', flex: 1, padding: tokens.spaceLg }}>
+          {children}
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ── Keepers-home sub-tab toggle (Overview · Set keepers) ─────────────────────
+function SubTabs({ view, onChange, isDark, accentColor }) {
+  const t = makeTheme(isDark);
+  const items = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'set',      label: 'Set keepers' },
+  ];
+  return (
+    <div style={{ display: 'inline-flex', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: 3, gap: 3 }}>
+      {items.map(o => {
+        const active = view === o.id;
+        return (
+          <button key={o.id} onClick={() => onChange(o.id)} style={{
+            background: active ? accentColor : 'transparent', border: 'none',
+            borderRadius: tokens.radiusSm, padding: '7px 16px',
+            ...tokens.typePill, fontWeight: 700,
+            color: active ? '#fff' : t.textSecondary, cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'background 0.15s, color 0.15s',
+          }}>{o.label}</button>
+        );
+      })}
     </div>
   );
 }
@@ -817,67 +860,70 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const navigate = useNavigate();
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const accentColor = sport.color;
-  const stats = getLeagueStats(league);
-  const totalTeams = league.teamCount || league.teams.length;
   const basePath = `/league/${league.id}`;
+  const teams = league.teams || [];
+  const stats = getLeagueStats(league);
+  const totalTeams = league.teamCount || teams.length;
 
   // Bumped on a deliberate edit-card Save (Keeper Rules / Prize Structure) to
   // fire the "Saved" toast. Intentionally NOT wired to Mark Paid or toggles.
   const [savedAt, setSavedAt] = React.useState(0);
   const notifySaved = () => setSavedAt(Date.now());
 
-  // Keepers-declared celebration. The wizard's open-state is lifted here so the
-  // gate can skip while StepDone owns the moment inside the wizard (it writes
-  // the flag, so we stay silent on the way back). Every path that declares the
-  // last keeper flows through this league state, so one effect catches them all.
-  const [showWizard, setShowWizard] = React.useState(false);
+  // Keepers home internal sub-view + the team focused in Set-keepers. Clicking a
+  // team card on Overview jumps into Set-keepers for that team.
+  const [view, setView] = React.useState('overview'); // 'overview' | 'set'
+  const [selectedTeamId, setSelectedTeamId] = React.useState(teams[0]?.id || null);
+  function openSetKeepers(teamId) {
+    if (teamId) setSelectedTeamId(teamId);
+    setView('set');
+  }
+
+  // Keepers-declared celebration. Skip while the Set-keepers view owns the
+  // moment (its StepDone fires the inline celebration + writes the season flag,
+  // so we stay silent on the way back).
   const [celebrating, setCelebrating] = React.useState(false);
   React.useEffect(() => {
-    if (showWizard) return;
+    if (view === 'set') return;
     if (shouldCelebrate(league)) {
       markSeen(league.id, league.season);  // write on SHOW, not dismiss
       setCelebrating(true);
     }
-  }, [league.teams, league.season, league.id, showWizard]);
+  }, [league.teams, league.season, league.id, view]);
 
-  const tabs = [
-    { id: 'overview', label: 'Overview', badge: `${stats.withKeepers}/${totalTeams}` },
-    ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
-    { id: 'players', label: 'Players' },
-    { id: 'payouts', label: 'Payouts & Pay' },
-    { id: 'settings', label: 'Settings' },
-  ];
+  const closePanel = () => navigate(`${basePath}/overview`);
 
-  // Next-event timestamp for the utility row. Today: draft date only; expand
-  // as other phase-specific deadlines (keeper deadline, payment deadline) get
-  // wired into the data model.
   const draftWhen = (() => {
     if (!league.draftDate) return null;
     const d = new Date(league.draftDate + 'T12:00:00');
     return `Draft · ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`;
   })();
 
-  const promotedStats = [
-    { label: 'Keepers', value: `${stats.withKeepers}/${totalTeams}`,
-      accent: stats.withKeepers === totalTeams && totalTeams > 0 ? tokens.success : tokens.warning },
-    { label: 'Paid',    value: `${stats.paid}/${totalTeams}`,
-      accent: stats.paid === totalTeams && totalTeams > 0 ? tokens.success : stats.paid < totalTeams ? tokens.warning : undefined },
-    { label: 'Pool',    value: `$${league.totalPool.toLocaleString()}` },
-  ];
+  // Lottery is a full-page takeover (snake-only; the route gate enforces it).
+  if (activeTab === 'lottery' && league.draftType === 'snake') {
+    return (
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 80px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
+          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Lottery</h1>
+          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
+            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
+            ← Back to Keepers
+          </Link>
+        </div>
+        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 24px 40px' }}>
-      <style>{`
-        @media (max-width: 720px) {
-          .kh-header-body { grid-template-columns: 1fr !important; }
-          .kh-header-divider { display: none !important; }
-        }
-      `}</style>
+    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
       <style>{MOTION_STYLES}</style>
+      <style>{SHEET_STYLES}</style>
 
       {/* Season-complete banner — prompts the commissioner to roll forward */}
       {league.status === 'completed' && (
-        <div style={{ background: 'linear-gradient(135deg, rgba(59,138,230,0.18), rgba(107,77,230,0.12))', border: `1px solid ${accentColor}55`, borderRadius: 10, padding: '12px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ background: 'linear-gradient(135deg, rgba(59,138,230,0.18), rgba(107,77,230,0.12))', border: `1px solid ${accentColor}55`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
           <RefreshCw size={22} strokeWidth={1.5} color={accentColor} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: t.textPrimary }}>The {league.season} season is complete</div>
@@ -889,65 +935,41 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
         </div>
       )}
 
-      {/* League header card with tabs integrated */}
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, marginBottom: tokens.spaceMd }}>
-        {/* Utility row: back link + next-event timestamp */}
-        <div style={{ padding: `${tokens.spaceXs}px ${tokens.spaceLg}px 0`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceMd }}>
-          <Link
-            to="/"
-            style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
-            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}
-          >
-            ← All Leagues
-          </Link>
-          {draftWhen && (
-            <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, whiteSpace: 'nowrap' }}>{draftWhen}</span>
-          )}
-        </div>
-
-        {/* Body: commissioner anchor | divider | identity + stats */}
-        <div className="kh-header-body" style={{
-          padding: `${tokens.spaceSm}px ${tokens.spaceLg}px ${tokens.spaceLg}px`,
-          display: 'grid', gridTemplateColumns: '1fr 1px 1fr',
-          gap: tokens.spaceXl, alignItems: 'start',
-        }}>
-          <HeaderAnchor league={league} isDark={isDark} />
-          <div className="kh-header-divider" style={{ width: 1, alignSelf: 'stretch', background: t.divider }} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, flexWrap: 'wrap', marginBottom: tokens.spaceSm }}>
-              <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>{league.name}</h1>
-              <SportBadge sport={league.sport} />
-              <DraftBadge draftType={league.draftType} />
-              <StatusPill status={league.status} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: tokens.spaceLg }}>
-              {promotedStats.map(s => (
-                <div key={s.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
-                  <div style={{ ...tokens.typeNumericInline, color: s.accent || t.textPrimary, lineHeight: 1.1 }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: tokens.spaceXs }}>
-              <strong style={{ color: t.textSecondary, fontWeight: 600 }}>{totalTeams} teams</strong>
-              {league.draftType === 'snake' && stats.expiring > 0 && (
-                <> · <strong style={{ color: t.textSecondary, fontWeight: 600 }}>{stats.expiring} expiring</strong> contracts going back to the draft</>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div style={{ borderTop: `1px solid ${t.divider}`, padding: '0 20px' }}>
-          <TabBar tabs={tabs} active={activeTab} basePath={basePath} accentColor={accentColor} isDark={isDark} />
+      {/* Keepers home — Overview / Set-keepers toggle + a light context line */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '4px 0 16px' }}>
+        <SubTabs view={view} onChange={setView} isDark={isDark} accentColor={accentColor} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, ...tokens.typeBodyMeta, color: t.textMuted }}>
+          <span><strong style={{ color: t.textSecondary, fontWeight: 700 }}>{stats.withKeepers}/{totalTeams}</strong> teams set</span>
+          {draftWhen && <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, whiteSpace: 'nowrap' }}>{draftWhen}</span>}
         </div>
       </div>
 
-      {activeTab === 'overview' && <OverviewTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} showWizard={showWizard} setShowWizard={setShowWizard} />}
-      {activeTab === 'lottery' && league.draftType === 'snake' && <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
-      {activeTab === 'players' && <PlayersTab league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />}
-      {activeTab === 'payouts' && <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
-      {activeTab === 'settings' && <SettingsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
+      {view === 'overview' ? (
+        <CompactKeeperGrid league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+      ) : (
+        <SeasonSetupWizard
+          league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague}
+          onComplete={() => { if (onUpdateLeague) onUpdateLeague({ ...league, setupComplete: true }); setView('overview'); }}
+          onExit={() => setView('overview')}
+        />
+      )}
+
+      {/* Section panels — routed; closing returns to the Keepers home */}
+      {activeTab === 'payouts' && (
+        <SectionPanel title="Pool &amp; Payouts" isDark={isDark} onClose={closePanel}>
+          <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />
+        </SectionPanel>
+      )}
+      {activeTab === 'settings' && (
+        <SectionPanel title="League Settings" isDark={isDark} onClose={closePanel}>
+          <SettingsPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />
+        </SectionPanel>
+      )}
+      {activeTab === 'import' && (
+        <SectionPanel title="Import Rosters &amp; Draft" isDark={isDark} onClose={closePanel}>
+          <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+        </SectionPanel>
+      )}
 
       <SaveToast trigger={savedAt} isDark={isDark} />
 
@@ -965,4 +987,4 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
 
 Object.assign(window, { LeagueView });
 
-export { TabBar, PayoutsTab, SettingsTab, LeagueView };
+export { TabBar, PayoutsTab, SettingsPanel, ImportPanel, SectionPanel, LeagueView };
