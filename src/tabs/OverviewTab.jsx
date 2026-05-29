@@ -457,11 +457,16 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
   );
 }
 
-function OverviewTab({ league, accentColor, isDark, onUpdateLeague }) {
+function OverviewTab({ league, accentColor, isDark, onUpdateLeague, showWizard: showWizardProp, setShowWizard: setShowWizardProp }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
-  const [showWizard, setShowWizard] = React.useState(false);
+  // Wizard open-state is lifted to LeagueView (so its celebration effect can
+  // skip while the wizard owns the moment). Fall back to local state if this
+  // tab is ever rendered without the props.
+  const [showWizardLocal, setShowWizardLocal] = React.useState(false);
+  const showWizard = showWizardProp ?? showWizardLocal;
+  const setShowWizard = setShowWizardProp ?? setShowWizardLocal;
 
   if (showWizard) {
     return (

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor, MOTION_STYLES, SaveToast } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, nextAction, leagueFlavor, leagueVoiceColor, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
+import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { OverviewTab } from './tabs/OverviewTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { PlayersTab } from './tabs/PlayersTab.jsx';
@@ -825,6 +826,20 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const [savedAt, setSavedAt] = React.useState(0);
   const notifySaved = () => setSavedAt(Date.now());
 
+  // Keepers-declared celebration. The wizard's open-state is lifted here so the
+  // gate can skip while StepDone owns the moment inside the wizard (it writes
+  // the flag, so we stay silent on the way back). Every path that declares the
+  // last keeper flows through this league state, so one effect catches them all.
+  const [showWizard, setShowWizard] = React.useState(false);
+  const [celebrating, setCelebrating] = React.useState(false);
+  React.useEffect(() => {
+    if (showWizard) return;
+    if (shouldCelebrate(league)) {
+      markSeen(league.id, league.season);  // write on SHOW, not dismiss
+      setCelebrating(true);
+    }
+  }, [league.teams, league.season, league.id, showWizard]);
+
   const tabs = [
     { id: 'overview', label: 'Overview', badge: `${stats.withKeepers}/${totalTeams}` },
     ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery' }] : []),
@@ -928,13 +943,22 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
         </div>
       </div>
 
-      {activeTab === 'overview' && <OverviewTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
+      {activeTab === 'overview' && <OverviewTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} showWizard={showWizard} setShowWizard={setShowWizard} />}
       {activeTab === 'lottery' && league.draftType === 'snake' && <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />}
       {activeTab === 'players' && <PlayersTab league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />}
       {activeTab === 'payouts' && <PayoutsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
       {activeTab === 'settings' && <SettingsTab league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />}
 
       <SaveToast trigger={savedAt} isDark={isDark} />
+
+      {celebrating && (
+        <KeepersCelebration
+          league={league}
+          isDark={isDark}
+          onDismiss={() => setCelebrating(false)}
+          onSetDraft={() => { setCelebrating(false); navigate(`${basePath}/settings`); }}
+        />
+      )}
     </div>
   );
 }
