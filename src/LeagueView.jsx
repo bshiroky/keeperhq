@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportBadge, DraftBadge, StatusPill, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
-import { CompactKeeperGrid } from './tabs/OverviewTab.jsx';
+import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SeasonSetupWizard } from './tabs/SetupTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
@@ -945,7 +945,7 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       </div>
 
       {view === 'overview' ? (
-        <CompactKeeperGrid league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+        <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
       ) : (
         <SeasonSetupWizard
           league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague}

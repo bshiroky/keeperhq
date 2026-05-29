@@ -457,6 +457,141 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
   );
 }
 
+// ── Redesigned Overview — full-width grid of uniform team cards ──────────────
+// Each card: header (avatar + team name + x/N pill) over a fixed K1..N slot
+// list. Filled slots reuse the SampleKeeperCell value/expiring color logic
+// (gridAccent value; danger + "Final yr" when contractYear >= contractLength);
+// empty slots read "Open slot". The whole card jumps to Set-keepers for that
+// team. Below the grid, snake leagues get the "Expiring after this season"
+// roll-up (the back-to-the-draft list).
+
+function keeperValueText(k, isSnake) {
+  return isSnake ? `Y${k.contractYear}/${k.contractLength}` : `$${k.keptFor}`;
+}
+
+function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen }) {
+  const t = makeTheme(isDark);
+  const isSnake = league.draftType === 'snake';
+  const slots = league.keeperSlots || 0;
+  const keepers = team.keepers || [];
+  const count = keepers.length;
+  const complete = slots > 0 && count >= slots;
+  const countColor = complete ? tokens.success : (count > 0 ? gridAccent : t.textMuted);
+  const countBg = complete ? t.successBg : (count > 0 ? `${gridAccent}18` : t.sectionBg);
+  const countBorder = complete ? t.successBorder : (count > 0 ? `${gridAccent}55` : t.border);
+
+  return (
+    <button onClick={() => onOpen(team.id)} className="kh-team-card" style={{
+      textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', padding: 0,
+      background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
+      boxShadow: t.cardShadow, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderBottom: `1px solid ${t.divider}`, background: t.sectionBg }}>
+        <div style={{ width: 30, height: 30, borderRadius: tokens.radiusMd, background: `${accentColor}22`, color: accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+          {(team.name || '?')[0]}
+        </div>
+        <span style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
+        <span style={{ ...tokens.typePill, fontWeight: 700, color: countColor, background: countBg, border: `1px solid ${countBorder}`, borderRadius: tokens.radiusPill, padding: '2px 9px', flexShrink: 0 }}>{count}/{slots}</span>
+      </div>
+      <div style={{ padding: '2px 14px' }}>
+        {Array.from({ length: slots }, (_, i) => {
+          const k = keepers[i];
+          const last = i === slots - 1;
+          const expiring = k && isSnake && k.contractYear >= k.contractLength;
+          return (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: last ? 'none' : `1px solid ${t.dividerFaint}`, minHeight: 38, boxSizing: 'border-box' }}>
+              <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{i + 1}</span>
+              {k ? (
+                <>
+                  <span style={{ ...tokens.typeBody, fontWeight: 600, color: expiring ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.player}</span>
+                  {expiring && <span style={{ ...tokens.typePillEmphatic, color: t.danger, flexShrink: 0 }}>Final yr</span>}
+                  <span style={{ ...tokens.typePill, fontWeight: 700, color: expiring ? t.danger : gridAccent, flexShrink: 0 }}>{keeperValueText(k, isSnake)}</span>
+                </>
+              ) : (
+                <span style={{ ...tokens.typeBody, color: t.textMuted, fontStyle: 'italic', flex: 1 }}>Open slot</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </button>
+  );
+}
+
+function ExpiringSection({ expiring, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
+        <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: 3, background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, flexShrink: 0 }} />
+        <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary }}>Expiring after this season</span>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginLeft: 'auto' }}>{expiring.length} going back to the draft</span>
+      </div>
+      <div style={{ padding: '14px 16px' }}>
+        {expiring.length === 0 ? (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>No contracts expire this season.</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {expiring.map((k, i) => (
+              <span key={`${k.teamName}-${k.player}-${i}`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: tokens.radiusPill,
+                padding: '4px 10px',
+              }}>
+                <span style={{ ...tokens.typePill, fontWeight: 700, color: t.danger }}>{k.player}</span>
+                <span style={{ ...tokens.typePill, color: t.textMuted }}>· {k.teamName}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
+  const t = makeTheme(isDark);
+  const teams = league.teams || [];
+  const isSnake = league.draftType === 'snake';
+  const slots = league.keeperSlots || 0;
+  // Grid accent follows draft type (blue snake / orange auction), matching the
+  // value coloring used across the keeper surfaces.
+  const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
+
+  if (teams.length === 0 || slots === 0) {
+    return (
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, padding: '40px 20px', textAlign: 'center' }}>
+        <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.textSecondary, marginBottom: 4 }}>
+          {teams.length === 0 ? 'No teams yet' : 'No keeper slots configured'}
+        </div>
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
+          {teams.length === 0
+            ? 'Add teams in Settings to start picking keepers.'
+            : 'Set Keeper Slots in Settings to use this view.'}
+        </div>
+      </div>
+    );
+  }
+
+  const expiring = isSnake
+    ? teams.flatMap(tm => (tm.keepers || [])
+        .filter(k => k.contractYear >= k.contractLength)
+        .map(k => ({ ...k, teamName: tm.name })))
+    : [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      <style>{`.kh-team-card { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; } .kh-team-card:hover { transform: translateY(-2px); border-color: ${accentColor}66; }`}</style>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+        {teams.map(team => (
+          <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} />
+        ))}
+      </div>
+      {isSnake && <ExpiringSection expiring={expiring} isDark={isDark} />}
+    </div>
+  );
+}
+
 function OverviewTab({ league, accentColor, isDark, onUpdateLeague, showWizard: showWizardProp, setShowWizard: setShowWizardProp }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
@@ -499,6 +634,6 @@ function OverviewTab({ league, accentColor, isDark, onUpdateLeague, showWizard: 
   );
 }
 
-Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard });
+Object.assign(window, { OverviewTab, CompactKeeperGrid, ChecklistCard, KeepersOverview });
 
-export { ChecklistCard, CompactKeeperGrid, SetupSeasonBanner, OverviewTab };
+export { ChecklistCard, CompactKeeperGrid, SetupSeasonBanner, OverviewTab, KeepersOverview, TeamKeeperCard, ExpiringSection };
