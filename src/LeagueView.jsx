@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock } from 'lucide-react';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
@@ -855,6 +855,78 @@ function SubTabs({ view, onChange, isDark, accentColor }) {
   );
 }
 
+// Phase pill copy for the identity card, derived from league.status.
+const PHASE_LABEL = {
+  'pre-draft': 'Pre-Draft', 'setup': 'Setup', 'draft-ready': 'Draft Ready',
+  'active': 'In Season', 'in-season': 'In Season', 'completed': 'Complete',
+};
+function phaseLabel(status) {
+  if (PHASE_LABEL[status]) return PHASE_LABEL[status];
+  if (!status) return 'Pre-Draft';
+  return status.split(/[-_\s]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+// Inline keeper-deadline control on the right of the identity card. Writes
+// league.keeperDeadline; goes warning-colored when ≤7 days out.
+function DeadlineLine({ league, isDark, onUpdateLeague }) {
+  const t = makeTheme(isDark);
+  const [editing, setEditing] = React.useState(false);
+  const deadline = league.keeperDeadline || '';
+  const daysLeft = deadline ? Math.ceil((new Date(deadline + 'T12:00:00') - new Date()) / 86400000) : null;
+  const urgent = daysLeft != null && daysLeft >= 0 && daysLeft <= 7;
+  const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const labelColor = urgent ? t.warning : t.textSecondary;
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%',
+      padding: '7px 12px', borderRadius: tokens.radiusPill,
+      background: urgent ? t.warningBg : t.sectionBg,
+      border: `1px solid ${urgent ? t.warningBorder : t.border}`,
+    }}>
+      <Clock size={14} strokeWidth={2} color={labelColor} style={{ flexShrink: 0 }} />
+      <span style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: labelColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {deadline
+          ? `Keeper deadline · ${fmt(deadline)}${daysLeft != null ? ` · ${daysLeft < 0 ? 'passed' : `${daysLeft}d left`}` : ''}`
+          : 'Keeper deadline · not set'}
+      </span>
+      {editing ? (
+        <input type="date" value={deadline} autoFocus
+          onChange={e => onUpdateLeague({ ...league, keeperDeadline: e.target.value || null })}
+          onBlur={() => setEditing(false)}
+          style={{ ...tokens.typeBodyMeta, fontFamily: 'inherit', color: t.textPrimary, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 6px' }} />
+      ) : (
+        <button onClick={() => setEditing(true)}
+          style={{ ...tokens.typeBodyMeta, fontWeight: 700, color: t.info, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {deadline ? 'Change' : 'Set'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A section "door" — a secondary, bordered entry button that sits in the
+// Keepers tab row (right of the Overview/Set-keepers toggle). Routed <Link>;
+// the destination opens as a slide-in panel (Lottery is a full page).
+function SectionDoorButton({ to, active, label, Icon, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <Link to={to} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 7,
+      fontSize: 13, fontWeight: 600,
+      color: active ? t.textPrimary : t.textSecondary,
+      padding: '7px 13px', borderRadius: tokens.radiusMd,
+      background: t.cardBg, border: `1px solid ${active ? t.textMuted : t.border}`,
+      textDecoration: 'none', whiteSpace: 'nowrap',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = t.textMuted; e.currentTarget.style.color = t.textPrimary; }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = t.border; e.currentTarget.style.color = t.textSecondary; } }}
+    >
+      <Icon size={15} strokeWidth={2} />
+      {label}
+    </Link>
+  );
+}
+
 function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const t = makeTheme(isDark);
   const navigate = useNavigate();
@@ -864,18 +936,21 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const teams = league.teams || [];
   const totalTeams = league.teamCount || teams.length;
 
-  // League-identity row: name + sport + draft type + teams + season + draft
-  // date. Identity only — no stat strip, no commissioner character.
+  // League-identity card: avatar + name + phase pill, then sport/draft/teams
+  // pills + season/draft meta. Identity only — no stat strip, no character.
   const draftDateLabel = league.draftDate
     ? `Draft ${new Date(league.draftDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
     : null;
-  const identityMeta = [
-    sport.label,
-    DRAFT_LABEL[league.draftType] || league.draftType,
-    `${totalTeams} teams`,
-    league.season,
-    draftDateLabel,
-  ].filter(Boolean);
+
+  // Section doors — the supporting surfaces, opened from the Keepers tab row.
+  // Pool / Settings / Import open as routed slide-in sheets; Lottery (snake
+  // only) is a full-page takeover, enforced by the route gate.
+  const sectionDoors = [
+    { id: 'import',   label: 'Import',   Icon: Upload },
+    { id: 'payouts',  label: 'Pool',     Icon: Wallet },
+    ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery', Icon: Dices }] : []),
+    { id: 'settings', label: 'Settings', Icon: SettingsIcon },
+  ];
 
   // Bumped on a deliberate edit-card Save (Keeper Rules / Prize Structure) to
   // fire the "Saved" toast. Intentionally NOT wired to Mark Paid or toggles.
@@ -941,15 +1016,44 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
         </div>
       )}
 
-      {/* League-identity row (character-free; no stat strip, no speech bubble) */}
-      <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, padding: '4px 0 14px' }}>
-        <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>{league.name}</h1>
-        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>· {identityMeta.join(' · ')}</span>
+      {/* Section A — league-identity card (3px sport-color top border; identity
+          on the left, keeper-deadline control on the right; no stat strip) */}
+      <div style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, borderTop: `3px solid ${accentColor}`,
+        borderRadius: tokens.radiusLg, boxShadow: t.cardShadow,
+        padding: '14px 20px', marginBottom: 16,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
+          <div style={{ width: 46, height: 46, borderRadius: '50%', background: sport.tint, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+            <SportLogo sport={league.sport} height={36} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
+              <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary, whiteSpace: 'nowrap' }}>{league.name}</h1>
+              <span style={{ ...tokens.typePillEmphatic, color: t.info, background: t.infoBg, borderRadius: tokens.radiusPill, padding: '3px 9px', whiteSpace: 'nowrap' }}>{phaseLabel(league.status)}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5, flexWrap: 'wrap' }}>
+              <span style={{ ...tokens.typePill, background: sport.tint, color: sport.color, border: `1px solid ${sport.border}`, borderRadius: tokens.radiusPill, padding: '3px 10px' }}>{sport.label}</span>
+              <span style={{ ...tokens.typePill, background: t.badgeBg, color: t.textSecondary, border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill, padding: '3px 10px' }}>{DRAFT_LABEL[league.draftType] || league.draftType}</span>
+              <span style={{ ...tokens.typePill, background: t.badgeBg, color: t.textSecondary, border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill, padding: '3px 10px' }}>{totalTeams} teams</span>
+              <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginLeft: 2 }}>{league.season}{draftDateLabel ? ` · ${draftDateLabel}` : ''}</span>
+            </div>
+          </div>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <DeadlineLine league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+        </div>
       </div>
 
-      {/* Overview / Set-keepers toggle */}
-      <div style={{ padding: '0 0 16px' }}>
+      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '0 0 16px' }}>
         <SubTabs view={view} onChange={setView} isDark={isDark} accentColor={accentColor} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+          {sectionDoors.map(d => (
+            <SectionDoorButton key={d.id} to={`${basePath}/${d.id}`} active={activeTab === d.id} label={d.label} Icon={d.Icon} isDark={isDark} />
+          ))}
+        </div>
       </div>
 
       {view === 'overview' ? (
