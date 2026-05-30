@@ -197,7 +197,15 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
     : '1fr 110px 110px';        // place | reg | playoffs
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+    <div className="kh-payouts-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <style>{`
+        /* Inside the Pool & Payouts sheet the two cards reflow to a single
+           column on phones (the sheet goes full-width at the same breakpoint),
+           so neither card's content is cramped. Desktop keeps the two-up grid. */
+        @media (max-width: 760px) {
+          .kh-payouts-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Prize Structure</div>
@@ -814,9 +822,9 @@ function SectionPanel({ title, isDark, onClose, children }) {
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: `${tokens.spaceMd}px ${tokens.spaceLg}px`, borderBottom: `1px solid ${t.divider}`, flexShrink: 0 }}>
-          <h2 style={{ margin: 0, ...tokens.typeHeadingCard, color: t.textPrimary }}>{title}</h2>
+          <h2 style={{ margin: 0, ...tokens.typeHeadingCard, color: t.textPrimary, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
           <button onClick={onClose} aria-label="Close"
-            style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: tokens.radiusSm, color: t.textMuted, cursor: 'pointer', padding: 0 }}
+            style={{ width: 30, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: tokens.radiusSm, color: t.textMuted, cursor: 'pointer', padding: 0 }}
             onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = t.textSecondary; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textMuted; }}>
             <X size={18} strokeWidth={2} />
