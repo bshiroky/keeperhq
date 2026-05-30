@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download, X } from 'lucide-react';
-import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, getLeagueStats, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
+import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
@@ -862,8 +862,20 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   const accentColor = sport.color;
   const basePath = `/league/${league.id}`;
   const teams = league.teams || [];
-  const stats = getLeagueStats(league);
   const totalTeams = league.teamCount || teams.length;
+
+  // League-identity row: name + sport + draft type + teams + season + draft
+  // date. Identity only — no stat strip, no commissioner character.
+  const draftDateLabel = league.draftDate
+    ? `Draft ${new Date(league.draftDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    : null;
+  const identityMeta = [
+    sport.label,
+    DRAFT_LABEL[league.draftType] || league.draftType,
+    `${totalTeams} teams`,
+    league.season,
+    draftDateLabel,
+  ].filter(Boolean);
 
   // Bumped on a deliberate edit-card Save (Keeper Rules / Prize Structure) to
   // fire the "Saved" toast. Intentionally NOT wired to Mark Paid or toggles.
@@ -892,12 +904,6 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
   }, [league.teams, league.season, league.id, view]);
 
   const closePanel = () => navigate(`${basePath}/overview`);
-
-  const draftWhen = (() => {
-    if (!league.draftDate) return null;
-    const d = new Date(league.draftDate + 'T12:00:00');
-    return `Draft · ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`;
-  })();
 
   // Lottery is a full-page takeover (snake-only; the route gate enforces it).
   if (activeTab === 'lottery' && league.draftType === 'snake') {
@@ -935,13 +941,15 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
         </div>
       )}
 
-      {/* Keepers home — Overview / Set-keepers toggle + a light context line */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '4px 0 16px' }}>
+      {/* League-identity row (character-free; no stat strip, no speech bubble) */}
+      <div style={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, padding: '4px 0 14px' }}>
+        <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>{league.name}</h1>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>· {identityMeta.join(' · ')}</span>
+      </div>
+
+      {/* Overview / Set-keepers toggle */}
+      <div style={{ padding: '0 0 16px' }}>
         <SubTabs view={view} onChange={setView} isDark={isDark} accentColor={accentColor} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, ...tokens.typeBodyMeta, color: t.textMuted }}>
-          <span><strong style={{ color: t.textSecondary, fontWeight: 700 }}>{stats.withKeepers}/{totalTeams}</strong> teams set</span>
-          {draftWhen && <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, whiteSpace: 'nowrap' }}>{draftWhen}</span>}
-        </div>
       </div>
 
       {view === 'overview' ? (

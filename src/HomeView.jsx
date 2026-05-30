@@ -41,7 +41,8 @@ function AddLeagueSlot({ onClick, isDark }) {
   );
 }
 
-// ── Pack Stats — page-level mascot + speech bubble + KPI numerics ────────
+// ── Pack Stats — page-level KPI numerics (mascot + speech-bubble narration
+//    removed; the numbers are the surface) ─────────────────────────────────
 function PackStats({ leagues, isDark }) {
   const t = makeTheme(isDark);
   const totals = leagues.reduce((a, l) => {
@@ -52,12 +53,6 @@ function PackStats({ leagues, isDark }) {
       unpaid:      a.unpaid      + (p.teamCount - p.paid),
     };
   }, { collected: 0, outstanding: 0, unpaid: 0 });
-
-  let voice, accent;
-  if (totals.outstanding === 0) { voice = `All ${leagues.length} leagues paid up. Beautiful.`; accent = tokens.success; }
-  else if (totals.unpaid === 1) { voice = `One team still owes. Quick nudge and you're done.`; accent = tokens.warning; }
-  else if (totals.unpaid <= 3)  { voice = `${totals.unpaid} teams still owe — gentle nudge time.`; accent = tokens.warning; }
-  else                          { voice = `${totals.unpaid} unpaid teams across ${leagues.length} leagues — start chasing.`; accent = tokens.warning; }
 
   const MONO = 'ui-monospace, "SF Mono", Menlo, Monaco, monospace';
 
@@ -76,56 +71,23 @@ function PackStats({ leagues, isDark }) {
         opacity: isDark ? 0.06 : 0.04, mixBlendMode: isDark ? 'overlay' : 'multiply',
         pointerEvents: 'none',
       }} />
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: tokens.spaceLg, flexWrap: 'wrap' }}>
-        {/* Mascot + speech bubble. commissioner.png is the target asset
-            once dropped into /public/ — falls back to mascot-empty.png. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceSm, flex: '0 0 auto' }}>
-          <img src="/commissioner.png" alt="" height={72}
-            onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = '/mascot-empty.png'; }}
-            style={{
-              height: 72, width: 'auto', imageRendering: 'pixelated', display: 'block', flexShrink: 0,
-              filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.15))',
-            }} />
-          <div style={{ position: 'relative', maxWidth: 280 }}>
+      {/* KPI numerics — monospace broadcast-readout style */}
+      <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceLg }}>
+        {[
+          { label: 'Leagues',     val: leagues.length,                                color: t.textPrimary },
+          { label: 'Collected',   val: `$${totals.collected.toLocaleString()}`,      color: tokens.success },
+          { label: 'Outstanding', val: `$${totals.outstanding.toLocaleString()}`,    color: totals.outstanding > 0 ? tokens.warning : t.textMuted },
+          { label: 'Unpaid',      val: totals.unpaid,                                 color: totals.unpaid > 0 ? tokens.warning : t.textMuted },
+        ].map(s => (
+          <div key={s.label}>
+            <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
             <div style={{
-              background: isDark ? '#1c2130' : '#ffffff',
-              border: `1.5px solid ${accent}`,
-              color: t.textBody,
-              borderRadius: tokens.radiusLg,
-              padding: '9px 13px',
-              boxShadow: `0 2px 0 ${accent}22`,
-            }}>
-              <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: 2 }}>Pack stats</div>
-              <div style={{ ...tokens.typeBody, fontWeight: 600, color: t.textPrimary, lineHeight: 1.35 }}>{voice}</div>
-            </div>
-            <div style={{
-              position: 'absolute', left: -7, top: 22,
-              width: 12, height: 12,
-              background: isDark ? '#1c2130' : '#ffffff',
-              borderLeft: `1.5px solid ${accent}`,
-              borderBottom: `1.5px solid ${accent}`,
-              transform: 'rotate(45deg)',
-            }} />
+              fontFamily: MONO,
+              ...tokens.typeNumericCard, color: s.color,
+              letterSpacing: '-0.01em', marginTop: 2, fontFeatureSettings: '"tnum"',
+            }}>{s.val}</div>
           </div>
-        </div>
-        {/* KPI numerics — monospace broadcast-readout style */}
-        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceLg, minWidth: 360 }}>
-          {[
-            { label: 'Leagues',     val: leagues.length,                                color: t.textPrimary },
-            { label: 'Collected',   val: `$${totals.collected.toLocaleString()}`,      color: tokens.success },
-            { label: 'Outstanding', val: `$${totals.outstanding.toLocaleString()}`,    color: totals.outstanding > 0 ? tokens.warning : t.textMuted },
-            { label: 'Unpaid',      val: totals.unpaid,                                 color: totals.unpaid > 0 ? tokens.warning : t.textMuted },
-          ].map(s => (
-            <div key={s.label}>
-              <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
-              <div style={{
-                fontFamily: MONO,
-                ...tokens.typeNumericCard, color: s.color,
-                letterSpacing: '-0.01em', marginTop: 2, fontFeatureSettings: '"tnum"',
-              }}>{s.val}</div>
-            </div>
-          ))}
-        </div>
+        ))}
       </div>
     </div>
   );

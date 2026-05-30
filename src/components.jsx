@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 import { totalKeepers } from './lib/celebration.js';
+import { loadPlayers, normalizeName } from './lib/players.js';
 
 // Shared UI components — exported to window
 
@@ -133,6 +134,46 @@ function SportLogo({ sport, height = 32 }) {
       style={{ height, width: 'auto', display: 'block', flexShrink: 0, imageRendering: 'pixelated' }} />;
   }
   return <span style={{ fontSize: height * 0.7, flexShrink: 0 }}>{cfg?.icon || '🏆'}</span>;
+}
+
+// Player directory map for the league's sport (NHL only for now), keyed by
+// normalized name. Used to attach real headshots to keeper-board rows.
+function usePlayerMap(sport) {
+  const [map, setMap] = React.useState(null);
+  React.useEffect(() => {
+    if (sport !== 'hockey' && sport !== 'nhl') { setMap(null); return; }
+    let cancelled = false;
+    loadPlayers('nhl').then(d => {
+      if (cancelled) return;
+      const m = new Map();
+      for (const p of (d.players || [])) m.set(normalizeName(p.name), p);
+      setMap(m);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [sport]);
+  return map;
+}
+
+// Round headshot for a keeper-board row. Falls back to the player's first
+// initial when no directory entry / headshot is available (non-NHL, offline,
+// or unmatched name) so every row keeps the same footprint.
+function Headshot({ name, map, size = 26, isDark }) {
+  const t = makeTheme(isDark);
+  const rec = map ? map.get(normalizeName(name)) : null;
+  const url = rec?.headshot;
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0,
+      background: t.sectionBg, border: `1px solid ${t.border}`,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      {url
+        ? <img src={url} alt="" width={size} height={size} loading="lazy"
+            style={{ width: size, height: size, objectFit: 'cover', display: 'block' }}
+            onError={e => { e.currentTarget.style.display = 'none'; }} />
+        : <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted }}>{(name || '?')[0]}</span>}
+    </span>
+  );
 }
 
 const DRAFT_LABEL = { snake: 'Contract Snake', auction: 'Auction' };
@@ -634,9 +675,6 @@ function TradingCard({ league, onClick, isDark, state }) {
                :                        nextAction(league);
   const pay    = paymentsOf(league);
   const mod    = ruleMod(league);
-  const flavor = state === 'building' ? "Fresh league. Let's wire it up."
-               : state === 'ready'    ? "Locked and loaded. Bring on draft day."
-               :                        flavorLine(league, action);
   const totalPool = (league.totalPool || pay.potential).toLocaleString();
 
   const stickerColors = {
@@ -644,10 +682,6 @@ function TradingCard({ league, onClick, isDark, state }) {
     waiting: { bg: isDark ? '#2a3142' : '#dfe4ee', fg: isDark ? '#c8d0e0' : '#3a4255' },
     ready:   { bg: tokens.success, fg: '#0f2018' },
   }[action.kind];
-
-  const moodColor = action.kind === 'action' ? tokens.warning
-                  : action.kind === 'ready'  ? tokens.success
-                  :                            sport.color;
 
   const hasName  = !!(league.name && String(league.name).trim());
   const hasSport = !!league.sport;
@@ -769,16 +803,6 @@ function TradingCard({ league, onClick, isDark, state }) {
             }}>
               {metaPill}
             </span>
-          </div>
-
-          <div style={{
-            marginTop: tokens.spaceSm, marginBottom: tokens.space2xs,
-            paddingLeft: tokens.spaceSm - 2,
-            borderLeft: `2px solid ${moodColor}`,
-            color: t.textBody,
-            ...tokens.typeBodyMeta, fontStyle: 'italic', lineHeight: 1.45,
-          }}>
-            {flavor}
           </div>
 
           <div style={{
@@ -1259,6 +1283,7 @@ Object.assign(window, {
   Input, Select, NumberInput, Button,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  usePlayerMap, Headshot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
@@ -1272,6 +1297,7 @@ export {
   Input, Select, NumberInput, Button,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
+  usePlayerMap, Headshot,
   formatDate, getLeagueStats,
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,

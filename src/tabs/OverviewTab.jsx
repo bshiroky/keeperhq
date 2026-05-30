@@ -1,6 +1,6 @@
 import React from 'react';
 import { Lock, Check, Clock, ClipboardList } from 'lucide-react';
-import { makeTheme, tokens, Button } from '../components.jsx';
+import { makeTheme, tokens, Button, usePlayerMap, Headshot } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { SampleKeeperCell } from './keeper-grid-variants.jsx';
@@ -469,7 +469,7 @@ function keeperValueText(k, isSnake) {
   return isSnake ? `Y${k.contractYear}/${k.contractLength}` : `$${k.keptFor}`;
 }
 
-function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen }) {
+function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen, playerMap }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
   const slots = league.keeperSlots || 0;
@@ -501,6 +501,7 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen 
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: last ? 'none' : `1px solid ${t.dividerFaint}`, minHeight: 38, boxSizing: 'border-box' }}>
               <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{i + 1}</span>
+              {k && <Headshot name={k.player} map={playerMap} size={24} isDark={isDark} />}
               {k ? (
                 <>
                   <span style={{ ...tokens.typeBody, fontWeight: 600, color: expiring ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.player}</span>
@@ -557,6 +558,7 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
   // Grid accent follows draft type (blue snake / orange auction), matching the
   // value coloring used across the keeper surfaces.
   const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
+  const playerMap = usePlayerMap(league.sport);
 
   if (teams.length === 0 || slots === 0) {
     return (
@@ -584,7 +586,7 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
       <style>{`.kh-team-card { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; } .kh-team-card:hover { transform: translateY(-2px); border-color: ${accentColor}66; }`}</style>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
         {teams.map(team => (
-          <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} />
+          <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} playerMap={playerMap} />
         ))}
       </div>
       {isSnake && <ExpiringSection expiring={expiring} isDark={isDark} />}
