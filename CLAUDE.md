@@ -35,7 +35,7 @@ features have shipped through their own branches (all merged):
   inflate line 2). All cell states share one height.
 - **PR #9 (merged):** Roadmap/docs expansion in CLAUDE.md (backend +
   multi-user reframe, Open items, housekeeping). Docs only.
-- **PR #10 (open):** Create-League wizard — a 4-step flow
+- **PR #10 (merged):** Create-League wizard — a 4-step flow
   (Basics → League Format → Teams → Review) at `/new` that writes a
   real league to localStorage (the `src/data.js` shape) and routes
   into it. Replaces the `AddLeagueSlot` `alert()` placeholder.
@@ -49,6 +49,26 @@ features have shipped through their own branches (all merged):
   scope: no keeper round-cost UI, no commissioner-reassignment UI
   (auto team #1), and no season selector (a sensible default season is
   stored under the hood). Addresses Open item #16.
+- **PR #21 (merged):** LeagueView jobs-first redesign. "Keepers" is
+  now the league home, with an **Overview / Set keepers** toggle
+  replacing the old 6-tab strip. Overview = full-width grid of uniform
+  team cards (K1..KN slot lists w/ player headshots + "Open slot"
+  placeholders) + an "Expiring after this season" roll-up (snake).
+  Set keepers = team-chip selector over a two-column workbench: the
+  team's keeper panel (left) beside the **Eligible Pool** (right; My
+  roster / League / Expired sub-tabs with + Keep toggles). The
+  **section doors** (Import / Pool / Lottery / Settings) live in the
+  Keepers tab row, right side, as bordered secondary buttons; they
+  open right slide-in sheets — except **Lottery**, a full page. The
+  league-identity header became a card (sport-color top border, sport
+  avatar, name + phase pill, [Hockey][Contract Snake][N teams] pills +
+  season/draft meta, keeper-deadline control on the right) — no stat
+  strip, no commissioner speech-bubble. **Players is dropped** as a
+  standalone tab/route (the NHL directory is absorbed into the Eligible
+  Pool's "League" sub-tab; `PlayersTab.jsx` kept). Eligible-pool
+  overlay: desktop = inline pool only, mobile = full-screen sheet.
+  Addresses Open item #17 for the touched surfaces; the keepers-
+  declared celebration (PR #20) shipped earlier in the arc.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -92,10 +112,13 @@ token is wrong, not the migration.
   even before this work — dead UI predating the rollout)
 - Panel now reads as Appearance (theme only) + Data (reset button)
 
-**Pending asset:** `commissioner.png` for the PackStats mascot. Not
-yet generated. PackStats currently uses `mascot-empty.png` via an
-`onError` fallback. When `commissioner.png` lands in `public/`, the
-fallback stops firing automatically — no code change needed.
+**`commissioner.png` — no longer a PackStats asset.** PackStats was
+reframed to numerics-only (Critical decision #8) and **no longer
+renders a mascot at all**, so neither `commissioner.png` nor the old
+`mascot-empty.png` `onError` fallback is wired there anymore. The asset
+is still ungenerated; if/when it lands, its candidate homes are the
+mascot-*speech* surfaces (celebration / help), not a scanning surface —
+see the mascot-speech principle in Visual / design language.
 
 **Parked here.** User explicitly stopped after HomeView; the rest of
 the original migration plan is queued but not in flight.
@@ -184,11 +207,11 @@ no extra rewrite rule needed.
 | `/` | `HomeView` — My Leagues |
 | `/new` | `CreateLeagueWizard` — 4-step create-league flow (Basics → League Format → Teams → Review); writes a new league to localStorage and routes into it |
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
-| `/league/:leagueId/overview` | `LeagueView` w/ overview tab |
-| `/league/:leagueId/lottery` | `LeagueView` w/ lottery tab — **snake-draft only**; on auction leagues redirects to overview |
-| `/league/:leagueId/players` | `LeagueView` w/ players tab |
-| `/league/:leagueId/payouts` | `LeagueView` w/ payouts tab |
-| `/league/:leagueId/settings` | `LeagueView` w/ settings tab |
+| `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
+| `/league/:leagueId/import` | `LeagueView` + Import sheet (rosters & last-year's-draft upload) open |
+| `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
+| `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery takeover — **snake only**; auction redirects to overview |
+| `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
 | any other path | redirect to `/` |
@@ -196,6 +219,14 @@ no extra rewrite rule needed.
 `:leagueId` is the existing stable `league.id` slug in `src/data.js`
 (`hockey-1`, `basketball-1`, etc.) — no separate routing key was
 introduced.
+
+The old `/league/:leagueId/players` route is gone — the standalone
+NHL directory was folded into the Set-keepers Eligible Pool ("League"
+sub-tab), so `/players` redirects to overview. `VALID_TABS` in
+`App.jsx` is `['overview', 'import', 'payouts', 'lottery', 'settings']`.
+Import / Pool / Settings render as routed slide-in sheets over the
+Keepers home (the `activeTab` decides which sheet is open; closing
+routes back to `…/overview`); Lottery is the one full-page route.
 
 **Wiring:**
 
@@ -208,8 +239,11 @@ introduced.
   `currentLeague ↔ league` is gone — the leagues array lives in
   `App.jsx` and the matching league is looked up fresh on every
   render by id.
-- `TabBar` items are `<Link>`s built from a `basePath` prop, so
-  back/forward and right-click-copy-link both work.
+- The Keepers home renders an internal **Overview / Set keepers**
+  toggle (component-local state) plus the section-door `<Link>`s
+  (Import / Pool / Lottery / Settings) on the right of that row. The
+  old `TabBar` strip is gone; `App.jsx`'s top bar carries only the
+  brand mark + league name + account (no section nav).
 - The home/breadcrumb/`← All Leagues` button and the logo wordmark
   are all `<Link to="/">`.
 
@@ -327,10 +361,15 @@ local-first app; not worth a migration shim.
    the table: **sharing / collaboration** features that imply *multiple
    users* (Roadmap split B). Don't promise member-facing sharing.
 2. **NHL only** for the player directory. Other sports show "Coming soon"
-   via `public/mascot-soon.png` in `PlayersTab` and elsewhere.
-3. **Players tab is keeper-centric.** Assigning a free agent creates a
-   keeper entry with contract terms, not just a roster row. The manage
-   modal exposes BOTH "Add to roster" and "Make keeper" actions.
+   via `public/mascot-soon.png`. The directory itself now lives inside
+   the Set-keepers Eligible Pool ("League" sub-tab) rather than a
+   standalone Players tab (see #3).
+3. **No standalone Players tab — the directory lives in the keeper
+   flow.** The NHL directory is the Eligible Pool's "League" sub-tab in
+   the Set-keepers workbench: searching it adds a free agent straight
+   to a team's keepers (a keeper entry with contract terms, not just a
+   roster row). The old `PlayersTab.jsx` (with its Add-to-roster /
+   Make-keeper manage modal) is kept in the tree but no longer routed.
 4. **Submission status was removed.** No more "Mark as submitted" — keepers
    auto-save as added. Counters now show "teams started" (≥1 keeper).
 5. **Settings reorganized.** No standalone "League Info" card. Sport, Draft
@@ -342,19 +381,18 @@ local-first app; not worth a migration shim.
    "Expired · {team}" pill in red.
 7. **Pre-loaded mock data lives in `src/data.js`** — used to seed
    localStorage on first run.
-8. **PackStats KPI strip is dollar-first** (was "KPI bar"). Reframed
-   in the trading-card redesign as a mascot + speech-bubble + 4 mono-
-   space numerics: Leagues · Collected · Outstanding · Unpaid. The
-   speech bubble's voice line + border color react to the state
-   (green when paid up, warning-orange while chasing). PackStats sums
-   across the whole league pack, not the current filter selection.
-   Phase-4 (pre-draft prep) commissioner workflow.
+8. **PackStats KPI strip is dollar-first** (was "KPI bar"). A row of 4
+   monospace numerics — Leagues · Collected · Outstanding · Unpaid —
+   center-aligned, summed across the whole league pack (not the current
+   filter). The earlier mascot + speech-bubble narration was **removed**
+   (see the mascot-speech principle in Visual / design language); the
+   numbers are the surface. Phase-4 (pre-draft prep) commissioner
+   workflow.
 9. **League card is a trading card** (rewritten from the previous
    compact 4-col model). Card body structure:
    1. League name (`typeHeadingHero`)
    2. Pills row — `SportBadge` + rule pill, side by side
-   3. Flavor text with mood-colored left rule
-   4. Stats footer (Teams · Paid · Pool)
+   3. Stats footer (Teams · Paid · Pool)
 
    No season label, no standalone meta line — both were redundant.
    Year is implied by context; contract config beyond the keeper
@@ -398,13 +436,15 @@ local-first app; not worth a migration shim.
    pill saturates to solid `cfg.color` + white text. "All Leagues" is
    the neutral option (gray idle, `tokens.info` blue when active).
 
-   Card-level logic lives in `HomeView.jsx` helpers:
+   Card-level logic lives in `HomeView.jsx` / `components.jsx` helpers:
    - `nextAction(league)` returns `{ kind: 'action'|'waiting'|'ready', label }`
-     and drives the action sticker's copy + color
-   - `flavorLine(league, action)` returns the voice copy for the line
-     below the pills row
+     and drives the hero **action sticker**'s copy + color (the card's
+     only narration element — no per-card flavor line)
    - `paymentsOf(league)` returns derived payment totals
    - `ruleMod(league)` returns the rule-pill modifier string
+   - `flavorLine` / `leagueFlavor` still exist in `components.jsx` but
+     are **no longer rendered** (kept for potential reuse; candidates
+     for removal).
 
 ## Visual / design language
 
@@ -414,6 +454,17 @@ local-first app; not worth a migration shim.
 - **Where pixel art lives**: sport avatars on league cards (40px
   circle), empty-state mascots, achievement / celebration decorations.
   Nowhere else. The nav, headers, modals, tabs, and forms stay clean.
+- **Mascot character vs. mascot speaking — two different rules.** The
+  pixel-art commissioner/everyman *character* may appear as **art**
+  anywhere (league-card hero, empty states, the AddLeague silhouette,
+  decorations). But the mascot **speaking** — a voice line, speech
+  bubble, narration in the product's "voice" — is allowed **only in
+  moments of WAITING, SUCCESS, or HELP**: tooltips, the pick-keepers
+  (Set-keepers) view, the keepers-declared celebration, and the future
+  loading state. **Never** on scanning/working surfaces (HomeView pack,
+  the Overview grid, the keeper workbench tables, settings/forms). This
+  is why the PackStats speech-bubble and the per-card flavor line were
+  removed — they put the mascot's voice on a scanning surface.
 - All character art generated by user via ChatGPT, dropped into `public/`.
 - Inline styles only (no Tailwind, no CSS modules). `makeTheme(isDark)` in
   `src/components.jsx` is the design-token source.
@@ -507,10 +558,10 @@ If one of these is unavoidable, the next step is *add a token*, not
 | `basketball-bg.png` | Arena scene with hoop + scorer's table — TradingCard hero panel background (basketball) |
 | `football-bg.png` | Stadium with goal post + bench — TradingCard hero panel background (football) |
 | `baseball-bg.png` | At-bat scene with catcher, umpire, backstop — TradingCard hero panel background (baseball) |
-| `mascot-empty.png` | Puzzled everyman — empty states + AddLeagueSlot silhouette + PackStats fallback |
+| `mascot-empty.png` | Puzzled everyman — empty states + AddLeagueSlot silhouette (no longer a PackStats fallback — PackStats is numerics-only now) |
 | `mascot-soon.png` | Construction-worker everyman — "Coming soon" |
 | `mascot-celebrate.png` | Cheering everyman — celebration banners (unused yet) |
-| `commissioner.png` | **PENDING** — target asset for PackStats mascot (72px). `mascot-empty.png` is the live `onError` fallback until this lands. Drop into `public/` and the fallback stops firing automatically. |
+| `commissioner.png` | **PENDING & currently unwired.** Was the target PackStats mascot, but PackStats is numerics-only now (no mascot). Ungenerated; candidate home is a mascot-*speech* surface (celebration / help), per the mascot-speech principle. |
 | `players-nhl.json` | NHL player directory (refreshed on every Vercel build) |
 
 ### Where assets are wired
@@ -536,12 +587,11 @@ If one of these is unavoidable, the next step is *add a token*, not
   hero panel (5:2 aspect, cover-fit). Optional per-sport `bgPosition`
   tunes the crop — see Critical decision #9. Centered grain overlay
   and shine sweep layer over the bg image.
-- **`commissioner.png` (pending)**: `HomeView.jsx` `PackStats` mascot,
-  72px. `onError` falls back to `/mascot-empty.png`.
-- **`mascot-empty.png`**: three live uses —
+- **`commissioner.png` (pending, unwired)**: not rendered anywhere —
+  PackStats is numerics-only now (no mascot). See the asset inventory
+  note above.
+- **`mascot-empty.png`**: two live uses (the PackStats fallback is gone) —
   - `KeepersTab.jsx` `KeeperEditModal` empty state, 100px
-  - `HomeView.jsx` `PackStats` `onError` fallback, 72px (until
-    `commissioner.png` lands)
   - `HomeView.jsx` `AddLeagueSlot` faded silhouette, 120px @ 12%
     opacity + greyscale filter
 - **`mascot-soon`**: `PlayersTab.jsx` non-NHL empty state, 140px
@@ -593,8 +643,14 @@ copy of a component drifts away from the original.
   `Select` primitives mirror the `KeeperEditModal` styling (value bold,
   unit/suffix regular gray); the `Select` menu portals out of the
   card's `overflow:hidden` so it isn't clipped.
-- `src/LeagueView.jsx` — League detail (tabs: Overview / Lottery /
-  Players / Payouts & Pay / Settings), settings forms
+- `src/LeagueView.jsx` — League detail. The **Keepers home** (identity
+  card + Overview/Set-keepers toggle + section-door buttons), plus
+  `PayoutsTab`, `SettingsPanel`, and `ImportPanel` rendered inside a
+  routed `SectionPanel` (right slide-in sheet); Lottery is a full-page
+  branch. Holds the Overview↔Set-keepers view state and the selected
+  team. `DeadlineLine` (writes `league.keeperDeadline`) and `SubTabs`
+  live here. The two-column Pool & Payouts grid stacks to one column at
+  ≤760px (mobile sheet width).
 - `src/components.jsx` — shared UI primitives + `SPORT_CONFIG`,
   `getLeagueStats`, `Tooltip`, `SportLogo`, `makeTheme`, and
   `TradingCard` (extracted from `HomeView`; takes a
@@ -611,7 +667,27 @@ copy of a component drifts away from the original.
   keeperIdx, tradedTo*, ... }` keyed by normalized name.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
   years, drops expired, resets keepers, etc.)
-- `src/tabs/OverviewTab.jsx` — main keeper grid. Team and Edit
+- `src/tabs/OverviewTab.jsx` — exports **`KeepersOverview`** (the live
+  Overview surface) plus the now-dormant `CompactKeeperGrid`.
+  **`KeepersOverview`** is a full-width responsive grid
+  (`repeat(auto-fill, minmax(320px, 1fr))`) of uniform **`TeamKeeperCard`**s:
+  each card is a header (avatar + team name + x/N pill) over a fixed
+  K1..N slot list — filled slots show a player headshot + name +
+  value (`Y{cy}/{cl}` snake / `${keptFor}` auction), red + "Final yr"
+  when `contractYear >= contractLength`; empty slots read "Open slot".
+  Clicking a card jumps to Set-keepers for that team (`onOpenTeam`).
+  Snake leagues get an **`ExpiringSection`** roll-up below the grid
+  ("Expiring after this season" — the back-to-the-draft chips). Grid
+  accent follows draft type (blue snake / orange auction).
+
+  **`CompactKeeperGrid`** (the older sticky-table keeper grid —
+  pinned Team/Edit columns, stretch-vs-scroll modes, `SampleKeeperCell`
+  cells, the `⇄` trade badge and move-popover) is **still in this file
+  and exported, but `LeagueView` no longer renders it** — Overview uses
+  `KeepersOverview`. The sticky-table notes below describe
+  `CompactKeeperGrid` for when/if it's revived or removed.
+
+  Team and Edit
   columns are **sticky** (pinned left/right). K columns operate in
   two mutually exclusive modes chosen at runtime by comparing natural
   table width to container width:
@@ -764,14 +840,15 @@ copy of a component drifts away from the original.
   all). Don't normalize the two — the difference reflects the league
   setting.
 
-  **Header stats** (`LeagueView` header, not the grid): `POOL` (prize
-  money) shows on **both** league types. `EXPIRING` (count of
-  contracts going back to the draft) is an **additional** stat shown
-  only on snake leagues — appended after POOL, not replacing it. So
-  contract header = TEAMS / KEEPERS / PAID / POOL / EXPIRING; auction
-  header = TEAMS / KEEPERS / PAID / POOL.
-- `src/tabs/PlayersTab.jsx` — NHL directory, search/filter/sort,
-  manage modal with Add-to-roster + Make-keeper actions
+  **Header stats:** the old `LeagueView` header stat strip
+  (TEAMS / KEEPERS / PAID / POOL / EXPIRING) was **removed** in the
+  redesign — the identity card is identity-only. Expiring counts now
+  live in the Overview `ExpiringSection`; pool/paid live in the Pool &
+  Payouts sheet.
+- `src/tabs/PlayersTab.jsx` — NHL directory, search/filter/sort, manage
+  modal (Add-to-roster + Make-keeper). **No longer routed** since the
+  redesign — its capability moved into the Set-keepers Eligible Pool
+  ("League" sub-tab). Kept for reference / potential reuse.
 - `src/tabs/KeepersTab.jsx` — `KeeperEditModal` (used by OverviewTab
   + setup wizard). Has duplicate-prevention via `disabledNames` to
   the PlayerAutocomplete.
@@ -811,20 +888,24 @@ league. The original deferral was about *premature collaboration
 features*, not basic persistence — don't read "local-first by design"
 or "backend deferred" as a reason to block building auth + a database
 for a single commissioner. This is the path to the user running the
-app with their real league. **Create-league (#16) is now shipped
-(PR #10), so the backend + auth (#7/#15) is the next major
-milestone.** The shared responsive-layout / page-width-consistency
-item (#17) is the foundation for mobile and is expected to land
-alongside that work. See Open items #7 (backend), #15 (account/login),
-#16 (create-league flow — shipped), #17 (responsive).
+app with their real league. **Create-league (#16, PR #10) and the
+LeagueView jobs-first redesign (#21) are now shipped — the redesign
+was the last big structural FE pass, so the "UI has stopped shifting"
+gate (named in split B as the collaboration trigger) is now MET for
+the commissioner surfaces. Backend + auth (#7/#15) is the active
+milestone.** Responsive (#17) is largely addressed for the surfaces
+touched in #21 and continues alongside backend work. See Open items
+#7 (backend — active), #15 (account/login — active),
+#16 (create-league — shipped), #17 (responsive — largely addressed).
 
 **(B) Multi-user collaboration REMAINS deferred.** League *members*
 logging in, members picking their own keepers, in-app trade
 negotiation between members, "share this league" UI, the end-user
 (league-member) flow. None of this until the single-commissioner
-version is stable and the UI has stopped shifting. The trigger:
-commissioner flows locked in + a clear need for multiple people to
-share state.
+version is stable. The trigger has two halves — **(1) UI has stopped
+shifting: now MET** (post-#21), and (2) a clear need for multiple
+people to share state: not yet. So collaboration stays deferred on the
+*need* half, not the *stability* half.
 
 So: building auth + a DB + a create-league flow for **one
 commissioner** is on-plan now. Building **member-facing collaboration
@@ -928,6 +1009,8 @@ buttons, no member login until (B)'s trigger is hit.
     (`lib/season.js` + `auctionRules.costIncreasePerYear`). This
     individual team / setup page is the **primary work surface** and
     is currently underdocumented — capture it properly when touched.
+    (A **read-only Yahoo API** application is in review — when approved
+    it supplements the paste/OCR path with a direct pull; see #15.)
 14. **Draft-pick ownership / validation (deferred, captured for when
     it returns).** In the off-season, teams trade draft picks for
     other teams' excess keepers; the commissioner annotates this by
@@ -948,6 +1031,13 @@ buttons, no member login until (B)'s trigger is hit.
     logins (that's the deferred collaboration line, Roadmap split B).
     Yahoo linking is a later, separate auth (it's also the in-season
     platform many leagues use).
+    **Yahoo read-only API is now a real near-term input:** a read-only
+    API application is **in review with Yahoo**. Once approved it
+    becomes a direct roster/draft import path for the Import flow
+    (today's `RosterImportTab` paste/OCR), reducing the manual
+    copy-paste step. Still a *separate* auth from the commissioner
+    Google SSO — Yahoo linking authorizes reading the user's Yahoo
+    league data, not logging into KeeperHQ.
 16. **Create / set up a league via UI — SHIPPED (PR #10).**
     `CreateLeagueWizard.jsx` at `/new` writes a real league to
     localStorage (the `src/data.js` shape) and routes into it; the
@@ -963,14 +1053,13 @@ buttons, no member login until (B)'s trigger is hit.
     `playoffTeams`/`bottomLotteryTeams`, `draftDate`, and the keeper
     round-cost rule (intentionally out of scope). Pairs with #7/#15 for
     when persistence/auth land.
-17. **Mobile web / responsive — baseline, not polish.** League members
-    and the commissioner will largely view on phones. The commissioner
-    surfaces (HomeView, LeagueView tabs, the keeper grid, payouts,
-    settings) need to be responsive. Treat as a baseline requirement
-    when surfaces stabilize, not a final polish pass. (The keeper grid
-    already has stretch/scroll modes; the rest of the layout is
-    desktop-width-assuming — e.g. `maxWidth: 1000` containers, the
-    2-col payouts grid.)
+17. **Mobile web / responsive — largely addressed for the redesigned
+    surfaces; remainder ongoing.** The PR #21 redesign made the Keepers
+    home, identity card, Set-keepers workbench, and the Pool & Payouts
+    sheet reflow on mobile (single-column stacks, the eligible-pool
+    full-screen sheet). Remaining: HomeView pack + any
+    `maxWidth`-assuming containers not touched by #21. Continues
+    alongside backend work, still a baseline (not a final-polish) bar.
 18. **End-user (league-member) flow — REMAINS deferred.** The
     league-member experience is distinct from the commissioner tool:
     members viewing their own team, picking their own keepers,
@@ -999,10 +1088,10 @@ buttons, no member login until (B)'s trigger is hit.
   delete. **Note**: `public/keeper-hq-logo.png` is the small-viewport
   nav fallback now; do NOT delete that one (this is the opposite of
   the previous note).
-- `public/commissioner.png` — **not yet generated**, will be dropped
-  in by the user. Wired via `onError` fallback in
-  `HomeView.jsx` `PackStats`; no code change needed once the asset
-  lands.
+- `public/commissioner.png` — **not yet generated and currently
+  unwired.** No longer a PackStats asset (PackStats is numerics-only);
+  if generated, its home is a mascot-*speech* surface (celebration /
+  help), per the mascot-speech principle — not an automatic drop-in.
 - Several PNG duplicates at the **repo root on `main`** (uploaded by
   user via GitHub web UI before I moved them to `public/`):
   `Keeper HQ logo.png`, `Fantasy Hockey.png`, `Fantasy Basketball.png`,
