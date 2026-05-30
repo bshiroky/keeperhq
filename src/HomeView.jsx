@@ -79,7 +79,7 @@ function PackStats({ leagues, isDark }) {
           { label: 'Outstanding', val: `$${totals.outstanding.toLocaleString()}`,    color: totals.outstanding > 0 ? tokens.warning : t.textMuted },
           { label: 'Unpaid',      val: totals.unpaid,                                 color: totals.unpaid > 0 ? tokens.warning : t.textMuted },
         ].map(s => (
-          <div key={s.label}>
+          <div key={s.label} style={{ textAlign: 'center' }}>
             <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>{s.label}</div>
             <div style={{
               fontFamily: MONO,

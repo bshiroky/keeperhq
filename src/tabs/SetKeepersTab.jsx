@@ -322,6 +322,21 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   const [poolOpen, setPoolOpen] = React.useState(false);
   const playerMap = usePlayerMap(league.sport);
 
+  // The eligible pool is inline (right column) on desktop, so there's no overlay
+  // there. Only mobile — where the column is hidden — opens it as a full-screen
+  // sheet. 900px matches the .kh-workbench single-column breakpoint below.
+  const [isMobile, setIsMobile] = React.useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches);
+  React.useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const on = e => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  // Desktop never holds the overlay open (e.g. after a resize from mobile).
+  React.useEffect(() => { if (!isMobile && poolOpen) setPoolOpen(false); }, [isMobile, poolOpen]);
+  const openPool = () => { if (isMobile) setPoolOpen(true); };
+
   const keepingNames = React.useMemo(() => new Set(keepers.map(k => normalizeName(k.player))), [keepers]);
   const keptAnywhere = React.useMemo(() => {
     const s = new Set();
@@ -386,14 +401,6 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
           .kh-pool-col { display: none; }
           .kh-browse-btn { display: inline-flex; }
         }
-        /* Eligible-pool overlay: centered, content-sized modal on desktop;
-           full-screen sheet on phones. */
-        .kh-pool-overlay { padding: 24px; }
-        .kh-pool-modal { width: 100%; max-width: 460px; height: 72vh; max-height: 640px; border-radius: 12px; }
-        @media (max-width: 600px) {
-          .kh-pool-overlay { padding: 0; }
-          .kh-pool-modal { max-width: 100%; height: 100%; max-height: 100%; border-radius: 0; border: none !important; }
-        }
       `}</style>
 
       {/* Team chip selector */}
@@ -434,7 +441,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
                   onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
-                  onBrowse={() => setPoolOpen(true)} playerMap={playerMap} />
+                  onBrowse={openPool} playerMap={playerMap} />
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
 
@@ -478,23 +485,20 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
         </div>
       </div>
 
-      {/* Eligible-pool overlay — centered modal on desktop, full-screen on mobile */}
-      {poolOpen && (
-        <div className="kh-pool-overlay" onClick={e => { if (e.target === e.currentTarget) setPoolOpen(false); }}
-          style={{ position: 'fixed', inset: 0, zIndex: 950, background: t.scrim, backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
-          <div className="kh-pool-modal" role="dialog" aria-label="Eligible pool" style={{ background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: '0 24px 64px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 16px', borderBottom: `1px solid ${t.divider}`, flexShrink: 0 }}>
-              <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>{team.name} · Eligible Pool</div>
-              <button onClick={() => setPoolOpen(false)} aria-label="Close"
-                style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: tokens.radiusSm, color: t.textMuted, cursor: 'pointer', padding: 0 }}
-                onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = t.textSecondary; }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textMuted; }}>
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
-            <div style={{ flex: 1, minHeight: 0, padding: '14px 16px', boxSizing: 'border-box' }}>
-              <EligiblePool {...poolProps} />
-            </div>
+      {/* Eligible-pool sheet — MOBILE ONLY (full-screen). Desktop has no overlay;
+          its pool lives inline in the right column above. */}
+      {isMobile && poolOpen && (
+        <div role="dialog" aria-label="Eligible pool"
+          style={{ position: 'fixed', inset: 0, zIndex: 950, background: t.cardBg, display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 16px', borderBottom: `1px solid ${t.divider}`, flexShrink: 0 }}>
+            <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>{team.name} · Eligible Pool</div>
+            <button onClick={() => setPoolOpen(false)} aria-label="Close"
+              style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: tokens.radiusSm, color: t.textMuted, cursor: 'pointer', padding: 0 }}>
+              <X size={18} strokeWidth={2} />
+            </button>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, padding: '14px 16px', boxSizing: 'border-box' }}>
+            <EligiblePool {...poolProps} />
           </div>
         </div>
       )}

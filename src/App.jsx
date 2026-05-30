@@ -1,12 +1,11 @@
 import React from 'react';
 import { Routes, Route, Navigate, Link, useParams, useNavigate, useLocation } from 'react-router-dom';
-import { Upload, DollarSign, Ticket, Settings as SettingsIcon, LayoutGrid } from 'lucide-react';
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
-import { makeTheme, tokens, SPORT_CONFIG } from './components.jsx';
+import { SPORT_CONFIG } from './components.jsx';
 
 // Root App + Tweaks
 
@@ -57,82 +56,6 @@ function AccountMenu({ isDark }) {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-// Section doors — the supporting surfaces reached from the league top bar
-// (Import / Pool / Lottery / Settings). Lottery is snake-only, mirroring the
-// route gate in LeagueRoute. They render as <Link>s so deep-linking and
-// refresh-to-panel keep working; the matching panel is drawn by LeagueView.
-function sectionDoorsFor(league) {
-  return [
-    { id: 'import',   label: 'Import',   Icon: Upload },
-    { id: 'payouts',  label: 'Pool',     Icon: DollarSign },
-    ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery', Icon: Ticket }] : []),
-    { id: 'settings', label: 'Settings', Icon: SettingsIcon },
-  ];
-}
-
-function SectionDoors({ league, currentSection, isDark, layout = 'top' }) {
-  const t = makeTheme(isDark);
-  const accent = (SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey).color;
-  const base = `/league/${league.id}`;
-
-  if (layout === 'bottom') {
-    // Mobile bottom tab bar: Keepers home + the section doors.
-    const items = [{ id: 'overview', label: 'Keepers', Icon: LayoutGrid }, ...sectionDoorsFor(league)];
-    return (
-      <nav className="kh-bottom-bar" style={{
-        position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 100,
-        display: 'none', alignItems: 'stretch', justifyContent: 'space-around',
-        background: isDark ? '#161a22' : '#ffffff',
-        borderTop: `1px solid ${t.border}`,
-        paddingBottom: 'env(safe-area-inset-bottom)',
-      }}>
-        {items.map(d => {
-          const active = currentSection === d.id;
-          return (
-            <Link key={d.id} to={`${base}/${d.id}`} style={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3,
-              padding: '8px 4px', textDecoration: 'none',
-              color: active ? accent : t.textMuted,
-            }}>
-              <d.Icon size={20} strokeWidth={active ? 2.25 : 1.75} />
-              <span style={{ ...tokens.typePill, fontSize: 10 }}>{d.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-    );
-  }
-
-  // Top bar (desktop): a row of pill buttons by the account avatar. Clicking the
-  // active door again closes its panel by routing back to the Keepers home.
-  return (
-    <div className="kh-top-doors" style={{ display: 'flex', alignItems: 'center', gap: tokens.space2xs }}>
-      {sectionDoorsFor(league).map(d => {
-        const active = currentSection === d.id;
-        return (
-          <Link key={d.id} to={active ? `${base}/overview` : `${base}/${d.id}`} title={d.label}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: tokens.radiusPill,
-              ...tokens.typePill,
-              textDecoration: 'none', whiteSpace: 'nowrap',
-              background: active ? `${accent}1f` : 'transparent',
-              border: `1px solid ${active ? `${accent}55` : 'transparent'}`,
-              color: active ? accent : t.textSecondary,
-              transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-            }}
-            onMouseEnter={e => { if (!active) { e.currentTarget.style.background = t.sectionBg; e.currentTarget.style.color = t.textPrimary; } }}
-            onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = t.textSecondary; } }}
-          >
-            <d.Icon size={15} strokeWidth={1.75} />
-            <span className="kh-door-label">{d.label}</span>
-          </Link>
-        );
-      })}
     </div>
   );
 }
@@ -207,12 +130,12 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // League-aware top bar: when we're on a /league/:id/:section route, the bar
-  // grows a league name + the section doors. The match is read from the URL so
-  // the header stays in sync with routing (back/forward, refresh, deep links).
-  const leagueMatch = location.pathname.match(/^\/league\/([^/]+)(?:\/([^/]+))?/);
+  // League-aware top bar: when we're on a /league/:id route, the bar grows a
+  // league name beside the brand mark. The section doors live in the Keepers
+  // tab row (LeagueView), not here. Match is read from the URL so the header
+  // stays in sync with routing (back/forward, refresh, deep links).
+  const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
   const currentLeague = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
-  const currentSection = leagueMatch ? (leagueMatch[2] || 'overview') : null;
 
   React.useEffect(() => {
     try {
@@ -286,9 +209,8 @@ function App() {
             )}
           </div>
 
-          {/* Right: section doors (on a league) + account */}
+          {/* Right: account (section doors live in the Keepers tab row) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-            {currentLeague && <SectionDoors league={currentLeague} currentSection={currentSection} isDark={isDark} layout="top" />}
             <AccountMenu isDark={isDark} />
           </div>
         </div>
@@ -296,15 +218,6 @@ function App() {
           @media (max-width: 640px) {
             .kh-nav-wordmark { display: none !important; }
             .kh-nav-icon { display: block !important; }
-          }
-          /* Below 720px the top doors collapse to icon-only; the bottom bar
-             takes over as the primary section nav. */
-          @media (max-width: 860px) {
-            .kh-door-label { display: none !important; }
-          }
-          @media (max-width: 720px) {
-            .kh-top-doors { display: none !important; }
-            .kh-bottom-bar { display: flex !important; }
           }
           @keyframes kh-spin { to { transform: rotate(360deg); } }
           .kh-spin { animation: kh-spin 1s linear infinite; transform-origin: center; }
@@ -321,9 +234,6 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-
-      {/* Mobile bottom tab bar — hidden on desktop via media query */}
-      {currentLeague && <SectionDoors league={currentLeague} currentSection={currentSection} isDark={isDark} layout="bottom" />}
 
       {/* Tweaks Panel */}
       <TweaksPanel>
