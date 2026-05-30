@@ -1,10 +1,11 @@
 import React from 'react';
-import { Routes, Route, Navigate, Link, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { APP_DATA } from './data.js';
 import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
+import { SPORT_CONFIG } from './components.jsx';
 
 // Root App + Tweaks
 
@@ -97,7 +98,10 @@ function NewLeagueRoute({ leagues, isDark, onCreate }) {
   );
 }
 
-const VALID_TABS = ['overview', 'lottery', 'players', 'payouts', 'settings'];
+// 'players' is intentionally absent — the standalone NHL directory was folded
+// into the Set-keepers Eligible Pool ('League' sub-tab), so /players redirects
+// to overview. 'import' is the new rosters/draft-upload panel.
+const VALID_TABS = ['overview', 'import', 'payouts', 'lottery', 'settings'];
 
 function LeagueRoute({ leagues, isDark, onUpdateLeague }) {
   const { leagueId, tab } = useParams();
@@ -124,6 +128,14 @@ function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [leagues, setLeagues] = React.useState(loadLeagues);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // League-aware top bar: when we're on a /league/:id route, the bar grows a
+  // league name beside the brand mark. The section doors live in the Keepers
+  // tab row (LeagueView), not here. Match is read from the URL so the header
+  // stays in sync with routing (back/forward, refresh, deep links).
+  const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
+  const currentLeague = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
 
   React.useEffect(() => {
     try {
@@ -169,23 +181,38 @@ function App() {
         position: 'sticky', top: 0, zIndex: 100,
         backdropFilter: 'blur(12px)',
       }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
-          <Link
-            to="/"
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit', textDecoration: 'none' }}
-            title="Home"
-          >
-            <img className="kh-nav-icon" src="/keeper-hq-logo.png" alt="KeeperHQ" height={32}
-              style={{ height: 32, width: 'auto', display: 'none', imageRendering: 'pixelated' }} />
-            <span className="kh-nav-wordmark" style={{
-              fontSize: 24, fontWeight: 800, letterSpacing: '0.02em',
-              color: textPrimary, lineHeight: 1,
-            }}>
-              KEEPER<span style={{ color: '#3ca96b', marginLeft: 4 }}>HQ</span>
-            </span>
-          </Link>
+        <div style={{ maxWidth: 1280, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64, gap: 16 }}>
+          {/* Left: brand mark + (on a league) the league name */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <Link
+              to="/"
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'inherit', textDecoration: 'none', flexShrink: 0 }}
+              title="Home"
+            >
+              <img className="kh-nav-icon" src="/keeper-hq-logo.png" alt="KeeperHQ" height={32}
+                style={{ height: 32, width: 'auto', display: 'none', imageRendering: 'pixelated' }} />
+              <span className="kh-nav-wordmark" style={{
+                fontSize: 24, fontWeight: 800, letterSpacing: '0.02em',
+                color: textPrimary, lineHeight: 1,
+              }}>
+                KEEPER<span style={{ color: '#3ca96b', marginLeft: 4 }}>HQ</span>
+              </span>
+            </Link>
+            {currentLeague && (
+              <>
+                <span style={{ width: 1, height: 22, background: headerBorder, flexShrink: 0 }} />
+                <span className="kh-nav-league" style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: (SPORT_CONFIG[currentLeague.sport] || SPORT_CONFIG.hockey).color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentLeague.name}</span>
+                </span>
+              </>
+            )}
+          </div>
 
-          <AccountMenu isDark={isDark} />
+          {/* Right: account (section doors live in the Keepers tab row) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+            <AccountMenu isDark={isDark} />
+          </div>
         </div>
         <style>{`
           @media (max-width: 640px) {
