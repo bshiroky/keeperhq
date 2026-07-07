@@ -192,6 +192,67 @@ single-commissioner server-side persistence + auth is now a planned
 milestone (see the Roadmap "split A vs B" note and Open items #7/#15).
 What stays deferred is multi-user *collaboration*, not persistence.
 
+## Backend milestone — auth + persistence
+
+First backend slice for Open items #7/#15 (single-commissioner
+persistence + login). Scope is strictly what's described below — still
+no multi-user collaboration (Roadmap split B stays deferred).
+
+**Provider: Supabase** (Postgres + auth + RLS in one project). Neon was
+considered and rejected — it's DB-only, so auth would still need a
+separate provider; Supabase bundles both.
+
+**Migration: none.** There is no existing user data to carry forward.
+The demo/seed data in `src/data.js` stays a **logged-out-only**
+experience via localStorage, exactly as it works today. Authed users
+always start with zero leagues and build their own via the Create-League
+wizard — no import/merge step.
+
+**Serverless model: Supabase client direct from the frontend.** The
+Supabase JS client talks to Postgres straight from the browser,
+protected by RLS — no API layer needed for reads/writes to a user's own
+rows. Vercel serverless functions are reserved for the future case
+where a server-side secret is required (e.g. the pending Yahoo import,
+which needs a private API key) — not needed for this slice.
+
+**Storage shape: one row per league, `jsonb` blob + a few real
+columns.** Table `public.leagues`: `owner_id uuid`, `id text` (the
+app's existing slug — `hockey-1` etc.), `sport text`, `data jsonb` (the
+whole league object, same shape as `src/data.js` today), `created_at`,
+`updated_at`. Composite primary key `(owner_id, id)`. `sport` and `id`
+are promoted to real columns (not just keys inside `data`) so they're
+queryable/indexable without unpacking the blob; everything else stays
+inside `data` rather than being normalized into more tables — the
+league object shape is not being restructured for this milestone.
+
+**Auth → data: `owner_id` + RLS.** Row Level Security restricts every
+row to `auth.uid() = owner_id`, so the single-owner-per-league
+constraint is enforced at the database layer, not just in app code.
+
+**One-time setup done via provider dashboards (not from this
+container):**
+- Supabase project `keeperhq` (ref `ihdptrfgippacaxvrrxg`), free tier,
+  RLS-by-default.
+- Google SSO wired end-to-end: External/testing OAuth consent screen,
+  basic `email` + `profile` + `openid` scopes, a web OAuth client whose
+  redirect URI is the Supabase auth callback.
+- Supabase Auth **Site URL** and the redirect-URL allowlist are set to
+  the Vercel deployment domain.
+- Vercel env vars: `VITE_SUPABASE_URL` and
+  `VITE_SUPABASE_PUBLISHABLE_KEY` (both are the publishable/anon-tier
+  keys — safe for the browser bundle, RLS is what actually protects
+  data).
+
+**Yahoo API is a separate, unblocked-independent track.** The read-only
+Yahoo application (Open item #15) is blocked on Yahoo enabling the
+"Fantasy Sports" permission on their end — that block does not gate
+this Supabase/auth slice.
+
+**Login can't be exercised inside this container** — the OAuth redirect
+only completes against a URL in the Supabase allowlist (the production
+Vercel domain, or a preview URL added to it). Verify sign-in on a
+deployed URL, not via `npm run dev` in-session.
+
 ## Routing
 
 Real client-side routing via `react-router-dom` (v7), wired in

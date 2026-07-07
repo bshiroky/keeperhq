@@ -13,6 +13,7 @@
     "players:nhl": "node scripts/fetch-players-nhl.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.1",
     "lucide-react": "^1.17.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

@@ -5,7 +5,9 @@ import { HomeView } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
-import { SPORT_CONFIG } from './components.jsx';
+import { SPORT_CONFIG, makeTheme, tokens } from './components.jsx';
+import { supabase } from './lib/supabase.js';
+import { fetchLeagues, saveLeague } from './lib/leagueStore.js';
 
 // Root App + Tweaks
 
@@ -13,9 +15,10 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "theme": "light"
 }/*EDITMODE-END*/;
 
-function AccountMenu({ isDark }) {
+function AccountMenu({ isDark, session, onSignIn, onSignOut }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
+  const t = makeTheme(isDark);
 
   React.useEffect(() => {
     if (!open) return;
@@ -24,36 +27,42 @@ function AccountMenu({ isDark }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  const menuBg = isDark ? '#1c2130' : '#ffffff';
-  const menuBorder = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)';
-  const itemColor = isDark ? '#e8ecf4' : '#1a1f2e';
-  const itemHoverBg = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+  if (!session) {
+    return (
+      <button
+        onClick={onSignIn}
+        style={{ ...tokens.typeBody, fontWeight: 600, color: tokens.info, background: tokens.infoBg, border: `1px solid ${tokens.infoBorder}`, borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`, cursor: 'pointer', fontFamily: 'inherit' }}
+      >
+        Sign in with Google
+      </button>
+    );
+  }
+
+  const email = session.user?.email || '';
+  const initial = email[0]?.toUpperCase() || '?';
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen(o => !o)}
-        style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(59,138,230,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: '#3b8ae6', fontFamily: 'inherit' }}
-        title="Account"
+        style={{ width: 32, height: 32, borderRadius: '50%', background: tokens.infoBg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, color: tokens.info, fontFamily: 'inherit' }}
+        title={email}
       >
-        C
+        {initial}
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 180, background: menuBg, border: `1px solid ${menuBorder}`, borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 200 }}>
-          {[
-            { label: 'Account settings', onClick: () => alert('Account settings coming soon.') },
-            { label: 'Sign out', onClick: () => alert('Sign out coming soon (no login yet).') },
-          ].map((item, i, arr) => (
-            <button
-              key={item.label}
-              onClick={() => { item.onClick(); setOpen(false); }}
-              onMouseEnter={e => { e.currentTarget.style.background = itemHoverBg; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '10px 14px', fontSize: '13px', fontWeight: 500, color: itemColor, cursor: 'pointer', fontFamily: 'inherit', borderBottom: i < arr.length - 1 ? `1px solid ${menuBorder}` : 'none' }}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 200, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', overflow: 'hidden', zIndex: 200 }}>
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: '10px 14px', borderBottom: `1px solid ${t.border}`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {email}
+          </div>
+          <button
+            onClick={() => { setOpen(false); onSignOut(); }}
+            onMouseEnter={e => { e.currentTarget.style.background = t.sectionBg; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+            style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', padding: '10px 14px', ...tokens.typeBody, fontWeight: 500, color: t.textPrimary, cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Sign out
+          </button>
         </div>
       )}
     </div>
@@ -127,6 +136,9 @@ function LeagueRoute({ leagues, isDark, onUpdateLeague }) {
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [leagues, setLeagues] = React.useState(loadLeagues);
+  const [session, setSession] = React.useState(null);
+  // No Supabase configured (e.g. this container) means we're always logged out.
+  const [authReady, setAuthReady] = React.useState(!supabase);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -138,12 +150,46 @@ function App() {
   const currentLeague = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
 
   React.useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthReady(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // Source of truth switches with auth state: logged out reads the demo/
+  // localStorage leagues, logged in reads (and owns) the user's Supabase rows.
+  React.useEffect(() => {
+    if (!authReady) return;
+    if (session) {
+      fetchLeagues(session.user.id)
+        .then(setLeagues)
+        .catch(e => console.warn('[KeeperHQ] Failed to load leagues from Supabase:', e));
+    } else {
+      setLeagues(loadLeagues());
+    }
+  }, [session, authReady]);
+
+  React.useEffect(() => {
+    if (session) return; // Supabase is the store while logged in
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(leagues));
     } catch (e) {
       console.warn('[KeeperHQ] Failed to persist leagues to localStorage:', e);
     }
-  }, [leagues]);
+  }, [leagues, session]);
+
+  function handleSignIn() {
+    supabase?.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+  }
+
+  function handleSignOut() {
+    supabase?.auth.signOut();
+  }
 
   const theme = tweaks.theme || 'light';
   const isDark = theme === 'dark';
@@ -155,10 +201,16 @@ function App() {
 
   function handleUpdateLeague(updated) {
     setLeagues(prev => prev.map(l => (l.id === updated.id ? updated : l)));
+    if (session) {
+      saveLeague(session.user.id, updated).catch(e => console.warn('[KeeperHQ] Failed to save league to Supabase:', e));
+    }
   }
 
   function handleAddLeague(league) {
     setLeagues(prev => [...prev, league]);
+    if (session) {
+      saveLeague(session.user.id, league).catch(e => console.warn('[KeeperHQ] Failed to save league to Supabase:', e));
+    }
     navigate(`/league/${league.id}/overview`);
   }
 
@@ -211,7 +263,7 @@ function App() {
 
           {/* Right: account (section doors live in the Keepers tab row) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-            <AccountMenu isDark={isDark} />
+            <AccountMenu isDark={isDark} session={session} onSignIn={handleSignIn} onSignOut={handleSignOut} />
           </div>
         </div>
         <style>{`
@@ -245,14 +297,16 @@ function App() {
             onChange={v => setTweak('theme', v)}
           />
         </TweakSection>
-        <TweakSection label="Data">
-          <button
-            onClick={handleResetData}
-            style={{ background: 'rgba(232,82,82,0.15)', color: '#e85252', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            Reset to demo data
-          </button>
-        </TweakSection>
+        {!session && (
+          <TweakSection label="Data">
+            <button
+              onClick={handleResetData}
+              style={{ background: 'rgba(232,82,82,0.15)', color: '#e85252', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              Reset to demo data
+            </button>
+          </TweakSection>
+        )}
       </TweaksPanel>
     </div>
   );
