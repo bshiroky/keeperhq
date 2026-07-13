@@ -1000,17 +1000,18 @@ buttons, no member login until (B)'s trigger is hit.
    fetch script. Sport choices discussed: Sleeper for NFL (free, no
    key), ESPN unofficial for NBA, MLB Stats API for MLB. Defer until
    user wants to actually use those sports.
-7. **Real backend / database — now a planned milestone (no longer an
-   indefinite defer).** Replace the localStorage-only mock-data setup
-   with real server-side persistence so a commissioner's data
-   persists and is portable across devices. **Single owner per
-   league** — this is scoped to single-commissioner persistence, NOT
-   multi-user collaboration (see Roadmap split A vs B). Path: probably
-   Supabase or Neon behind a tiny Vercel serverless layer. Coupled
-   with account/login (#15). Supersedes the old "local-first by
-   design" framing for persistence purposes — though the data *shape*
-   (`src/data.js` / the `league` object) stays the working model;
-   this is about where it's stored, not restructuring it.
+7. **Real backend / database — SHIPPED (PR #23).** Supabase
+   (Postgres + auth) is live: one `public.leagues` row per league
+   (`owner_id`, `id`, `sport`, `data jsonb`), RLS-enforced single
+   owner per league. Replaces the localStorage-only mock-data setup
+   for signed-in users — a commissioner's data now persists and is
+   portable across devices. Still scoped to single-commissioner
+   persistence, NOT multi-user collaboration (see Roadmap split A vs
+   B). Shipped together with account/login (#15). The data *shape*
+   (`src/data.js` / the `league` object) stayed the working model —
+   this was about where it's stored, not restructuring it. See the
+   "Backend milestone — auth + persistence" section above for the
+   full implementation detail.
 8. **Holistic visual-hierarchy / sizing pass across all surfaces.**
    Symptom on the Payouts panel: buy-in carries the largest type and
    the most prominent placement, but it's the least important info
@@ -1085,13 +1086,13 @@ buttons, no member login until (B)'s trigger is hit.
     through the season — so a pick import needs a **mapping layer
     (Yahoo team name ↔ GM/owner)**, not a raw import. Same mapping
     concern likely applies to roster/draft uploads generally.
-15. **Account creation + login — near-term, single commissioner per
-    league.** Google SSO first (lowest-friction auth). Tightly coupled
-    with the backend (#7): login identifies the commissioner whose
-    data persists server-side. **One owner per league** — not member
-    logins (that's the deferred collaboration line, Roadmap split B).
-    Yahoo linking is a later, separate auth (it's also the in-season
-    platform many leagues use).
+15. **Account creation + login — SHIPPED (PR #23).** Google SSO is
+    live (`AccountMenu` in `src/App.jsx`, `supabase.auth.signInWithOAuth`).
+    Tightly coupled with the backend (#7): login identifies the
+    commissioner whose data persists server-side. **One owner per
+    league** — not member logins (that's the deferred collaboration
+    line, Roadmap split B). Yahoo linking remains a later, separate
+    auth (it's also the in-season platform many leagues use).
     **Yahoo read-only API is now a real near-term input:** a read-only
     API application is **in review with Yahoo**. Once approved it
     becomes a direct roster/draft import path for the Import flow
@@ -1142,6 +1143,30 @@ buttons, no member login until (B)'s trigger is hit.
     holistic visual-hierarchy pass (#8) — the buy-in-too-prominent
     symptom lives on this surface — but the user calls it out as its
     own to-do.
+22. **Logged-out landing page + new-user onboarding — IN PROGRESS on
+    `claude/landing-onboarding`.** Addresses the #19 "public/logged-out
+    homepage" direction now that #7/#15 (backend + login) have
+    shipped. Three surfaces: a centered logged-out landing at `/`
+    (headline, Google sign-in, "Explore the demo" link — no My Leagues
+    grid shown to logged-out visitors), a demo-browsing framing over
+    the existing My-Leagues grid at `/demo` (banner + a "Demo" badge
+    per `TradingCard`, reusing the real grid/cards), and a new-user
+    empty state for signed-in accounts with zero leagues (welcome card
+    + "Create your first league" CTA into the `/new` wizard). Two
+    things deliberately deferred out of this slice:
+    - **(a) Multi-sport landing hero — shelved, not killed.** A
+      Claude Design "Variation B" concept pitched a sport-lineup hero
+      (hockey/basketball/football/baseball side by side). NHL is the
+      only sport that's actually live (#6 — NBA/NFL/MLB directories
+      are still not built), so today's landing (Variation A + the
+      commissioner mascot, sport-agnostic) ships instead. Revisit the
+      multi-sport hero once more sports actually ship.
+    - **(b) "How it works" / product-tour section — deferred.** A
+      below-the-fold section on the logged-out landing (screenshots or
+      a short walkthrough) matters once the tool is being opened up to
+      other people, not for solo use — and shouldn't be built until
+      the surfaces it would depict (Overview, Set-keepers, Payouts)
+      have stopped shifting. Not part of this slice.
 
 ## Cleanup pending
 
