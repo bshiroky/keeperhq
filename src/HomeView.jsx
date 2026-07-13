@@ -1,5 +1,5 @@
 import React from 'react';
-import { SPORT_CONFIG, tokens, makeTheme, TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES } from './components.jsx';
+import { SPORT_CONFIG, tokens, makeTheme, TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES, Button, GoogleButton, TextLink } from './components.jsx';
 
 // Home View — Trading-Card pack.
 //
@@ -139,13 +139,97 @@ function SportFilter({ value, onChange, isDark }) {
   );
 }
 
-function HomeView({ leagues, onSelectLeague, onAddLeague, isDark }) {
+// ── Demo-browsing banner — sits above the grid when a logged-out visitor is
+//    browsing the demo leagues (reached via "Explore the demo →"). Frames
+//    the real My-Leagues grid, doesn't rebuild it. ──────────────────────────
+function DemoBanner({ isDark, onSignIn }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: tokens.spaceMd, flexWrap: 'wrap',
+      background: tokens.infoBg, border: `1px solid ${tokens.infoBorder}`,
+      borderRadius: tokens.radiusLg, padding: `${tokens.spaceMd}px ${tokens.spaceLg}px`,
+      marginBottom: tokens.spaceLg,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceMd, minWidth: 0 }}>
+        <img src="/mascot-empty.png" alt="" height={44}
+          style={{ height: 44, width: 'auto', imageRendering: 'pixelated', display: 'block', flexShrink: 0 }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary }}>You're browsing demo leagues.</div>
+          <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: 2 }}>
+            Poke around all you like — sign in with Google to build your own.
+          </div>
+        </div>
+      </div>
+      <GoogleButton size="sm" isDark={isDark} onClick={onSignIn} />
+    </div>
+  );
+}
+
+// ── New-user empty state — signed-in account with zero leagues yet. Mascot
+//    speech is allowed here (a welcome/help surface), unlike the scanning
+//    surfaces this replaces. ──────────────────────────────────────────────
+function NewUserEmptyState({ isDark, onCreateLeague, onBrowseDemo }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
+      <div style={{ marginBottom: tokens.spaceXl }}>
+        <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>My Leagues</h1>
+        <p style={{ ...tokens.typeBodyMeta, color: t.textMuted, margin: `${tokens.space2xs}px 0 0` }}>
+          Overview of all your keeper leagues
+        </p>
+      </div>
+
+      <div style={{
+        maxWidth: 480, margin: '0 auto', textAlign: 'center',
+        background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: t.cardShadow,
+        borderRadius: tokens.radiusLg, padding: `${tokens.space2xl + tokens.spaceLg}px ${tokens.space2xl}px`,
+      }}>
+        <img src="/mascot-celebrate.png" alt="" height={150}
+          style={{ height: 150, width: 'auto', imageRendering: 'pixelated', display: 'block', margin: `0 auto ${tokens.spaceLg}px` }} />
+
+        <div style={{
+          display: 'inline-block',
+          background: t.sectionBg, border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusLg, padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`,
+          ...tokens.typeBody, fontWeight: 600, color: t.textBody,
+          marginBottom: tokens.spaceLg,
+        }}>
+          Welcome aboard — let's get your first league set up. 🏆
+        </div>
+
+        <h2 style={{ ...tokens.typeHeadingHero, color: t.textPrimary, margin: 0 }}>
+          You don't have any leagues yet
+        </h2>
+        <p style={{ ...tokens.typeBody, color: t.textBody, margin: `${tokens.spaceSm}px 0 ${tokens.space2xl}px`, lineHeight: 1.55 }}>
+          Set up your league in about two minutes — sport, draft type, teams, and
+          keeper slots — then start tracking contracts and off-season trades.
+        </p>
+
+        <Button
+          variant="primary" isDark={isDark} accent={tokens.brand} onClick={onCreateLeague}
+          style={{ width: '100%', height: 46, fontSize: 14, boxShadow: '0 2px 8px rgba(60,169,107,0.3)' }}
+        >
+          + Create your first league
+        </Button>
+        <div style={{ marginTop: tokens.spaceMd }}>
+          <TextLink isDark={isDark} onClick={onBrowseDemo}>Browse the demo leagues instead →</TextLink>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HomeView({ leagues, onSelectLeague, onAddLeague, isDark, demo, onSignIn }) {
   const [filter, setFilter] = React.useState('all');
   const shown = filter === 'all' ? leagues : leagues.filter(l => l.sport === filter);
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
       <style>{CARD_STYLES}</style>
+
+      {demo && <DemoBanner isDark={isDark} onSignIn={onSignIn} />}
 
       {/* KPI strip — totals across the whole pack, not the current filter */}
       <PackStats leagues={leagues} isDark={isDark} />
@@ -163,6 +247,7 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, isDark }) {
             league={league}
             onClick={onSelectLeague}
             isDark={isDark}
+            demo={demo}
           />
         ))}
         <AddLeagueSlot onClick={onAddLeague} isDark={isDark} />
@@ -171,4 +256,4 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, isDark }) {
   );
 }
 
-export { AddLeagueSlot, PackStats, SportFilter, HomeView };
+export { AddLeagueSlot, PackStats, SportFilter, HomeView, NewUserEmptyState };

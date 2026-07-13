@@ -1,13 +1,30 @@
 import React from 'react';
+import { Loader } from 'lucide-react';
 import { Routes, Route, Navigate, Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { APP_DATA } from './data.js';
-import { HomeView } from './HomeView.jsx';
+import { HomeView, NewUserEmptyState } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
+import { LandingPage } from './LandingPage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
-import { SPORT_CONFIG, makeTheme, tokens } from './components.jsx';
+import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
 import { supabase } from './lib/supabase.js';
 import { fetchLeagues, saveLeague } from './lib/leagueStore.js';
+
+// Neutral loading placeholder — shown while auth is still resolving, and
+// while a signed-in user's real (Supabase) leagues are being fetched, so
+// neither the demo grid nor a stale leagues array ever shows for a frame.
+function LoadingState({ isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{
+      minHeight: 'calc(100vh - 168px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Loader size={28} strokeWidth={1.75} className="kh-spin" color={t.textMuted} />
+    </div>
+  );
+}
 
 // Root App + Tweaks
 
@@ -28,14 +45,7 @@ function AccountMenu({ isDark, session, onSignIn, onSignOut }) {
   }, [open]);
 
   if (!session) {
-    return (
-      <button
-        onClick={onSignIn}
-        style={{ ...tokens.typeBody, fontWeight: 600, color: tokens.info, background: tokens.infoBg, border: `1px solid ${tokens.infoBorder}`, borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`, cursor: 'pointer', fontFamily: 'inherit' }}
-      >
-        Sign in with Google
-      </button>
-    );
+    return <GoogleButton size="sm" isDark={isDark} onClick={onSignIn} />;
   }
 
   const email = session.user?.email || '';
@@ -83,8 +93,40 @@ function loadLeagues() {
   return APP_DATA.leagues;
 }
 
-function HomeRoute({ leagues, isDark }) {
+// Logged out at "/" gets the front door, not the leagues grid; logged in
+// gets My Leagues (or the new-user empty state when the account has zero
+// leagues yet). `!authReady` is a brief gap while Supabase resolves the
+// existing session; `leaguesLoading` is the further gap while a signed-in
+// user's real leagues are being fetched. Both render the same neutral
+// loading state — the demo/localStorage leagues never render as "my
+// leagues", not even for a frame.
+function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSignIn }) {
   const navigate = useNavigate();
+
+  if (!authReady) return <LoadingState isDark={isDark} />;
+
+  if (!session) {
+    return (
+      <LandingPage
+        isDark={isDark}
+        onSignIn={onSignIn}
+        onExploreDemo={() => navigate('/demo')}
+      />
+    );
+  }
+
+  if (leaguesLoading) return <LoadingState isDark={isDark} />;
+
+  if (leagues.length === 0) {
+    return (
+      <NewUserEmptyState
+        isDark={isDark}
+        onCreateLeague={() => navigate('/new')}
+        onBrowseDemo={() => navigate('/demo')}
+      />
+    );
+  }
+
   return (
     <HomeView
       leagues={leagues}
@@ -95,14 +137,38 @@ function HomeRoute({ leagues, isDark }) {
   );
 }
 
-function NewLeagueRoute({ leagues, isDark, onCreate }) {
+// The demo-browsing grid — the same My-Leagues view + cards, framed with a
+// banner and per-card "Demo" badges. Logged-out only; a signed-in user has
+// their own leagues at "/", so "/demo" bounces them there. This is the only
+// route that ever shows the demo leagues — reachable solely via "Explore
+// the demo →", so the banner is never skippable.
+function DemoRoute({ leagues, isDark, session, authReady, onSignIn }) {
   const navigate = useNavigate();
+  if (!authReady) return <LoadingState isDark={isDark} />;
+  if (session) return <Navigate to="/" replace />;
+  return (
+    <HomeView
+      leagues={leagues}
+      onSelectLeague={league => navigate(`/league/${league.id}`)}
+      onAddLeague={() => navigate('/new')}
+      isDark={isDark}
+      demo
+      onSignIn={onSignIn}
+    />
+  );
+}
+
+function NewLeagueRoute({ leagues, isDark, session, onCreate }) {
+  const navigate = useNavigate();
+  // Logged-out entry into the wizard only happens from the demo grid
+  // ("+ Add League" on /demo) — cancel should return there, not to the
+  // marketing landing that now owns "/" for logged-out visitors.
   return (
     <CreateLeagueWizard
       isDark={isDark}
       existingLeagues={leagues}
       onCreate={league => onCreate(league)}
-      onCancel={() => navigate('/')}
+      onCancel={() => navigate(session ? '/' : '/demo')}
     />
   );
 }
@@ -139,6 +205,13 @@ function App() {
   const [session, setSession] = React.useState(null);
   // No Supabase configured (e.g. this container) means we're always logged out.
   const [authReady, setAuthReady] = React.useState(!supabase);
+  // Distinct from authReady: whether the *leagues for the current identity*
+  // have finished loading. Logged-out reads are synchronous (localStorage);
+  // a signed-in read is an async Supabase fetch, so this flag keeps the
+  // stale demo/localStorage leagues from rendering as "my leagues" while
+  // that fetch is in flight.
+  const [leaguesLoading, setLeaguesLoading] = React.useState(!!supabase);
+  const [signOutToast, setSignOutToast] = React.useState(0);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -163,14 +236,22 @@ function App() {
 
   // Source of truth switches with auth state: logged out reads the demo/
   // localStorage leagues, logged in reads (and owns) the user's Supabase rows.
+  // leaguesLoading stays true for the whole async fetch so RootRoute never
+  // renders the leftover demo/localStorage array as the signed-in user's own.
   React.useEffect(() => {
     if (!authReady) return;
     if (session) {
+      setLeaguesLoading(true);
       fetchLeagues(session.user.id)
-        .then(setLeagues)
-        .catch(e => console.warn('[KeeperHQ] Failed to load leagues from Supabase:', e));
+        .then(data => { setLeagues(data); setLeaguesLoading(false); })
+        .catch(e => {
+          console.warn('[KeeperHQ] Failed to load leagues from Supabase:', e);
+          setLeagues([]);
+          setLeaguesLoading(false);
+        });
     } else {
       setLeagues(loadLeagues());
+      setLeaguesLoading(false);
     }
   }, [session, authReady]);
 
@@ -187,8 +268,16 @@ function App() {
     supabase?.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
   }
 
+  // Explicitly route back to "/" (now logged out → the landing) rather than
+  // leaving the user wherever they were — otherwise sign-out from a league
+  // page or /demo strands them on a screen that no longer matches who
+  // they're signed in as (and /demo reached this way would skip the
+  // "browsing demo leagues" banner).
   function handleSignOut() {
-    supabase?.auth.signOut();
+    supabase?.auth.signOut().then(() => {
+      navigate('/');
+      setSignOutToast(Date.now());
+    });
   }
 
   const theme = tweaks.theme || 'light';
@@ -224,6 +313,9 @@ function App() {
 
   return (
     <div style={{ minHeight: '100vh', background: bg, fontFamily: "'Space Grotesk', sans-serif", color: textPrimary, transition: 'background 0.2s' }}>
+      {/* Global — the kh-toast motion classes Toast relies on */}
+      <style>{MOTION_STYLES}</style>
+      <Toast trigger={signOutToast} message="Signed out" isDark={isDark} />
 
       {/* Header */}
       <header style={{
@@ -279,8 +371,9 @@ function App() {
       {/* Main content */}
       <main style={{ padding: '16px 0 40px' }}>
         <Routes>
-          <Route path="/" element={<HomeRoute leagues={leagues} isDark={isDark} />} />
-          <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} onCreate={handleAddLeague} />} />
+          <Route path="/" element={<RootRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} leaguesLoading={leaguesLoading} onSignIn={handleSignIn} />} />
+          <Route path="/demo" element={<DemoRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} onSignIn={handleSignIn} />} />
+          <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
           <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
