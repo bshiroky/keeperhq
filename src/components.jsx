@@ -528,6 +528,42 @@ function SaveToast({ trigger, isDark, message = 'Saved' }) {
   );
 }
 
+// Generic one-off confirmation toast (e.g. "Signed out") — distinct from
+// SaveToast's dark pill (reserved for the deliberate-save acknowledgement
+// motion). Shares the same kh-toast fade/slide + reduced-motion guard from
+// MOTION_STYLES, but reads as a themed card instead of a solid pill. The
+// mounting root needs MOTION_STYLES injected once (LeagueView already does;
+// App.jsx injects it globally so this toast works from any route).
+function Toast({ trigger, message, isDark }) {
+  const t = makeTheme(isDark);
+  const [mounted, setMounted] = React.useState(false);
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!trigger) return;
+    setMounted(true);
+    const raf = requestAnimationFrame(() => setVisible(true));
+    const startHide = setTimeout(() => setVisible(false), 2600);
+    const unmount = setTimeout(() => setMounted(false), 2950);
+    return () => { cancelAnimationFrame(raf); clearTimeout(startHide); clearTimeout(unmount); };
+  }, [trigger]);
+
+  if (!mounted) return null;
+
+  return createPortal(
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: tokens.spaceXl, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 2000 }}>
+      <div className={`kh-toast${visible ? ' kh-toast--in' : ''}`} role="status" style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, boxShadow: t.cardShadow,
+        borderRadius: tokens.radiusMd, padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`,
+        ...tokens.typeBody, fontWeight: 600, color: t.textPrimary,
+      }}>
+        {message}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function nextAction(league) {
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
@@ -1407,7 +1443,7 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
-  MOTION_STYLES, SaveToast,
+  MOTION_STYLES, SaveToast, Toast,
   nextAction, leagueFlavor, leagueVoiceColor,
   KeepersCelebration,
 };
