@@ -1,11 +1,12 @@
 import React from 'react';
 import { Routes, Route, Navigate, Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { APP_DATA } from './data.js';
-import { HomeView } from './HomeView.jsx';
+import { HomeView, NewUserEmptyState } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
+import { LandingPage } from './LandingPage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
-import { SPORT_CONFIG, makeTheme, tokens } from './components.jsx';
+import { SPORT_CONFIG, makeTheme, tokens, GoogleButton } from './components.jsx';
 import { supabase } from './lib/supabase.js';
 import { fetchLeagues, saveLeague } from './lib/leagueStore.js';
 
@@ -28,14 +29,7 @@ function AccountMenu({ isDark, session, onSignIn, onSignOut }) {
   }, [open]);
 
   if (!session) {
-    return (
-      <button
-        onClick={onSignIn}
-        style={{ ...tokens.typeBody, fontWeight: 600, color: tokens.info, background: tokens.infoBg, border: `1px solid ${tokens.infoBorder}`, borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`, cursor: 'pointer', fontFamily: 'inherit' }}
-      >
-        Sign in with Google
-      </button>
-    );
+    return <GoogleButton size="sm" isDark={isDark} onClick={onSignIn} />;
   }
 
   const email = session.user?.email || '';
@@ -83,8 +77,35 @@ function loadLeagues() {
   return APP_DATA.leagues;
 }
 
-function HomeRoute({ leagues, isDark }) {
+// Logged out at "/" gets the front door, not the leagues grid; logged in
+// gets My Leagues (or the new-user empty state when the account has zero
+// leagues yet). `!authReady` is a brief gap while Supabase resolves the
+// existing session, so nothing renders rather than flashing the wrong one.
+function RootRoute({ leagues, isDark, session, authReady, onSignIn }) {
   const navigate = useNavigate();
+
+  if (!authReady) return null;
+
+  if (!session) {
+    return (
+      <LandingPage
+        isDark={isDark}
+        onSignIn={onSignIn}
+        onExploreDemo={() => navigate('/demo')}
+      />
+    );
+  }
+
+  if (leagues.length === 0) {
+    return (
+      <NewUserEmptyState
+        isDark={isDark}
+        onCreateLeague={() => navigate('/new')}
+        onBrowseDemo={() => navigate('/demo')}
+      />
+    );
+  }
+
   return (
     <HomeView
       leagues={leagues}
@@ -95,14 +116,35 @@ function HomeRoute({ leagues, isDark }) {
   );
 }
 
-function NewLeagueRoute({ leagues, isDark, onCreate }) {
+// The demo-browsing grid — the same My-Leagues view + cards, framed with a
+// banner and per-card "Demo" badges. Logged-out only; a signed-in user has
+// their own leagues at "/", so "/demo" bounces them there.
+function DemoRoute({ leagues, isDark, session, onSignIn }) {
   const navigate = useNavigate();
+  if (session) return <Navigate to="/" replace />;
+  return (
+    <HomeView
+      leagues={leagues}
+      onSelectLeague={league => navigate(`/league/${league.id}`)}
+      onAddLeague={() => navigate('/new')}
+      isDark={isDark}
+      demo
+      onSignIn={onSignIn}
+    />
+  );
+}
+
+function NewLeagueRoute({ leagues, isDark, session, onCreate }) {
+  const navigate = useNavigate();
+  // Logged-out entry into the wizard only happens from the demo grid
+  // ("+ Add League" on /demo) — cancel should return there, not to the
+  // marketing landing that now owns "/" for logged-out visitors.
   return (
     <CreateLeagueWizard
       isDark={isDark}
       existingLeagues={leagues}
       onCreate={league => onCreate(league)}
-      onCancel={() => navigate('/')}
+      onCancel={() => navigate(session ? '/' : '/demo')}
     />
   );
 }
@@ -279,8 +321,9 @@ function App() {
       {/* Main content */}
       <main style={{ padding: '16px 0 40px' }}>
         <Routes>
-          <Route path="/" element={<HomeRoute leagues={leagues} isDark={isDark} />} />
-          <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} onCreate={handleAddLeague} />} />
+          <Route path="/" element={<RootRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} onSignIn={handleSignIn} />} />
+          <Route path="/demo" element={<DemoRoute leagues={leagues} isDark={isDark} session={session} onSignIn={handleSignIn} />} />
+          <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
           <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -22,6 +22,7 @@ import { loadPlayers, normalizeName } from './lib/players.js';
 const tokens = {
   // ── typography (style objects; spread into inline styles) ─
   //   <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary }}>
+  typeHeadingDisplay: { fontSize: '34px', fontWeight: 800, letterSpacing: '-0.02em' },
   typeHeadingPage:    { fontSize: '20px', fontWeight: 800, letterSpacing: '-0.01em' },
   typeHeadingHero:    { fontSize: '22px', fontWeight: 800, letterSpacing: '-0.01em' },
   typeHeadingCard:    { fontSize: '18px', fontWeight: 700, letterSpacing: '-0.01em' },
@@ -666,7 +667,7 @@ function soleUnpaidName(league) {
   return unpaid[0].name || null;
 }
 
-function TradingCard({ league, onClick, isDark, state }) {
+function TradingCard({ league, onClick, isDark, state, demo }) {
   const sport  = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const t      = makeTheme(isDark);
   const wizard = state === 'building' || state === 'ready';
@@ -742,6 +743,20 @@ function TradingCard({ league, onClick, isDark, state }) {
         }}>
           {action.label.toUpperCase()}
         </div>
+
+        {demo && (
+          <div style={{
+            position: 'absolute', top: tokens.spaceSm, right: tokens.spaceSm,
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            background: 'rgba(20,24,34,0.82)', color: '#fff',
+            borderRadius: tokens.radiusPill, padding: '3px 10px',
+            ...tokens.typePill, fontWeight: 700,
+            zIndex: 5,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: tokens.info, flexShrink: 0 }} />
+            Demo
+          </div>
+        )}
 
         <div style={{
           position: 'absolute', right: wizard ? -6 : -8, bottom: wizard ? -12 : -16,
@@ -1083,6 +1098,96 @@ function Button({ variant = 'primary', size = 'md', isDark, accent, disabled, ch
   );
 }
 
+// ── Google sign-in button ──────────────────────────────────────────────────
+// The one shared sign-in affordance — landing, header, and demo banner all
+// render this instead of a bespoke button. Google's brand button stays white
+// in both themes by design (the surrounding surface themes around it); this
+// is the one intentional hardcode the design system allows for it. Width is
+// fixed per size so the label swap on click ("Sign in with Google" →
+// "Signing in…") doesn't shift the button.
+function GoogleG({ size }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" style={{ display: 'block', flexShrink: 0 }} aria-hidden="true">
+      <path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.36-.18-2H10v3.79h5.4a4.6 4.6 0 0 1-2 3.02v2.5h3.24c1.9-1.75 2.98-4.33 2.98-7.31z" />
+      <path fill="#34A853" d="M10 20c2.7 0 4.96-.89 6.62-2.42l-3.24-2.5c-.9.6-2.05.96-3.38.96-2.6 0-4.8-1.76-5.59-4.12H1.06v2.6A10 10 0 0 0 10 20z" />
+      <path fill="#FBBC05" d="M4.41 11.92a5.99 5.99 0 0 1 0-3.84V5.48H1.06a10 10 0 0 0 0 9.04l3.35-2.6z" />
+      <path fill="#EA4335" d="M10 3.98c1.47 0 2.79.5 3.83 1.48l2.87-2.87A9.96 9.96 0 0 0 10 0 10 10 0 0 0 1.06 5.48l3.35 2.6C5.2 5.72 7.4 3.98 10 3.98z" />
+    </svg>
+  );
+}
+
+function GoogleButton({ onClick, size = 'lg', isDark, style, className }) {
+  const [hover, setHover] = React.useState(false);
+  const [active, setActive] = React.useState(false);
+  const [focus, setFocus] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+  const tall = size === 'lg' ? 48 : 40;
+
+  function handleClick() {
+    if (loading) return;
+    setLoading(true);
+    onClick && onClick();
+    // Signing in redirects the page away; this only resets the button if
+    // that redirect never happens (e.g. Supabase isn't configured here).
+    setTimeout(() => setLoading(false), 6000);
+  }
+
+  return (
+    <button
+      type="button"
+      className={className}
+      onClick={handleClick}
+      disabled={loading}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setActive(false); }}
+      onMouseDown={() => setActive(true)}
+      onMouseUp={() => setActive(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        gap: tokens.spaceSm, height: tall, width: tall === 48 ? 248 : 216,
+        boxSizing: 'border-box', padding: `0 ${tokens.spaceLg}px`,
+        background: active ? '#f1f3f4' : hover ? '#f8f9fa' : '#ffffff',
+        border: `1px solid ${hover ? '#d2d5da' : '#dadce0'}`,
+        borderRadius: tokens.radiusMd,
+        boxShadow: hover ? '0 1px 3px rgba(60,64,67,.15), 0 1px 2px rgba(60,64,67,.10)' : '0 1px 2px rgba(60,64,67,.10)',
+        cursor: loading ? 'default' : 'pointer',
+        fontFamily: 'inherit', fontSize: 15, fontWeight: 600, color: '#1f1f1f',
+        transition: 'background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease',
+        outline: focus ? `2px solid ${tokens.info}` : 'none', outlineOffset: 2,
+        ...style,
+      }}
+    >
+      <GoogleG size={20} />
+      {loading ? 'Signing in…' : 'Sign in with Google'}
+    </button>
+  );
+}
+
+// Small text-only link button — the secondary "Explore the demo →" /
+// "Browse the demo leagues instead →" gesture. info color, 600 weight,
+// underline on hover.
+function TextLink({ children, onClick, isDark, style }) {
+  const [hover, setHover] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+        ...tokens.typeBody, fontWeight: 600, color: tokens.info,
+        textDecoration: hover ? 'underline' : 'none',
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 // ── Keepers-declared celebration ──────────────────────────────────────────
 // Entry motion is class-driven off a mount flag so the scrim fade / card rise /
 // mascot pop play on first paint. opacity transitions live outside the
@@ -1280,7 +1385,7 @@ function KeepersCelebration({ league, isDark, variant = 'modal', onDismiss, onSe
 
 Object.assign(window, {
   makeTheme, tokens,
-  Input, Select, NumberInput, Button,
+  Input, Select, NumberInput, Button, GoogleButton, TextLink,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   usePlayerMap, Headshot,
@@ -1294,7 +1399,7 @@ Object.assign(window, {
 
 export {
   makeTheme, tokens,
-  Input, Select, NumberInput, Button,
+  Input, Select, NumberInput, Button, GoogleButton, TextLink,
   SPORT_CONFIG, DRAFT_LABEL, STATUS_CONFIG,
   SportBadge, SportLogo, DraftBadge, StatusPill, StatBox, Divider, Tag, ExpiringDot,
   usePlayerMap, Headshot,

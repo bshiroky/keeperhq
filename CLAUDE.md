@@ -552,6 +552,7 @@ The full token vocabulary lives in `makeTheme(isDark)` in
 **Typography (style objects, spread-friendly)**:
 | Token | Spec | Role |
 |---|---|---|
+| `typeHeadingDisplay` | 34/800/-0.02em | Landing-page headline (steps to 26px under 640px via a media-query override, not a second token) |
 | `typeHeadingPage` | 20/800/-0.01em | Page-level title (league detail h1) |
 | `typeHeadingHero` | 22/800/-0.01em | Trading-card league name on hero-style cards |
 | `typeHeadingCard` | 18/700/-0.01em | Card and modal titles |
