@@ -1144,8 +1144,9 @@ buttons, no member login until (B)'s trigger is hit.
     holistic visual-hierarchy pass (#8) — the buy-in-too-prominent
     symptom lives on this surface — but the user calls it out as its
     own to-do.
-22. **Logged-out landing page + new-user onboarding — IN PROGRESS on
-    `claude/landing-onboarding`.** Addresses the #19 "public/logged-out
+22. **Logged-out landing page + new-user onboarding — SHIPPED (PR #24),
+    loading-state polish shipped as a follow-up on
+    `claude/loading-skeleton`.** Addresses the #19 "public/logged-out
     homepage" direction now that #7/#15 (backend + login) have
     shipped. Three surfaces: a centered logged-out landing at `/`
     (headline, Google sign-in, "Explore the demo" link — no My Leagues
@@ -1153,8 +1154,15 @@ buttons, no member login until (B)'s trigger is hit.
     the existing My-Leagues grid at `/demo` (banner + a "Demo" badge
     per `TradingCard`, reusing the real grid/cards), and a new-user
     empty state for signed-in accounts with zero leagues (welcome card
-    + "Create your first league" CTA into the `/new` wizard). Two
-    things deliberately deferred out of this slice:
+    + "Create your first league" CTA into the `/new` wizard). The
+    follow-up replaced the plain loading spinner with a `LeaguesSkeleton`
+    (`HomeView.jsx`) that mirrors the real stat-strip/filter/card-grid
+    layout so real data swaps in with zero layout shift, added a
+    `useDelayedLoading` debounce (`App.jsx`) so sub-200ms loads show
+    nothing and shown loads hold for a ~350ms floor (no flicker), and a
+    `kh-fade-in` keyframe (`components.jsx` `CARD_STYLES`) for the
+    content swap. Two things deliberately deferred out of the original
+    slice:
     - **(a) Multi-sport landing hero — shelved, not killed.** A
       Claude Design "Variation B" concept pitched a sport-lineup hero
       (hockey/basketball/football/baseball side by side). NHL is the
@@ -1168,6 +1176,16 @@ buttons, no member login until (B)'s trigger is hit.
       other people, not for solo use — and shouldn't be built until
       the surfaces it would depict (Overview, Set-keepers, Payouts)
       have stopped shifting. Not part of this slice.
+    - **(c) FUTURE — app-wide micro-animation pass.** Consider adopting
+      Motion (motion.dev) as a deliberate single dependency for richer
+      motion across the app (card springs, count-up numbers, list
+      reordering, page/celebration transitions) to hit the
+      Sleeper-energy aesthetic target. Styling-agnostic, works with the
+      inline-style/token approach. Deferred until core flows are
+      locked; evaluate as its own slice. Component kits like
+      kokonutui/reactbits/bklit assume Tailwind/shadcn (a stack this
+      app doesn't use) — treat as visual inspiration for Claude Design
+      only, not as importable code.
 
 ## Cleanup pending
 
