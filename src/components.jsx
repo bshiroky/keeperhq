@@ -448,6 +448,8 @@ const CARD_STYLES = `
   @keyframes kh-bob   { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
   @keyframes kh-bob-slow { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
   @keyframes kh-pop   { 0% { transform: scale(0.85) rotate(-3deg); } 60% { transform: scale(1.06) rotate(-3deg); } 100% { transform: scale(1) rotate(-3deg); } }
+  @keyframes kh-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .kh-fade-in { animation: kh-fade-in 200ms ease-out; }
 
   .kh-tcard {
     transition:

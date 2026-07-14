@@ -221,12 +221,117 @@ function NewUserEmptyState({ isDark, onCreateLeague, onBrowseDemo }) {
   );
 }
 
+// ── Loading skeleton — mirrors the real My-Leagues layout (stat strip,
+//    filter row, card grid) so filling in real leagues causes zero layout
+//    shift, just a content swap. Lightweight muted blocks, not a TradingCard
+//    fork. The shimmer sweep reuses the same translateX gradient recipe as
+//    kh-shine (the trading-card hover shine) — just looping instead of
+//    hover-triggered. ─────────────────────────────────────────────────────
+const SKELETON_STYLES = `
+  @keyframes kh-skel-sweep { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+  .kh-skel { position: relative; overflow: hidden; }
+  .kh-skel::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+    transform: translateX(-120%);
+    animation: kh-skel-sweep 1.6s ease-in-out infinite;
+  }
+`;
+
+function SkelBlock({ isDark, style }) {
+  const t = makeTheme(isDark);
+  return (
+    <div className="kh-skel" style={{
+      background: t.sectionBg, border: `1px solid ${t.border}`,
+      borderRadius: tokens.radiusSm,
+      ...style,
+    }} />
+  );
+}
+
+// Mirrors TradingCard's hero-block + title + pills-row + 3-col-stats
+// footprint at the same padding/gaps, so a real card swapping in lands in
+// exactly the same box.
+function SkeletonCard({ isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{
+      position: 'relative', overflow: 'hidden',
+      background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 16,
+    }}>
+      <SkelBlock isDark={isDark} style={{ aspectRatio: '5 / 2', borderRadius: 0, border: 'none' }} />
+      <div style={{ padding: tokens.spaceMd }}>
+        <SkelBlock isDark={isDark} style={{ height: 20, width: '65%' }} />
+        <div style={{ display: 'flex', gap: tokens.spaceXs, marginTop: tokens.space2xs + 2 }}>
+          <SkelBlock isDark={isDark} style={{ height: 22, width: 70, borderRadius: tokens.radiusPill }} />
+          <SkelBlock isDark={isDark} style={{ height: 22, width: 110, borderRadius: tokens.radiusPill }} />
+        </div>
+        <div style={{
+          marginTop: tokens.spaceSm, paddingTop: tokens.spaceSm,
+          borderTop: `1px dashed ${t.border}`,
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6,
+        }}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <SkelBlock isDark={isDark} style={{ height: 9, width: '60%' }} />
+              <SkelBlock isDark={isDark} style={{ height: 16, width: '80%' }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SKELETON_CARD_COUNT = 4;
+
+function LeaguesSkeleton({ isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
+      <style>{SKELETON_STYLES}</style>
+
+      {/* PackStats-shaped placeholder */}
+      <div style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 14,
+        padding: `${tokens.spaceMd}px ${tokens.spaceLg}px`,
+        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: tokens.spaceLg,
+      }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <SkelBlock isDark={isDark} style={{ height: 9, width: '50%' }} />
+            <SkelBlock isDark={isDark} style={{ height: 20, width: '65%' }} />
+          </div>
+        ))}
+      </div>
+
+      {/* SportFilter-shaped placeholder */}
+      <div style={{ display: 'flex', gap: 6, marginTop: tokens.spaceXl, marginBottom: tokens.spaceMd }}>
+        {[64, 72, 84, 76, 74].map((w, i) => (
+          <SkelBlock key={i} isDark={isDark} style={{ height: 26, width: w, borderRadius: tokens.radiusPill }} />
+        ))}
+      </div>
+
+      {/* Card grid placeholder — same track sizing as the real grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
+        gap: tokens.spaceLg,
+      }}>
+        {Array.from({ length: SKELETON_CARD_COUNT }).map((_, i) => (
+          <SkeletonCard key={i} isDark={isDark} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function HomeView({ leagues, onSelectLeague, onAddLeague, isDark, demo, onSignIn }) {
   const [filter, setFilter] = React.useState('all');
   const shown = filter === 'all' ? leagues : leagues.filter(l => l.sport === filter);
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
+    <div className="kh-fade-in" style={{ maxWidth: 1180, margin: '0 auto', padding: `0 ${tokens.spaceXl}px ${tokens.space2xl * 2}px` }}>
       <style>{CARD_STYLES}</style>
 
       {demo && <DemoBanner isDark={isDark} onSignIn={onSignIn} />}
@@ -256,4 +361,4 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, isDark, demo, onSignIn
   );
 }
 
-export { AddLeagueSlot, PackStats, SportFilter, HomeView, NewUserEmptyState };
+export { AddLeagueSlot, PackStats, SportFilter, HomeView, NewUserEmptyState, LeaguesSkeleton };

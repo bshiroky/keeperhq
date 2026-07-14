@@ -2,7 +2,7 @@ import React from 'react';
 import { Loader } from 'lucide-react';
 import { Routes, Route, Navigate, Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { APP_DATA } from './data.js';
-import { HomeView, NewUserEmptyState } from './HomeView.jsx';
+import { HomeView, NewUserEmptyState, LeaguesSkeleton } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { LandingPage } from './LandingPage.jsx';
@@ -11,9 +11,9 @@ import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } f
 import { supabase } from './lib/supabase.js';
 import { fetchLeagues, saveLeague } from './lib/leagueStore.js';
 
-// Neutral loading placeholder — shown while auth is still resolving, and
-// while a signed-in user's real (Supabase) leagues are being fetched, so
-// neither the demo grid nor a stale leagues array ever shows for a frame.
+// Neutral loading placeholder — shown while auth is still resolving (before
+// we know whether to show the landing or My Leagues, so there's no known
+// destination shape to skeleton yet).
 function LoadingState({ isDark }) {
   const t = makeTheme(isDark);
   return (
@@ -24,6 +24,40 @@ function LoadingState({ isDark }) {
       <Loader size={28} strokeWidth={1.75} className="kh-spin" color={t.textMuted} />
     </div>
   );
+}
+
+// Debounces a raw loading boolean two ways so a loading state never flickers:
+// - if the load finishes inside `delay`, it never shows at all (sub-threshold
+//   loads read as instant, not a flash);
+// - once shown, it stays visible for at least `minDuration` even if the load
+//   finishes sooner, so it always reads as a deliberate load, not a flicker.
+const LOADING_SHOW_DELAY = 200;
+const LOADING_MIN_VISIBLE = 350;
+
+function useDelayedLoading(isLoading, delay = LOADING_SHOW_DELAY, minDuration = LOADING_MIN_VISIBLE) {
+  const [show, setShow] = React.useState(false);
+  const shownAtRef = React.useRef(null);
+
+  React.useEffect(() => {
+    let showTimer, hideTimer;
+    if (isLoading) {
+      showTimer = setTimeout(() => {
+        shownAtRef.current = Date.now();
+        setShow(true);
+      }, delay);
+    } else if (shownAtRef.current) {
+      const elapsed = Date.now() - shownAtRef.current;
+      hideTimer = setTimeout(() => {
+        setShow(false);
+        shownAtRef.current = null;
+      }, Math.max(0, minDuration - elapsed));
+    } else {
+      setShow(false);
+    }
+    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
+  }, [isLoading, delay, minDuration]);
+
+  return show;
 }
 
 // Root App + Tweaks
@@ -97,13 +131,20 @@ function loadLeagues() {
 // gets My Leagues (or the new-user empty state when the account has zero
 // leagues yet). `!authReady` is a brief gap while Supabase resolves the
 // existing session; `leaguesLoading` is the further gap while a signed-in
-// user's real leagues are being fetched. Both render the same neutral
-// loading state — the demo/localStorage leagues never render as "my
-// leagues", not even for a frame.
+// user's real leagues are being fetched — the demo/localStorage leagues
+// never render as "my leagues", not even for a frame. Both loading gaps are
+// debounced via useDelayedLoading so a fast resolve shows nothing at all
+// instead of a flash, and a slower one holds long enough not to flicker.
 function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSignIn }) {
   const navigate = useNavigate();
+  const showAuthLoading = useDelayedLoading(!authReady);
+  const showLeaguesLoading = useDelayedLoading(!!session && leaguesLoading);
 
-  if (!authReady) return <LoadingState isDark={isDark} />;
+  // Stay on the loading branch for as long as EITHER the raw flag is still
+  // true OR the debounced hold hasn't finished — otherwise the branch below
+  // exits the instant the raw flag flips, even mid-hold, and the floor in
+  // useDelayedLoading never actually gets to do anything.
+  if (!authReady || showAuthLoading) return showAuthLoading ? <LoadingState isDark={isDark} /> : null;
 
   if (!session) {
     return (
@@ -115,7 +156,9 @@ function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSign
     );
   }
 
-  if (leaguesLoading) return <LoadingState isDark={isDark} />;
+  if (leaguesLoading || showLeaguesLoading) {
+    return showLeaguesLoading ? <LeaguesSkeleton isDark={isDark} /> : null;
+  }
 
   if (leagues.length === 0) {
     return (
@@ -144,7 +187,8 @@ function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSign
 // the demo →", so the banner is never skippable.
 function DemoRoute({ leagues, isDark, session, authReady, onSignIn }) {
   const navigate = useNavigate();
-  if (!authReady) return <LoadingState isDark={isDark} />;
+  const showAuthLoading = useDelayedLoading(!authReady);
+  if (!authReady || showAuthLoading) return showAuthLoading ? <LoadingState isDark={isDark} /> : null;
   if (session) return <Navigate to="/" replace />;
   return (
     <HomeView
