@@ -265,7 +265,8 @@ no extra rewrite rule needed.
 
 | Path | Behavior |
 |---|---|
-| `/` | `HomeView` — My Leagues |
+| `/` | Branches on auth state (`RootRoute`). Logged out: `LandingPage` — the front door (headline, Google sign-in, "Explore the demo →"); no leagues grid is shown here. Logged in: `HomeView` — My Leagues, or `NewUserEmptyState` (welcome card + "Create your first league") when the account has zero leagues yet. |
+| `/demo` | `DemoRoute` — logged-out only. The real `HomeView` grid/cards in demo mode: a "You're browsing demo leagues" banner + a "Demo" badge on every `TradingCard`. The *only* way to reach the demo leagues — reachable via "Explore the demo →" on the landing, never shown at `/`. A signed-in user hitting this path is redirected to `/`. |
 | `/new` | `CreateLeagueWizard` — 4-step create-league flow (Basics → League Format → Teams → Review); writes a new league to localStorage and routes into it |
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
@@ -291,9 +292,11 @@ routes back to `…/overview`); Lottery is the one full-page route.
 
 **Wiring:**
 
-- `App.jsx` holds `leagues` state + the `<Routes>` tree. Two thin
-  wrappers — `HomeRoute` and `LeagueRoute` — do the URL-param lookup
-  and validity-gating before rendering the view components.
+- `App.jsx` holds `leagues` state + the `<Routes>` tree. Thin route
+  wrappers — `RootRoute` (auth/loading-state branching at `/`),
+  `DemoRoute` (`/demo`), and `LeagueRoute` (URL-param lookup +
+  validity-gating) — decide what to render before handing off to the
+  view components.
 - `LeagueView` is fully props-driven now: it takes `activeTab` from
   the parent route instead of holding tab state itself. The
   per-route refresh that used to require a `useEffect` syncing
@@ -1144,13 +1147,17 @@ buttons, no member login until (B)'s trigger is hit.
     holistic visual-hierarchy pass (#8) — the buy-in-too-prominent
     symptom lives on this surface — but the user calls it out as its
     own to-do.
-22. **Logged-out landing page + new-user onboarding — SHIPPED (PR #24),
-    loading-state polish shipped as a follow-up on
-    `claude/loading-skeleton`.** Addresses the #19 "public/logged-out
-    homepage" direction now that #7/#15 (backend + login) have
-    shipped. Three surfaces: a centered logged-out landing at `/`
-    (headline, Google sign-in, "Explore the demo" link — no My Leagues
-    grid shown to logged-out visitors), a demo-browsing framing over
+22. **Logged-out landing page + new-user onboarding — SHIPPED (PR #24,
+    PR #25).** In one line: a logged-out landing (Variation A,
+    commissioner hero), demo-browsing framing (banner + per-card Demo
+    badges), a new-user empty state (celebrate mascot + speech chip),
+    a shared `GoogleButton` + `TextLink`, the `typeHeadingDisplay`
+    token, a minimal `Toast` primitive, and card-shaped loading
+    skeletons with a min-display floor. Addresses the #19
+    "public/logged-out homepage" direction now that #7/#15 (backend +
+    login) have shipped. Three surfaces: a centered logged-out landing
+    at `/` (headline, Google sign-in, "Explore the demo" link — no My
+    Leagues grid shown to logged-out visitors), a demo-browsing framing over
     the existing My-Leagues grid at `/demo` (banner + a "Demo" badge
     per `TradingCard`, reusing the real grid/cards), and a new-user
     empty state for signed-in accounts with zero leagues (welcome card
@@ -1161,8 +1168,8 @@ buttons, no member login until (B)'s trigger is hit.
     `useDelayedLoading` debounce (`App.jsx`) so sub-200ms loads show
     nothing and shown loads hold for a ~350ms floor (no flicker), and a
     `kh-fade-in` keyframe (`components.jsx` `CARD_STYLES`) for the
-    content swap. Two things deliberately deferred out of the original
-    slice:
+    content swap. Several things deliberately deferred out of the
+    original slice:
     - **(a) Multi-sport landing hero — shelved, not killed.** A
       Claude Design "Variation B" concept pitched a sport-lineup hero
       (hockey/basketball/football/baseball side by side). NHL is the
@@ -1186,6 +1193,18 @@ buttons, no member login until (B)'s trigger is hit.
       kokonutui/reactbits/bklit assume Tailwind/shadcn (a stack this
       app doesn't use) — treat as visual inspiration for Claude Design
       only, not as importable code.
+    - **(d) FUTURE — toast/notification visual pass.** The current
+      `Toast` primitive (`components.jsx`, shipped in PR #25 for
+      "Signed out") reads as a button-like element — solid bordered
+      card, bold text — rather than a clearly transient notification.
+      Restyle it to read unambiguously as a passive confirmation, not
+      a CTA. Do this as a deliberate pass across **all** toast/
+      notification UI at once, not a one-off fix to just this
+      instance — there's already a second, visually distinct toast
+      primitive (`SaveToast`, the dark pill used for save
+      acknowledgements) — decide whether the two should converge on
+      one shared visual language or stay intentionally distinct, and
+      settle that before adding a third.
 
 ## Cleanup pending
 
