@@ -69,7 +69,7 @@ features have shipped through their own branches (all merged):
   overlay: desktop = inline pool only, mobile = full-screen sheet.
   Addresses Open item #17 for the touched surfaces; the keepers-
   declared celebration (PR #20) shipped earlier in the arc.
-- **Shared league page (branch `claude/shared-league-page-q0149o`):**
+- **PR #27 (shared league page):**
   the first sanctioned member-facing surface — a **read-only, public,
   mobile-first** page at `/l/:token` for league members (no login, no
   accounts, no write path). Built to the Claude Design handoff
@@ -1296,9 +1296,8 @@ buttons, no member login until (B)'s trigger is hit.
       acknowledgements) — decide whether the two should converge on
       one shared visual language or stay intentionally distinct, and
       settle that before adding a third.
-23. **Shared league page — FUTURE (v1 shipped on
-    `claude/shared-league-page-q0149o`; none of this is in scope until
-    the user asks).** From the design handoff's §14 list:
+23. **Shared league page — FUTURE (v1 shipped in PR #27; none of
+    this is in scope until the user asks).** From the design handoff's §14 list:
     - **Shared page phase 2 — draft-prep window:** post-lock
       team-cards view, lottery results display, and the true
       draft-pool view (expired + all unkept players once keepers
