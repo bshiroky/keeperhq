@@ -296,9 +296,15 @@ deployed URL, not via `npm run dev` in-session.
 
 Real client-side routing via `react-router-dom` (v7), wired in
 `src/main.jsx` (`<BrowserRouter>`) and `src/App.jsx` (`<Routes>`).
-Vercel's `vite` framework preset already serves `index.html` for
-unmatched paths, so refresh on any deep URL works out of the box —
-no extra rewrite rule needed.
+The SPA fallback (index.html for unmatched paths) is an **explicit
+rewrite in `vercel.json`** (`"/(.*)" → "/index.html"`; static files
+match before rewrites, so `/assets/*` and `/players-nhl.json` are
+unaffected). Do NOT assume the `vite` framework preset provides this
+on its own — with an explicit `vercel.json` present (added in PR #23)
+it does not: direct visits to deep URLs returned Vercel's platform
+404 until the rewrite was added in PR #27. The gap went unnoticed
+because the commissioner app is entered from `/`, while the shared
+league page is only ever entered by deep link.
 
 **Route table:**
 
