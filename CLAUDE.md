@@ -69,6 +69,30 @@ features have shipped through their own branches (all merged):
   overlay: desktop = inline pool only, mobile = full-screen sheet.
   Addresses Open item #17 for the touched surfaces; the keepers-
   declared celebration (PR #20) shipped earlier in the arc.
+- **Shared league page (branch `claude/shared-league-page-q0149o`):**
+  the first sanctioned member-facing surface — a **read-only, public,
+  mobile-first** page at `/l/:token` for league members (no login, no
+  accounts, no write path). Built to the Claude Design handoff
+  "Shared League Page · Build Handoff (v1, FINAL)". Backend: a
+  `share_token` column on `public.leagues` (unique, auto-minted via
+  column default, never inside the `data` blob) + a
+  `get_shared_league(p_token)` **security-definer RPC** executable by
+  `anon` that returns a jsonb **projection** (name / sport / draft
+  config / teams / contracts — explicitly excludes owner, buy-in,
+  payouts, payment status, payoutNote, commissioner fields, and the
+  token itself). RLS on the table is unchanged (owner-only).
+  Frontend: `src/SharedLeaguePage.jsx` (page + countdown + filter rail
+  + mobile rows + desktop stat table reusing the CompactKeeperGrid
+  sticky/snap/chevron mechanics), `src/lib/sharedLeague.js` (RPC fetch
+  + row derivation reusing `buildTeamPool`, stat-category config),
+  a "Share League Page" card in Settings (copy link + regenerate with
+  inline danger confirm; `fetchShareToken`/`regenerateShareToken` in
+  `leagueStore.js`), and `supabase/migrations/002_share_token.sql`.
+  The fetch script now also captures `ppg`/`ppa` (skaters) and `saves`
+  (goalies) for the shared page's stat table. **This supersedes the
+  old blanket "no share-this-league UI" rule for exactly this
+  read-only surface — member logins / collaboration remain deferred**
+  (see Roadmap split B).
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -243,6 +267,21 @@ container):**
   keys — safe for the browser bundle, RLS is what actually protects
   data).
 
+**Share token + public read path (shared league page).**
+`public.leagues` carries a `share_token text` column — unique index,
+`not null`, default `replace(gen_random_uuid()::text,'-','')` so new
+rows mint their own (inserts never name it; `saveLeague` upserts
+don't touch it). It is a **column, not part of the `data` blob**, so
+it never leaks through saves or the projection. Anonymous reads go
+exclusively through `get_shared_league(p_token)` — `security
+definer`, `stable`, `set search_path = ''`, EXECUTE revoked from
+`public` and granted to `anon` + `authenticated` — which returns a
+jsonb projection of exactly what the shared page renders. **No anon
+RLS policy exists on the table**; RLS stays `auth.uid() = owner_id`.
+Regenerating the link is a plain authed UPDATE of `share_token`
+(client-minted `crypto.randomUUID()`), which invalidates the old URL
+instantly. SQL lives in `supabase/migrations/002_share_token.sql`.
+
 **Yahoo API is a separate, unblocked-independent track.** The read-only
 Yahoo application (Open item #15) is blocked on Yahoo enabling the
 "Fantasy Sports" permission on their end — that block does not gate
@@ -276,6 +315,7 @@ no extra rewrite rule needed.
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
+| `/l/:token` | `SharedLeagueRoute` — the **public shared league page** (read-only, member-facing). Sits OUTSIDE the auth branching: renders identically for logged-out and logged-in visitors. The app chrome (nav header, TweaksPanel) is suppressed on this route (`isSharedRoute` in `App.jsx`) — the page carries its own wordmark header + "Powered by KeeperHQ" footer. An invalid/unknown token renders the invalid-link state in place (mascot + "ask your commissioner" copy), **never** a redirect to `/`. |
 | any other path | redirect to `/` |
 
 `:leagueId` is the existing stable `league.id` slug in `src/data.js`
@@ -565,10 +605,20 @@ The full token vocabulary lives in `makeTheme(isDark)` in
 | `typePillEmphatic` | 11/700/0.05em UPPERCASE | StatusPill ("announcer" pills) |
 | `typeBody` | 13/400 | Table cells, body copy, form input text |
 | `typeBodyMeta` | 12/400 | Helper / secondary / footer text |
+| `typeStatMeta` | 10/500/0.01em | Shared-page stat lines, inline position text, desktop stat cells |
 | `typeNumericHero` | 26/700 | SummaryBar values (dashboard hero metrics) |
 | `typeNumericCard` | 22/700 | StatBox value (card-level stats) |
 | `typeNumericCompact` | 19/800/-0.01em | Stat values inside compact 3-col stat blocks (trading-card stat footer) |
 | `typeNumericInline` | 17/700 | League header inline counters |
+
+Shared-page note: the handoff floated a second new token,
+`typeRowTitle` (14/700), with the instruction to try `typeBody` at
+weight 700 first — the page shipped on `typeBody`+700 and the token
+was **not** added. If 13px reads too small on real devices, add
+`typeRowTitle` then. The page also composes two one-off styles from
+existing tokens (`typeNumericInline`+800 for the league name;
+15/800 for the countdown — the one size with no token; tokenize if a
+second surface ever needs it).
 
 **Spacing (numbers, auto-px in inline styles)**:
 `space2xs: 4 · spaceXs: 8 · spaceSm: 12 · spaceMd: 16 · spaceLg: 20 · spaceXl: 24 · space2xl: 32`.
@@ -715,13 +765,50 @@ copy of a component drifts away from the original.
   branch. Holds the Overview↔Set-keepers view state and the selected
   team. `DeadlineLine` (writes `league.keeperDeadline`) and `SubTabs`
   live here. The two-column Pool & Payouts grid stacks to one column at
-  ≤760px (mobile sheet width).
+  ≤760px (mobile sheet width). `ShareLeagueCard` (in the Settings
+  sheet, between Keeper Rules and Season) is the commissioner-side
+  control for the shared page: truncated tokenized URL + Copy
+  (SaveToast "Link copied") + "Regenerate link" behind an inline
+  danger confirm with the old-link-stops-working warning; shows a
+  quiet sign-in note for demo/localStorage leagues (no Supabase row =
+  no token).
 - `src/components.jsx` — shared UI primitives + `SPORT_CONFIG`,
   `getLeagueStats`, `Tooltip`, `SportLogo`, `makeTheme`, and
   `TradingCard` (extracted from `HomeView`; takes a
   `state?: 'building' | 'ready'` prop for the wizard live-preview —
   `building` pins the BUILDING… sticker + dashed stats, `ready` flips
   to READY FOR DRAFT, undefined keeps the My-Leagues behavior).
+- `src/SharedLeaguePage.jsx` — the public shared league page
+  (`/l/:token`). `SharedLeagueRoute` (token → RPC → page / invalid
+  state) + `SharedLeaguePage`: own header (non-interactive wordmark +
+  "Shared league page" kicker), league band with **live countdown**
+  (days granularity; hours/minutes ticking inside 48h; quiet
+  "🔒 Keepers locked" past deadline; no countdown when no deadline
+  set), sticky countdown pill (IntersectionObserver on the band),
+  filter rail (Keepable/All players · Under contract · Expired
+  (snake, only when expired players exist) · team chips; default
+  relabels to "Final keepers" post-lock), mobile card rows
+  (headshot/silhouette + name + stat line + stacked contract text +
+  status pill), and a desktop (≥1024px, hockey-only) stat table per
+  skater/goalie group — sortable stat headers, Player pinned left,
+  Contract/Status pinned right, stat columns scroll-snapping between
+  them with one-column-per-click chevrons (the CompactKeeperGrid
+  mechanics; sticky cells use opaque layered backgrounds so scrolled
+  columns can't ghost through). Print: filter rail hidden, default
+  view forced via `beforeprint`, rows `break-inside: avoid`. The
+  empty state (no keepers declared anywhere) is the page's one
+  mascot-*speech* surface.
+- `src/lib/sharedLeague.js` — data layer for the shared page:
+  `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
+  with no session), `buildSharedRows(league)` (one deduped row per
+  player, priority keeper > contract > rostered > expired, reusing
+  **`buildTeamPool`** so eligibility math can't drift from the
+  workbench), `STAT_CATEGORIES` defaults + `statCategoriesFor`
+  (reads an optional `league.statCategories` override — no settings
+  UI), `formatStat`, `sortRowsDefault` (points desc, no-stats last).
+- `supabase/migrations/002_share_token.sql` — share_token column +
+  `get_shared_league` function + grants (run via Supabase SQL Editor;
+  the container can't reach Supabase).
 - `src/PlayerAutocomplete.jsx` — autocomplete input backed by
   `loadPlayers`; takes `disabledNames` to block dupes; shows
   in-league keeper/rostered status next to suggestions
@@ -963,11 +1050,15 @@ touched in #21 and continues alongside backend work. See Open items
 #7 (backend — active), #15 (account/login — active),
 #16 (create-league — shipped), #17 (responsive — largely addressed).
 
-**(B) Multi-user collaboration REMAINS deferred.** League *members*
-logging in, members picking their own keepers, in-app trade
-negotiation between members, "share this league" UI, the end-user
-(league-member) flow. None of this until the single-commissioner
-version is stable. The trigger has two halves — **(1) UI has stopped
+**(B) Multi-user collaboration REMAINS deferred — with one carve-out
+now shipped.** League *members* logging in, members picking their own
+keepers, in-app trade negotiation between members, the end-user
+(league-member) flow: still deferred. **The carve-out: the read-only
+shared league page (`/l/:token`) + its Settings share row is
+sanctioned and built** — it involves no member identity, no member
+writes, and no shared mutable state (it's a tokenized public read).
+The old blanket "no share-this-league UI" phrasing is superseded for
+exactly that surface and nothing else. The trigger has two halves — **(1) UI has stopped
 shifting: now MET** (post-#21), and (2) a clear need for multiple
 people to share state: not yet. So collaboration stays deferred on the
 *need* half, not the *stability* half.
@@ -1205,6 +1296,31 @@ buttons, no member login until (B)'s trigger is hit.
       acknowledgements) — decide whether the two should converge on
       one shared visual language or stay intentionally distinct, and
       settle that before adding a third.
+23. **Shared league page — FUTURE (v1 shipped on
+    `claude/shared-league-page-q0149o`; none of this is in scope until
+    the user asks).** From the design handoff's §14 list:
+    - **Shared page phase 2 — draft-prep window:** post-lock
+      team-cards view, lottery results display, and the true
+      draft-pool view (expired + all unkept players once keepers
+      lock — v1 deliberately never claims to show the full pool).
+    - Sealed mode: submitted keepers hidden until a
+      commissioner-triggered pre-draft reveal — the shared page is the
+      eventual reveal stage, so don't structurally assume all data is
+      always public.
+    - Member logins / anonymous keeper declarations (pending
+      commissioner confirm); the "x/y declared" count returns then as
+      a member motivator (it was deliberately removed from v1 —
+      commissioner telemetry, not member info).
+    - All-players view sorted by last-season points across every
+      roster.
+    - Draft lottery reveal animation.
+    - GM draft rankings via pairwise comparisons (swipe "this player
+      or that one" → personal ranking → aggregate league/global
+      rankings weighted by league scoring categories).
+    - NFL/NBA player directories + stats — the configurable
+      stat-columns model (`STAT_CATEGORIES` /
+      `league.statCategories`) applies as-is (rushing/receiving/
+      passing yards, TDs, INTs, etc.).
 
 ## Cleanup pending
 
@@ -1266,9 +1382,11 @@ push directly to `main`.
   block them. Still don't *start* building them without the user
   steering it, but they're on-plan, not off-limits.
 - Don't build **multi-user collaboration** (member logins, member
-  keeper-picking, in-app trade negotiation, "share this league") or
-  promise it in copy/UI — that's the still-deferred line (Roadmap
-  split B).
+  keeper-picking, in-app trade negotiation) or promise it in copy/UI
+  — that's the still-deferred line (Roadmap split B). The **read-only
+  shared league page** (`/l/:token`, Settings share row) is the one
+  shipped exception; don't extend it with write paths or member
+  identity (see Open item #23 for its sanctioned phase 2).
 - Don't push to `main` directly.
 - Don't bake in API keys (no provider that requires one has been chosen).
 - Don't add comments narrating the change ("Added per user request,

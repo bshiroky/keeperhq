@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock } from 'lucide-react';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock, Link2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
@@ -9,6 +9,8 @@ import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
+import { supabase } from './lib/supabase.js';
+import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
 
 // League Detail — Keepers home shell + PayoutsTab + SettingsPanel/ImportPanel
 
@@ -555,6 +557,123 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
   );
 }
 
+// ── Share league page card (Settings) ────────────────────────────────────────
+// Commissioner-side control for the public shared page at /l/:token. Shows
+// the tokenized URL + Copy, and a Regenerate action behind an inline danger
+// confirm — regenerating invalidates the old link immediately. The token is
+// a real column on the league's Supabase row, so demo/localStorage leagues
+// (and the no-Supabase container) get the quiet "needs your account" note.
+function ShareLeagueCard({ league, isDark, accentColor }) {
+  const t = makeTheme(isDark);
+  const [token, setToken] = React.useState(null);
+  const [status, setStatus] = React.useState('loading'); // loading | ready | unavailable
+  const [confirming, setConfirming] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [copiedAt, setCopiedAt] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!supabase) { setStatus('unavailable'); return; }
+    setStatus('loading');
+    fetchShareToken(league.id)
+      .then(tok => { if (!cancelled) { setToken(tok); setStatus(tok ? 'ready' : 'unavailable'); } })
+      .catch(() => { if (!cancelled) setStatus('unavailable'); });
+    return () => { cancelled = true; };
+  }, [league.id]);
+
+  const url = token ? `${window.location.origin}/l/${token}` : null;
+  const displayUrl = token
+    ? `${window.location.origin}/l/${token.slice(0, 6)}…${token.slice(-4)}`
+    : null;
+
+  function copy() {
+    if (!url || !navigator.clipboard) return;
+    navigator.clipboard.writeText(url).then(() => setCopiedAt(Date.now())).catch(() => {});
+  }
+
+  function regenerate() {
+    setBusy(true);
+    regenerateShareToken(league.id)
+      .then(tok => { setToken(tok); setConfirming(false); })
+      .catch(e => console.warn('[KeeperHQ] Failed to regenerate share link:', e))
+      .finally(() => setBusy(false));
+  }
+
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Share League Page</div>
+      </div>
+      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Link2 size={18} strokeWidth={1.5} color={t.textSecondary} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Read-only page for your league</div>
+            <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
+              Anyone with the link can see keepers, contracts, and the keeper deadline — no login needed. Pin it in the league group chat.
+            </div>
+          </div>
+        </div>
+
+        {status === 'loading' && (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>Loading link…</div>
+        )}
+        {status === 'unavailable' && (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.45 }}>
+            Sharing needs this league saved to your account — sign in and the link appears here.
+          </div>
+        )}
+
+        {status === 'ready' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <code style={{
+                flex: 1, minWidth: 200, boxSizing: 'border-box',
+                background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd,
+                padding: '8px 12px', fontSize: 12, color: t.textBody,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }} title={url}>
+                {displayUrl}
+              </code>
+              <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={copy} style={{ flexShrink: 0 }}>
+                Copy link
+              </Button>
+            </div>
+
+            {confirming ? (
+              <div style={{
+                background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: tokens.radiusMd,
+                padding: '12px 14px',
+              }}>
+                <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.danger }}>Regenerate this link?</div>
+                <div style={{ ...tokens.typeBodyMeta, color: t.textBody, marginTop: 4, lineHeight: 1.5 }}>
+                  This makes a new link. The old one stops working immediately — anyone still using it (or with it pinned in a group chat) will lose access.
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+                  <Button variant="secondary" size="sm" isDark={isDark} onClick={() => setConfirming(false)} disabled={busy}>Cancel</Button>
+                  <Button variant="destructive" size="sm" isDark={isDark} onClick={regenerate} disabled={busy}>
+                    {busy ? 'Regenerating…' : 'Regenerate link'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <button onClick={() => setConfirming(true)} style={{
+                  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+                  ...tokens.typeBodyMeta, fontWeight: 600, color: t.danger, textDecoration: 'underline',
+                }}>
+                  Regenerate link
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      <SaveToast trigger={copiedAt} isDark={isDark} message="Link copied" />
+    </div>
+  );
+}
+
 // ── Settings panel — league rules + season rollover ──────────────────────────
 // (Roster / draft imports live in ImportPanel, reached from the Import door.)
 function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
@@ -651,6 +770,8 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved })
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <EditableCard title="Keeper Rules" t={t} isDark={isDark} accentColor={accentColor}
         viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} onSaved={onSaved} />
+
+      <ShareLeagueCard league={league} isDark={isDark} accentColor={accentColor} />
 
       {/* Season rollover */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>

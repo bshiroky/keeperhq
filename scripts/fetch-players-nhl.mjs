@@ -82,6 +82,10 @@ async function fetchSkaters() {
       p: s.points || 0,
       plusMinus: s.plusMinus || 0,
       pim: s.penaltyMinutes || 0,
+      // Power-play splits for the shared-page stat table. summary carries
+      // ppGoals + ppPoints; PP assists are the difference.
+      ppg: s.ppGoals || 0,
+      ppa: Math.max(0, (s.ppPoints || 0) - (s.ppGoals || 0)),
       sog: s.shots || 0,
       hit: rt.hits || 0,
       blk: rt.blockedShots || 0,
@@ -109,6 +113,7 @@ async function fetchGoalies() {
       gaa: g.goalsAgainstAverage || 0,
       svPct: g.savePercentage || 0,
       so: g.shutouts || 0,
+      saves: g.saves || 0,
     };
   });
 }
