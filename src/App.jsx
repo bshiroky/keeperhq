@@ -6,6 +6,7 @@ import { HomeView, NewUserEmptyState, LeaguesSkeleton } from './HomeView.jsx';
 import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { LandingPage } from './LandingPage.jsx';
+import { SharedLeagueRoute } from './SharedLeaguePage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
 import { supabase } from './lib/supabase.js';
@@ -266,6 +267,13 @@ function App() {
   const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
   const currentLeague = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
 
+  // The public shared league page (/l/:token) is a standalone member-facing
+  // surface: it renders its own header (wordmark + "Shared league page"
+  // kicker) and footer, works with no session, and shows identically to
+  // logged-out and logged-in visitors — so the app chrome (nav header,
+  // tweaks panel) stays out of the way entirely.
+  const isSharedRoute = location.pathname.startsWith('/l/');
+
   React.useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => {
@@ -361,8 +369,8 @@ function App() {
       <style>{MOTION_STYLES}</style>
       <Toast trigger={signOutToast} message="Signed out" isDark={isDark} />
 
-      {/* Header */}
-      <header style={{
+      {/* Header (hidden on the shared league page, which carries its own) */}
+      {!isSharedRoute && <header style={{
         background: headerBg,
         borderBottom: `1px solid ${headerBorder}`,
         padding: '0 24px',
@@ -410,11 +418,12 @@ function App() {
           @keyframes kh-spin { to { transform: rotate(360deg); } }
           .kh-spin { animation: kh-spin 1s linear infinite; transform-origin: center; }
         `}</style>
-      </header>
+      </header>}
 
       {/* Main content */}
-      <main style={{ padding: '16px 0 40px' }}>
+      <main style={{ padding: isSharedRoute ? 0 : '16px 0 40px' }}>
         <Routes>
+          <Route path="/l/:token" element={<SharedLeagueRoute isDark={isDark} />} />
           <Route path="/" element={<RootRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} leaguesLoading={leaguesLoading} onSignIn={handleSignIn} />} />
           <Route path="/demo" element={<DemoRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} onSignIn={handleSignIn} />} />
           <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
@@ -424,8 +433,8 @@ function App() {
         </Routes>
       </main>
 
-      {/* Tweaks Panel */}
-      <TweaksPanel>
+      {/* Tweaks Panel (dev affordance — not shown on the public shared page) */}
+      {!isSharedRoute && <TweaksPanel>
         <TweakSection label="Appearance">
           <TweakRadio
             label="Color Mode"
@@ -444,7 +453,7 @@ function App() {
             </button>
           </TweakSection>
         )}
-      </TweaksPanel>
+      </TweaksPanel>}
     </div>
   );
 }

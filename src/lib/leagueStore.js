@@ -34,3 +34,31 @@ export async function deleteLeague(userId, leagueId) {
     .eq('id', leagueId);
   if (error) throw error;
 }
+
+// ── Share token (public shared league page) ────────────────────────────────
+// share_token is a real column on public.leagues (NOT part of the data blob),
+// so it never rides along in saveLeague upserts and is never exposed through
+// the get_shared_league projection. RLS scopes both calls to the signed-in
+// owner's rows — no explicit owner_id filter needed.
+
+export async function fetchShareToken(leagueId) {
+  const { data, error } = await supabase
+    .from('leagues')
+    .select('share_token')
+    .eq('id', leagueId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.share_token || null;
+}
+
+// Regenerating mints a new URL-safe token and invalidates the old link
+// immediately (the RPC looks up by exact token match).
+export async function regenerateShareToken(leagueId) {
+  const token = crypto.randomUUID().replace(/-/g, '');
+  const { error } = await supabase
+    .from('leagues')
+    .update({ share_token: token, updated_at: new Date().toISOString() })
+    .eq('id', leagueId);
+  if (error) throw error;
+  return token;
+}

@@ -32,6 +32,7 @@ const tokens = {
   typePillEmphatic:   { fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' },
   typeBody:           { fontSize: '13px', fontWeight: 400 },
   typeBodyMeta:       { fontSize: '12px', fontWeight: 400 },
+  typeStatMeta:       { fontSize: '10px', fontWeight: 500, letterSpacing: '0.01em' },
   typeNumericHero:    { fontSize: '26px', fontWeight: 700 },
   typeNumericCard:    { fontSize: '22px', fontWeight: 700 },
   typeNumericCompact: { fontSize: '19px', fontWeight: 800, letterSpacing: '-0.01em' },
