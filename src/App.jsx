@@ -10,7 +10,7 @@ import { SharedLeagueRoute } from './SharedLeaguePage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
 import { supabase } from './lib/supabase.js';
-import { fetchLeagues, saveLeague } from './lib/leagueStore.js';
+import { fetchLeagues, saveLeague, softDeleteLeague, restoreLeague } from './lib/leagueStore.js';
 
 // Neutral loading placeholder — shown while auth is still resolving (before
 // we know whether to show the landing or My Leagues, so there's no known
@@ -136,7 +136,7 @@ function loadLeagues() {
 // never render as "my leagues", not even for a frame. Both loading gaps are
 // debounced via useDelayedLoading so a fast resolve shows nothing at all
 // instead of a flash, and a slower one holds long enough not to flicker.
-function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSignIn }) {
+function RootRoute({ leagues, deletedLeagues, isDark, session, authReady, leaguesLoading, onSignIn, onRestoreLeague }) {
   const navigate = useNavigate();
   const showAuthLoading = useDelayedLoading(!authReady);
   const showLeaguesLoading = useDelayedLoading(!!session && leaguesLoading);
@@ -161,7 +161,9 @@ function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSign
     return showLeaguesLoading ? <LeaguesSkeleton isDark={isDark} /> : null;
   }
 
-  if (leagues.length === 0) {
+  // Zero active leagues but something in Recently deleted still needs the
+  // grid page — that section is the only way back to a deleted league.
+  if (leagues.length === 0 && deletedLeagues.length === 0) {
     return (
       <NewUserEmptyState
         isDark={isDark}
@@ -174,6 +176,8 @@ function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSign
   return (
     <HomeView
       leagues={leagues}
+      deletedLeagues={deletedLeagues}
+      onRestoreLeague={onRestoreLeague}
       onSelectLeague={league => navigate(`/league/${league.id}`)}
       onAddLeague={() => navigate('/new')}
       isDark={isDark}
@@ -186,7 +190,7 @@ function RootRoute({ leagues, isDark, session, authReady, leaguesLoading, onSign
 // their own leagues at "/", so "/demo" bounces them there. This is the only
 // route that ever shows the demo leagues — reachable solely via "Explore
 // the demo →", so the banner is never skippable.
-function DemoRoute({ leagues, isDark, session, authReady, onSignIn }) {
+function DemoRoute({ leagues, deletedLeagues, isDark, session, authReady, onSignIn, onRestoreLeague }) {
   const navigate = useNavigate();
   const showAuthLoading = useDelayedLoading(!authReady);
   if (!authReady || showAuthLoading) return showAuthLoading ? <LoadingState isDark={isDark} /> : null;
@@ -194,6 +198,8 @@ function DemoRoute({ leagues, isDark, session, authReady, onSignIn }) {
   return (
     <HomeView
       leagues={leagues}
+      deletedLeagues={deletedLeagues}
+      onRestoreLeague={onRestoreLeague}
       onSelectLeague={league => navigate(`/league/${league.id}`)}
       onAddLeague={() => navigate('/new')}
       isDark={isDark}
@@ -223,8 +229,10 @@ function NewLeagueRoute({ leagues, isDark, session, onCreate }) {
 // to overview. 'import' is the new rosters/draft-upload panel.
 const VALID_TABS = ['overview', 'import', 'payouts', 'lottery', 'settings'];
 
-function LeagueRoute({ leagues, isDark, onUpdateLeague }) {
+function LeagueRoute({ leagues, isDark, onUpdateLeague, onDeleteLeague }) {
   const { leagueId, tab } = useParams();
+  // `leagues` here is the active list — a soft-deleted league's routes fall
+  // through to the not-found redirect until it's restored.
   const league = leagues.find(l => l.id === leagueId);
 
   if (!league) return <Navigate to="/" replace />;
@@ -239,6 +247,7 @@ function LeagueRoute({ leagues, isDark, onUpdateLeague }) {
       league={league}
       isDark={isDark}
       onUpdateLeague={onUpdateLeague}
+      onDeleteLeague={onDeleteLeague}
       activeTab={tab}
     />
   );
@@ -264,8 +273,16 @@ function App() {
   // league name beside the brand mark. The section doors live in the Keepers
   // tab row (LeagueView), not here. Match is read from the URL so the header
   // stays in sync with routing (back/forward, refresh, deep links).
+  // Soft delete: the `leagues` state holds every league the current identity
+  // owns, including soft-deleted ones (localStorage entries carry a
+  // `deletedAt` field; Supabase rows surface their deleted_at column the same
+  // way via fetchLeagues). Routes and grids only ever see the active split;
+  // the deleted split feeds the "Recently deleted" section on My Leagues.
+  const activeLeagues = leagues.filter(l => !l.deletedAt);
+  const deletedLeagues = leagues.filter(l => l.deletedAt);
+
   const leagueMatch = location.pathname.match(/^\/league\/([^/]+)/);
-  const currentLeague = leagueMatch ? leagues.find(l => l.id === leagueMatch[1]) : null;
+  const currentLeague = leagueMatch ? activeLeagues.find(l => l.id === leagueMatch[1]) : null;
 
   // The public shared league page (/l/:token) is a standalone member-facing
   // surface: it renders its own header (wordmark + "Shared league page"
@@ -355,6 +372,29 @@ function App() {
     navigate(`/league/${league.id}/overview`);
   }
 
+  // Soft delete + restore. Local state flips the deletedAt field either way;
+  // signed-in identities also persist the flip to the deleted_at column (the
+  // shared page RPC stops resolving the token while it's set).
+  function handleDeleteLeague(league) {
+    const when = new Date().toISOString();
+    setLeagues(prev => prev.map(l => (l.id === league.id ? { ...l, deletedAt: when } : l)));
+    if (session) {
+      softDeleteLeague(league.id, when).catch(e => console.warn('[KeeperHQ] Failed to delete league in Supabase:', e));
+    }
+    navigate('/');
+  }
+
+  function handleRestoreLeague(league) {
+    setLeagues(prev => prev.map(l => {
+      if (l.id !== league.id) return l;
+      const { deletedAt, ...rest } = l;
+      return rest;
+    }));
+    if (session) {
+      restoreLeague(league.id).catch(e => console.warn('[KeeperHQ] Failed to restore league in Supabase:', e));
+    }
+  }
+
   function handleResetData() {
     if (confirm('Reset all league data back to the demo defaults? This clears anything you\'ve changed.')) {
       localStorage.removeItem(STORAGE_KEY);
@@ -424,11 +464,13 @@ function App() {
       <main style={{ padding: isSharedRoute ? 0 : '16px 0 40px' }}>
         <Routes>
           <Route path="/l/:token" element={<SharedLeagueRoute isDark={isDark} />} />
-          <Route path="/" element={<RootRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} leaguesLoading={leaguesLoading} onSignIn={handleSignIn} />} />
-          <Route path="/demo" element={<DemoRoute leagues={leagues} isDark={isDark} session={session} authReady={authReady} onSignIn={handleSignIn} />} />
+          <Route path="/" element={<RootRoute leagues={activeLeagues} deletedLeagues={deletedLeagues} isDark={isDark} session={session} authReady={authReady} leaguesLoading={leaguesLoading} onSignIn={handleSignIn} onRestoreLeague={handleRestoreLeague} />} />
+          <Route path="/demo" element={<DemoRoute leagues={activeLeagues} deletedLeagues={deletedLeagues} isDark={isDark} session={session} authReady={authReady} onSignIn={handleSignIn} onRestoreLeague={handleRestoreLeague} />} />
+          {/* NewLeagueRoute gets the FULL list (incl. soft-deleted) so a new
+              league's slug can't collide with a deleted league's id. */}
           <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
-          <Route path="/league/:leagueId" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
-          <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={leagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />} />
+          <Route path="/league/:leagueId" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
+          <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

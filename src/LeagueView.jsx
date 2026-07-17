@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock, Link2 } from 'lucide-react';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
@@ -674,11 +674,61 @@ function ShareLeagueCard({ league, isDark, accentColor }) {
   );
 }
 
+// ── Delete league card (Settings) ────────────────────────────────────────────
+// Soft delete: the league drops out of My Leagues (and its shared page link
+// stops resolving) but stays recoverable from the "Recently deleted" section
+// on the My Leagues page — owner self-restore, no admin involved. Inline
+// danger confirm mirrors the share-link regenerate pattern.
+function DeleteLeagueCard({ league, isDark, onDeleteLeague }) {
+  const t = makeTheme(isDark);
+  const [confirming, setConfirming] = React.useState(false);
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: t.danger, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Delete League</div>
+      </div>
+      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Trash2 size={18} strokeWidth={1.5} color={t.danger} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Delete {league.name}</div>
+            <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
+              The league disappears from My Leagues and its shared page link stops working. You can restore it from “Recently deleted” on the My Leagues page.
+            </div>
+          </div>
+        </div>
+        {confirming ? (
+          <div style={{ background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: tokens.radiusMd, padding: '12px 14px' }}>
+            <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.danger }}>Delete {league.name}?</div>
+            <div style={{ ...tokens.typeBodyMeta, color: t.textBody, marginTop: 4, lineHeight: 1.5 }}>
+              It disappears from My Leagues immediately, and anyone opening the shared league page will see an invalid-link message. Restore it any time from “Recently deleted” on the My Leagues page.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+              <Button variant="secondary" size="sm" isDark={isDark} onClick={() => setConfirming(false)}>Cancel</Button>
+              <Button variant="destructive" size="sm" isDark={isDark} onClick={() => onDeleteLeague(league)}>Delete league</Button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <button onClick={() => setConfirming(true)} style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit',
+              ...tokens.typeBodyMeta, fontWeight: 600, color: t.danger, textDecoration: 'underline',
+            }}>
+              Delete league
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Settings panel — league rules + season rollover ──────────────────────────
 // (Roster / draft imports live in ImportPanel, reached from the Import door.)
-function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
+function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, onDeleteLeague }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
+  const teams = league.teams || [];
   const [showRolloverConfirm, setShowRolloverConfirm] = React.useState(false);
 
   function rolloverSeason() {
@@ -766,10 +816,43 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved })
     onUpdateLeague(next);
   }
 
+  // ── Teams card — inline team renames (EditableCard pattern). Teams are
+  // referenced by id everywhere (keepers' tradedTo, payment rows, import
+  // mapping, the shared page projection), so a rename propagates on its own.
+  const teamsView = teams.map((tm, i) => ({
+    label: `Team ${i + 1}`,
+    value: tm.name,
+    ...(tm.isCommissioner ? { help: 'Commissioner' } : {}),
+  }));
+  const teamsDraftInitial = { names: Object.fromEntries(teams.map(tm => [tm.id, tm.name])) };
+  function teamsEdit(draft, setDraft) {
+    return teams.map((tm, i) => ({
+      label: `Team ${i + 1}`,
+      ...(tm.isCommissioner ? { help: 'Commissioner' } : {}),
+      control: <TextField value={draft.names[tm.id]} width={220} isDark={isDark} t={t}
+        onChange={v => setDraft({ ...draft, names: { ...draft.names, [tm.id]: v } })} />,
+    }));
+  }
+  function saveTeams(draft) {
+    onUpdateLeague({
+      ...league,
+      teams: teams.map(tm => {
+        const name = (draft.names[tm.id] || '').trim();
+        // A blanked-out field keeps the old name — no way to save a nameless team.
+        return name && name !== tm.name ? { ...tm, name } : tm;
+      }),
+    });
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <EditableCard title="Keeper Rules" t={t} isDark={isDark} accentColor={accentColor}
         viewRows={rulesView} initialDraft={rulesDraftInitial} editRows={rulesEdit} onSave={saveRules} onSaved={onSaved} />
+
+      {teams.length > 0 && (
+        <EditableCard title="Teams" t={t} isDark={isDark} accentColor={accentColor}
+          viewRows={teamsView} initialDraft={teamsDraftInitial} editRows={teamsEdit} onSave={saveTeams} onSaved={onSaved} />
+      )}
 
       <ShareLeagueCard league={league} isDark={isDark} accentColor={accentColor} />
 
@@ -791,6 +874,10 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved })
           </Button>
         </div>
       </div>
+
+      {onDeleteLeague && (
+        <DeleteLeagueCard league={league} isDark={isDark} onDeleteLeague={onDeleteLeague} />
+      )}
 
       {showRolloverConfirm && (
         <RolloverConfirmModal league={league} accentColor={accentColor} isDark={isDark}
@@ -996,15 +1083,25 @@ function phaseLabel(status) {
 }
 
 // Inline keeper-deadline control on the right of the identity card. Writes
-// league.keeperDeadline; goes warning-colored when ≤7 days out.
+// league.keeperDeadline (date) + league.keeperDeadlineTime ('HH:MM', local);
+// a date-only deadline (older data) is read as 11:59 PM. Goes warning-colored
+// when ≤7 days out. The shared page's live countdown reads the same pair.
 function DeadlineLine({ league, isDark, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const [editing, setEditing] = React.useState(false);
   const deadline = league.keeperDeadline || '';
-  const daysLeft = deadline ? Math.ceil((new Date(deadline + 'T12:00:00') - new Date()) / 86400000) : null;
+  const time = league.keeperDeadlineTime || '23:59';
+  const target = deadline ? new Date(`${deadline}T${time}:59`) : null;
+  const daysLeft = target ? Math.ceil((target - new Date()) / 86400000) : null;
   const urgent = daysLeft != null && daysLeft >= 0 && daysLeft <= 7;
   const fmt = d => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const fmtTime = (hhmm) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const d = new Date(2000, 0, 1, h || 0, m || 0);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  };
   const labelColor = urgent ? t.warning : t.textSecondary;
+  const editInputStyle = { ...tokens.typeBodyMeta, fontFamily: 'inherit', color: t.textPrimary, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 6px' };
   return (
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: '100%',
@@ -1015,14 +1112,31 @@ function DeadlineLine({ league, isDark, onUpdateLeague }) {
       <Clock size={14} strokeWidth={2} color={labelColor} style={{ flexShrink: 0 }} />
       <span style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: labelColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {deadline
-          ? `Keeper deadline · ${fmt(deadline)}${daysLeft != null ? ` · ${daysLeft < 0 ? 'passed' : `${daysLeft}d left`}` : ''}`
+          ? `Keeper deadline · ${fmt(deadline)}, ${fmtTime(time)}${daysLeft != null ? ` · ${daysLeft < 0 ? 'passed' : `${daysLeft}d left`}` : ''}`
           : 'Keeper deadline · not set'}
       </span>
       {editing ? (
-        <input type="date" value={deadline} autoFocus
-          onChange={e => onUpdateLeague({ ...league, keeperDeadline: e.target.value || null })}
-          onBlur={() => setEditing(false)}
-          style={{ ...tokens.typeBodyMeta, fontFamily: 'inherit', color: t.textPrimary, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 6px' }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <input type="date" value={deadline} autoFocus
+            onChange={e => {
+              const v = e.target.value;
+              // Picking a date defaults the time to 11:59 PM local; clearing
+              // the date clears the time with it.
+              onUpdateLeague({
+                ...league,
+                keeperDeadline: v || null,
+                keeperDeadlineTime: v ? (league.keeperDeadlineTime || '23:59') : null,
+              });
+            }}
+            style={editInputStyle} />
+          <input type="time" value={time} disabled={!deadline}
+            onChange={e => onUpdateLeague({ ...league, keeperDeadlineTime: e.target.value || '23:59' })}
+            style={{ ...editInputStyle, opacity: deadline ? 1 : 0.5 }} />
+          <button onClick={() => setEditing(false)}
+            style={{ ...tokens.typeBodyMeta, fontWeight: 700, color: t.info, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, whiteSpace: 'nowrap' }}>
+            Done
+          </button>
+        </span>
       ) : (
         <button onClick={() => setEditing(true)}
           style={{ ...tokens.typeBodyMeta, fontWeight: 700, color: t.info, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, whiteSpace: 'nowrap', flexShrink: 0 }}>
@@ -1056,7 +1170,7 @@ function SectionDoorButton({ to, active, label, Icon, isDark }) {
   );
 }
 
-function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
+function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab }) {
   const t = makeTheme(isDark);
   const navigate = useNavigate();
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
@@ -1202,7 +1316,7 @@ function LeagueView({ league, isDark, onUpdateLeague, activeTab }) {
       )}
       {activeTab === 'settings' && (
         <SectionPanel title="League Settings" isDark={isDark} onClose={closePanel}>
-          <SettingsPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} />
+          <SettingsPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} onDeleteLeague={onDeleteLeague} />
         </SectionPanel>
       )}
       {activeTab === 'import' && (

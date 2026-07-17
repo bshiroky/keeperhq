@@ -48,12 +48,14 @@ function useMediaQuery(query) {
   return matches;
 }
 
-// Live countdown off league.keeperDeadline (a date-only string; the deadline
-// moment is the end of that day, matching the "· 11:59 PM" display). Days
-// granularity when far out; inside the final 48h it switches to hours/minutes
-// and ticks live. Past the moment it reports locked.
-function useCountdown(deadline) {
-  const target = deadline ? new Date(deadline + 'T23:59:59').getTime() : null;
+// Live countdown off league.keeperDeadline (date string) + the commissioner-
+// set league.keeperDeadlineTime ('HH:MM', local). Date-only deadlines (older
+// data) are interpreted as 11:59 PM, so the displayed time is always the real
+// deadline moment. Days granularity when far out; inside the final 48h it
+// switches to hours/minutes and ticks live. Past the moment it reports locked.
+function useCountdown(deadline, time) {
+  const hhmm = time || '23:59';
+  const target = deadline ? new Date(`${deadline}T${hhmm}:59`).getTime() : null;
   const [, force] = React.useReducer(x => x + 1, 0);
   React.useEffect(() => {
     if (!target) return;
@@ -68,6 +70,9 @@ function useCountdown(deadline) {
   const locked = msLeft <= 0;
   const d = new Date(deadline + 'T12:00:00');
   const dateShort = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const [th, tm] = hhmm.split(':').map(Number);
+  const timeLabel = new Date(2000, 0, 1, th || 0, tm || 0)
+    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   let label = null;
   if (!locked) {
     if (msLeft >= 48 * HOUR_MS) {
@@ -79,7 +84,7 @@ function useCountdown(deadline) {
       label = `${h}h ${m}m`;
     }
   }
-  return { locked, label, dateShort, dateLabel: `${dateShort} · 11:59 PM` };
+  return { locked, label, dateShort, dateLabel: `${dateShort} · ${timeLabel}` };
 }
 
 // ── Small pieces ────────────────────────────────────────────────────────────
@@ -263,10 +268,13 @@ function RowList({ rows, league, playerMap, isDark, hideTeam, dimEligible }) {
 
 // ── Desktop stat table (hockey, ≥1024px) ───────────────────────────────────
 // The CompactKeeperGrid sticky/scroll/snap mechanics, re-aimed: Player pinned
-// left, Contract + Status pinned right, stat columns scrolling between them
-// with one-column-per-click chevrons clamped to valid snap points. Explicit
-// pixel table width in scroll mode (tableLayout: fixed truncation), per-td
-// row dividers (a <tr> border doesn't paint under borderCollapse: separate).
+// left, Contract + Status pinned right, stat columns scroll-snapping between
+// them on native horizontal scroll. The scroll affordance is a pair of
+// edge-fade gradients (NHL.com stats-table style) that appear on whichever
+// side has clipped columns — no floating buttons over row content (the old
+// chevrons overlapped rows). Explicit pixel table width in scroll mode
+// (tableLayout: fixed truncation), per-td row dividers (a <tr> border
+// doesn't paint under borderCollapse: separate).
 const PLAYER_W = 230;
 const STAT_W = 64;
 const CONTRACT_W = 150;
@@ -285,19 +293,13 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   const naturalW = PLAYER_W + nStats * STAT_W + CONTRACT_W + STATUS_W;
   const stretchMode = containerW > 0 && naturalW <= containerW;
 
-  function maxValidSnap() {
-    const el = scrollRef.current;
-    if (!el) return 0;
-    const maxScroll = el.scrollWidth - el.clientWidth;
-    return Math.max(0, Math.floor(maxScroll / STAT_W) * STAT_W);
-  }
   React.useEffect(() => {
     function update() {
       const el = scrollRef.current;
       if (!el) return;
       setContainerW(el.clientWidth);
       setCanLeft(el.scrollLeft > 1);
-      setCanRight(el.scrollLeft + 1 < maxValidSnap());
+      setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
     }
     update();
     const el = scrollRef.current;
@@ -307,16 +309,6 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
     ro.observe(el);
     return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
   }, [nStats, rows.length]);
-
-  function scrollTable(dir) {
-    const el = scrollRef.current;
-    if (!el) return;
-    const cur = el.scrollLeft;
-    const raw = dir > 0
-      ? (Math.floor(cur / STAT_W) + 1) * STAT_W
-      : (Math.ceil(cur / STAT_W) - 1) * STAT_W;
-    el.scrollTo({ left: Math.max(0, Math.min(maxValidSnap(), raw)), behavior: 'smooth' });
-  }
 
   function clickSort(cat) {
     setSort(s => s.key === cat.key
@@ -363,29 +355,27 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
     ...tokens.typeLabelEyebrow, color: t.textMuted,
     borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap',
   };
-  const stickyShadowL = canLeft ? '4px 0 6px -3px rgba(0,0,0,0.12)' : 'none';
-  const stickyShadowR = canRight ? '-4px 0 6px -3px rgba(0,0,0,0.12)' : 'none';
-  const chevronStyle = {
-    position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 6,
-    width: 28, height: 28, borderRadius: '50%', background: t.cardBg,
-    border: `1px solid ${t.border}`, boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
-    cursor: 'pointer', color: t.textSecondary, fontSize: 16, fontFamily: 'inherit',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, padding: 0,
-  };
+  // Edge-fade scroll affordance: a soft gradient shadow hugging the inside
+  // of each sticky boundary, shown only while columns are clipped on that
+  // side. Rendered as overlays (pointer-events: none) so they never block
+  // scrolling, sorting, or row content; opacity-toggled so the appear/
+  // disappear reads as a fade rather than a pop.
+  const fadeShadow = isDark ? 'rgba(0,0,0,0.55)' : 'rgba(26,31,46,0.16)';
+  const edgeFade = (side, on) => ({
+    position: 'absolute', top: 0, bottom: 0, width: 22, zIndex: 5,
+    pointerEvents: 'none', opacity: on ? 1 : 0, transition: 'opacity 0.18s',
+    ...(side === 'left'
+      ? { left: PLAYER_W, background: `linear-gradient(to right, ${fadeShadow}, transparent)` }
+      : { right: CONTRACT_W + STATUS_W, background: `linear-gradient(to left, ${fadeShadow}, transparent)` }),
+  });
 
   let renderedSoFar = 0;
   return (
     <div style={{ marginBottom: tokens.spaceLg }}>
       <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>{title}</div>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden', position: 'relative' }}>
-        {canLeft && (
-          <button onClick={() => scrollTable(-1)} aria-label="Previous stats"
-            style={{ ...chevronStyle, left: PLAYER_W - 14 }}>‹</button>
-        )}
-        {canRight && (
-          <button onClick={() => scrollTable(1)} aria-label="More stats"
-            style={{ ...chevronStyle, right: CONTRACT_W + STATUS_W - 14 }}>›</button>
-        )}
+        {!stretchMode && <div aria-hidden style={edgeFade('left', canLeft)} />}
+        {!stretchMode && <div aria-hidden style={edgeFade('right', canRight)} />}
         <div ref={scrollRef} style={{
           overflowX: stretchMode ? 'hidden' : 'auto',
           scrollSnapType: stretchMode ? 'none' : 'x mandatory',
@@ -397,7 +387,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
           }}>
             <thead>
               <tr>
-                <th style={{ ...headerCell, position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, boxShadow: stickyShadowL }}>
+                <th style={{ ...headerCell, position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W }}>
                   Player
                 </th>
                 {cats.map(cat => {
@@ -421,7 +411,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                   );
                 })}
                 <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: CONTRACT_W, minWidth: CONTRACT_W }}>Contract</th>
-                <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W, boxShadow: stickyShadowR }}>Status</th>
+                <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -443,7 +433,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                     const pos = displayPos(row, rec);
                     return (
                       <tr key={`${row.teamId}-${row.player}`} className="kh-share-tr" style={{ verticalAlign: 'middle' }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, boxShadow: stickyShadowL, opacity: dim }}>
+                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, opacity: dim }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0 }}>
                             <SharedHeadshot rec={rec} isDark={isDark} size={30} />
                             <div style={{ minWidth: 0 }}>
@@ -474,7 +464,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                         <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: CONTRACT_W, minWidth: CONTRACT_W, borderBottom: rowBorder, whiteSpace: 'nowrap', opacity: dim }}>
                           <ContractText row={row} league={league} isDark={isDark} />
                         </td>
-                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder, boxShadow: stickyShadowR, opacity: dim }}>
+                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder, opacity: dim }}>
                           <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
                         </td>
                       </tr>
@@ -613,7 +603,7 @@ function SharedLeaguePage({ league, isDark }) {
   const isHockey = league.sport === 'hockey';
   const playerMap = usePlayerMap(league.sport);
   const isDesktop = useMediaQuery('(min-width: 1024px)');
-  const cd = useCountdown(league.keeperDeadline);
+  const cd = useCountdown(league.keeperDeadline, league.keeperDeadlineTime);
   const locked = !!cd?.locked;
 
   const allRows = React.useMemo(() => buildSharedRows(league), [league]);

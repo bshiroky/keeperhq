@@ -326,7 +326,51 @@ function LeaguesSkeleton({ isDark }) {
   );
 }
 
-function HomeView({ leagues, onSelectLeague, onAddLeague, isDark, demo, onSignIn }) {
+// ── Recently deleted — the owner-self-restore recovery story for soft-deleted
+//    leagues. Deliberately quiet: a small list under the grid, one Restore
+//    button per league, nothing else. ───────────────────────────────────────
+function RecentlyDeleted({ leagues, onRestore, isDark }) {
+  const t = makeTheme(isDark);
+  const fmtDate = (iso) => {
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+  return (
+    <div style={{ marginTop: tokens.space2xl }}>
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>
+        Recently deleted
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
+        {leagues.map(league => {
+          const cfg = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
+          const deletedLabel = fmtDate(league.deletedAt);
+          return (
+            <div key={league.id} style={{
+              display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+              background: t.cardBg, border: `1px dashed ${t.border}`, borderRadius: tokens.radiusMd,
+              padding: `${tokens.spaceXs}px ${tokens.spaceMd}px`, opacity: 0.85,
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, flexShrink: 0 }} />
+              <span style={{ ...tokens.typeBody, fontWeight: 600, color: t.textSecondary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {league.name}
+              </span>
+              {deletedLabel && (
+                <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  Deleted {deletedLabel}
+                </span>
+              )}
+              <Button variant="secondary" size="sm" isDark={isDark} onClick={() => onRestore(league)} style={{ flexShrink: 0 }}>
+                Restore
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HomeView({ leagues, deletedLeagues, onRestoreLeague, onSelectLeague, onAddLeague, isDark, demo, onSignIn }) {
   const [filter, setFilter] = React.useState('all');
   const shown = filter === 'all' ? leagues : leagues.filter(l => l.sport === filter);
 
@@ -357,6 +401,10 @@ function HomeView({ leagues, onSelectLeague, onAddLeague, isDark, demo, onSignIn
         ))}
         <AddLeagueSlot onClick={onAddLeague} isDark={isDark} />
       </div>
+
+      {(deletedLeagues || []).length > 0 && onRestoreLeague && (
+        <RecentlyDeleted leagues={deletedLeagues} onRestore={onRestoreLeague} isDark={isDark} />
+      )}
     </div>
   );
 }
