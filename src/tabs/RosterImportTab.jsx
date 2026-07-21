@@ -2,6 +2,7 @@ import React from 'react';
 import { Camera, Loader, Check } from 'lucide-react';
 import { makeTheme, tokens } from '../components.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
+import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import '../claudeStub.js';
 
 // Per-Team Roster Import
@@ -29,12 +30,6 @@ const ROSTER_POSITIONS = new Set([
   // Bench / IR (common across sports)
   'BN', 'IR', 'IR+', 'IL', 'IL+', 'NA',
 ]);
-
-// Directory position codes are the NHL API's single letters (C/L/R/D/G);
-// wings display and store as the familiar LW/RW.
-function posLabel(pos) {
-  return { L: 'LW', R: 'RW' }[pos] || pos;
-}
 
 // Strip trailing junk Yahoo appends to player-name cells when you select the page text:
 //   "No new player Notes", "NA No new player Notes", "New Player Note", "Player Note",
@@ -234,7 +229,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
     const cleaned = players.filter(p => p.player.trim()).map(p => {
       const name = p.player.trim();
       const rec = matchFor(name);
-      return rec?.pos ? { player: name, pos: posLabel(rec.pos) } : { player: name };
+      return rec?.pos ? { player: name, pos: posForRoster(rec.pos) } : { player: name };
     });
     if (cleaned.length === 0) {
       setError("Nothing to import.");
@@ -390,20 +385,35 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
                 {players.map((p, i) => {
                   const rec = matchFor(p.player);
                   const unmatched = rec === null && !!p.player.trim();
+                  // Directory autocomplete on every row — typing edits the
+                  // name, picking a suggestion resolves it to the directory's
+                  // exact formatting (the fix path for unmatched rows). Other
+                  // rows' names are disabled to keep the roster dupe-free.
+                  const otherNames = new Set(players.filter((_, oi) => oi !== i).map(op => normalizeName(op.player)).filter(Boolean));
                   return (
                     <div key={i} style={{ padding: '6px 8px', background: t.sectionBg, border: `1px solid ${unmatched ? tokens.dangerBorder : t.border}`, borderRadius: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ width: 42, boxSizing: 'border-box', flexShrink: 0, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 4, padding: '3px 5px', fontSize: 11, color: rec?.pos ? t.textPrimary : t.textMuted, textAlign: 'center', fontWeight: 700 }}>
-                          {rec?.pos ? posLabel(rec.pos) : '—'}
+                          {rec?.pos ? posForRoster(rec.pos) : '—'}
                         </span>
-                        <input value={p.player} onChange={e => updatePlayer(i, { player: e.target.value })}
-                          style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', fontSize: 12, color: unmatched ? tokens.danger : t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600 }} />
-                        <button onClick={() => removePlayer(i)}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <PlayerAutocomplete
+                            value={p.player}
+                            onChange={name => updatePlayer(i, { player: name })}
+                            sport={league.sport}
+                            isDark={isDark}
+                            placeholder="Player name"
+                            league={league}
+                            disabledNames={otherNames}
+                            inputStyle={{ width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', fontSize: 12, color: unmatched ? tokens.danger : t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600, padding: 0 }}
+                          />
+                        </div>
+                        <button onClick={() => removePlayer(i)} title="Remove player"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 14, lineHeight: 1, padding: '0 2px', fontFamily: 'inherit' }}>×</button>
                       </div>
                       {unmatched && (
                         <div style={{ marginTop: 3, paddingLeft: 48, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
-                          unmatched — check spelling
+                          unmatched — pick from the suggestions or fix the spelling
                         </div>
                       )}
                     </div>

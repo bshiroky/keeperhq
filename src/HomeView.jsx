@@ -337,8 +337,13 @@ function RecentlyDeleted({ leagues, onRestore, isDark }) {
   };
   return (
     <div style={{ marginTop: tokens.space2xl }}>
-      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.space2xs }}>
         Recently deleted
+      </div>
+      {/* Retention promise — nothing auto-purges. If a purge policy ever
+          lands, this line is where it gets stated. */}
+      <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginBottom: tokens.spaceXs }}>
+        Deleted leagues stay here and can be restored anytime.
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
         {leagues.map(league => {

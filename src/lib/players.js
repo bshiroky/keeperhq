@@ -33,14 +33,19 @@ export async function loadPlayers(sport) {
   return data;
 }
 
+// Name-matching key: diacritics, punctuation, AND spacing are all noise —
+// "A.J. Greer" = "AJ Greer" = "A. J. Greer", "O'Reilly" = "OReilly",
+// "Stützle" = "Stutzle", "Pierre-Luc" = "Pierre Luc". Collapsing whitespace
+// entirely (not just normalizing it) is what makes the initials/hyphen
+// variants converge; real Yahoo pastes and the NHL directory disagree on
+// exactly these. Used as the map key everywhere names are compared, so any
+// change here re-keys all sides consistently.
 export function normalizeName(s) {
   return (s || '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^\w\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[^a-z0-9]/g, '');
 }
 
 // Build a name → {teamId, teamName, status, …} map from the league. Status
