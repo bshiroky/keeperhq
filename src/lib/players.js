@@ -3,18 +3,24 @@ const memCache = {};
 
 export async function loadPlayers(sport) {
   if (memCache[sport]) return memCache[sport];
-  // v4: record shape grew ppg/ppa (skaters) + saves (goalies). Bumping the key
-  // forces a refetch so stat columns don't sit empty for a cache-TTL window
-  // after a deploy changes the directory schema.
-  const key = `khq_players_${sport}_v4`;
-  try { localStorage.removeItem(`khq_players_${sport}_v3`); } catch {}
+  // v5: directory became roster-based — new no-stat records (stat fields
+  // absent entirely) and players who missed last season. Bumping the key
+  // forces a refetch so the new population doesn't wait out the cache TTL.
+  const key = `khq_players_${sport}_v5`;
+  try {
+    localStorage.removeItem(`khq_players_${sport}_v3`);
+    localStorage.removeItem(`khq_players_${sport}_v4`);
+  } catch {}
 
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
       const age = Date.now() - new Date(parsed.cachedAt).getTime();
-      if (age < CACHE_TTL_MS && parsed.data) {
+      // Never serve a cached EMPTY directory — an empty payload means a
+      // broken deploy, and caching it would pin the breakage for the TTL
+      // even after a fixed build ships.
+      if (age < CACHE_TTL_MS && parsed.data && (parsed.data.players || []).length > 0) {
         memCache[sport] = parsed.data;
         return parsed.data;
       }
@@ -24,9 +30,14 @@ export async function loadPlayers(sport) {
   const res = await fetch(`/players-${sport}.json`);
   if (!res.ok) throw new Error(`Player data unavailable for ${sport}`);
   const data = await res.json();
-  memCache[sport] = data;
+  const hasPlayers = (data.players || []).length > 0;
+  // Empty payloads are returned (callers decide how to degrade) but never
+  // cached, so recovery is instant once a good build deploys.
+  if (hasPlayers) memCache[sport] = data;
   try {
-    localStorage.setItem(key, JSON.stringify({ cachedAt: new Date().toISOString(), data }));
+    if (hasPlayers) {
+      localStorage.setItem(key, JSON.stringify({ cachedAt: new Date().toISOString(), data }));
+    }
   } catch {
     // Quota exceeded or storage disabled — memory cache still works.
   }
