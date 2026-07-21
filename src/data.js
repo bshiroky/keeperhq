@@ -33,7 +33,7 @@ export const APP_DATA = {
       },
       payoutNote: '',
       teams: [
-        { id: 't1', name: 'Mark', paid: true, paidDate: '2025-09-12', paidNote: 'EMT', keepersSubmitted: false, keepers: [],
+        { id: 't1', name: 'Alex', paid: true, paidDate: '2025-09-12', keepersSubmitted: false, keepers: [],
           rosterAsOfDate: '2026-03-10',
           roster: [
             { player: 'Tim Stützle', pos: 'C' },
@@ -61,60 +61,60 @@ export const APP_DATA = {
           { player: 'Lane Hutson', contractYear: 0, contractLength: 3, note: 'Drafted last year, eligible Y1' },
           { player: 'Jack Hughes', contractYear: 3, contractLength: 3, expired: true, note: 'Contract expired — back to draft' },
         ] },
-        { id: 't2', name: 'Amar', paid: true, paidDate: '2025-09-15', paidNote: 'EMT', keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't2', name: 'Blake', paid: true, paidDate: '2025-09-15', keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Connor Hellebuyck', contractYear: 0, contractLength: 3 },
           { player: 'Leon Draisaitl', contractYear: 2, contractLength: 3 },
           { player: 'Quinn Hughes', contractYear: 1, contractLength: 3 },
-          { player: 'William Nylander', contractYear: 2, contractLength: 3, note: 'Acquired from Mack mid-season' },
+          { player: 'William Nylander', contractYear: 2, contractLength: 3, note: 'Acquired from Frank mid-season' },
         ] },
-        { id: 't3', name: 'Andrew', paid: true, paidDate: '2025-09-18', paidNote: 'Cash at draft', keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't3', name: 'Carter', paid: true, paidDate: '2025-09-18', keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Artemi Panarin', contractYear: 1, contractLength: 3 },
           { player: 'Sam Reinhart', contractYear: 1, contractLength: 3 },
           { player: 'Wyatt Johnston', contractYear: 0, contractLength: 3 },
           { player: 'Jacob Markstrom', contractYear: 1, contractLength: 3 },
         ] },
-        { id: 't4', name: 'Ben', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't4', name: 'Dana', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Connor McDavid', contractYear: 2, contractLength: 3 },
           { player: 'Cale Makar', contractYear: 0, contractLength: 3 },
           { player: 'Jake Oettinger', contractYear: 0, contractLength: 3 },
           { player: 'Victor Hedman', contractYear: 0, contractLength: 3 },
         ] },
-        { id: 't5', name: 'Corey', paid: true, paidDate: '2025-09-20', keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't5', name: 'Eli', paid: true, paidDate: '2025-09-20', keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Aleksander Barkov', contractYear: 2, contractLength: 3 },
           { player: 'Mark Scheifele', contractYear: 1, contractLength: 3 },
           { player: 'Alex Ovechkin', contractYear: 2, contractLength: 3 },
           { player: 'Rob Thomas', contractYear: 0, contractLength: 3 },
         ] },
-        { id: 't6', name: 'Mack', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't6', name: 'Frank', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Sidney Crosby', contractYear: 1, contractLength: 3 },
           { player: 'Kyle Connor', contractYear: 0, contractLength: 3 },
           { player: 'Seth Jarvis', contractYear: 0, contractLength: 3 },
-          { player: 'Nathan MacKinnon', contractYear: 2, contractLength: 3, note: 'Traded William Nylander to Amar for picks' },
+          { player: 'Nathan MacKinnon', contractYear: 2, contractLength: 3, note: 'Traded William Nylander to Blake for picks' },
         ] },
-        { id: 't7', name: 'Kyle', paid: true, paidDate: '2025-09-22', paidNote: 'EMT', keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't7', name: 'Gus', paid: true, paidDate: '2025-09-22', keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Nikita Kucherov', contractYear: 1, contractLength: 3 },
           { player: 'David Pastrnak', contractYear: 2, contractLength: 3 },
           { player: 'Brayden Point', contractYear: 2, contractLength: 3 },
           { player: 'Mikko Rantanen', contractYear: 2, contractLength: 3 },
         ] },
-        { id: 't8', name: 'Mitch', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't8', name: 'Henri', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Auston Matthews', contractYear: 1, contractLength: 3 },
           { player: 'Mitch Marner', contractYear: 0, contractLength: 3 },
           { player: 'Igor Shesterkin', contractYear: 1, contractLength: 3 },
         ] },
-        { id: 't9', name: 'Nick', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't9', name: 'Ivan', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Sebastian Aho', contractYear: 0, contractLength: 3 },
           { player: 'Roman Josi', contractYear: 1, contractLength: 3 },
         ] },
-        { id: 't10', name: 'Pedram', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't10', name: 'Jules', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Jason Robertson', contractYear: 1, contractLength: 3 },
           { player: 'Adin Hill', contractYear: 0, contractLength: 3 },
           { player: 'Tage Thompson', contractYear: 0, contractLength: 3 },
         ] },
-        { id: 't11', name: 'Scott', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't11', name: 'Kai', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Jesper Bratt', contractYear: 0, contractLength: 3 },
         ] },
-        { id: 't12', name: 'Will', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
+        { id: 't12', name: 'Leo', paid: false, keepersSubmitted: false, keepers: [], priorKeepers: [
           { player: 'Mathew Barzal', contractYear: 1, contractLength: 3 },
           { player: 'Filip Forsberg', contractYear: 0, contractLength: 3 },
         ] },
