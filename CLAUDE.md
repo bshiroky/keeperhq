@@ -128,6 +128,32 @@ features have shipped through their own branches (all merged):
   fields and page keys already align; bumped the `loadPlayers`
   localStorage cache key v3→v4 so schema changes propagate immediately
   instead of after the 12h TTL.
+- **Shared-page polish + import-flow fixes (this branch's PR):** four
+  follow-ups to #27/#28. (1) **Sticky-transparency regression fixed for
+  good** — `opacity` on a sticky `<td>` fades its background too, so
+  dimmed team-filter rows let scrolled stats ghost through
+  Contract/Status; dim now applies to cell *content* only (sticky cells
+  stay fully opaque; the section eyebrow is also sticky-pinned so it
+  doesn't slide off on scroll). (2) **Compact Contract/Status columns**
+  (display-only, data model untouched): contract shows just `Y1/3`
+  (red `Final yr Y3/3` for final, `Expired Y3/3` on the expired view,
+  muted `—` for uncontracted); the status pill is the **owner name
+  only**, color carrying the state (keeper-accent tint for declared
+  keepers *and* under-contract players, readable neutral grey for
+  rostered-only); team-filter views show a plain `Keeper` pill on
+  keepers and **no pill** on eligible rows; `CONTRACT_W` 150→100,
+  `STATUS_W` 160→116 (freed width goes to the stat group); dim raised
+  0.6→0.75; same compaction on mobile rows. Auction display unchanged.
+  (3) **Recently-deleted retention copy** — "Deleted leagues stay here
+  and can be restored anytime" (nothing auto-purges; that line is where
+  a purge policy would be stated). (4) **Import preview fixable in
+  place** — every preview row (and "+ Add player manually") is the real
+  `PlayerAutocomplete` bound to the NHL directory, so unmatched rows
+  resolve by picking a suggestion; and `normalizeName` now treats
+  punctuation *and spacing* as noise (strips everything non-
+  alphanumeric after de-diacriticing), so "AJ Greer" = "A.J. Greer",
+  "OReilly" = "O'Reilly", "Pierre Luc" = "Pierre-Luc" — it's the map
+  key on all comparison sides, so the re-key is consistent everywhere.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -313,7 +339,10 @@ Restore), and `get_shared_league` returns NULL for its token so member
 links render the invalid-link state. Restore clears the column. RLS is
 unchanged — delete/restore are plain owner-scoped UPDATEs. Logged-out /
 demo leagues get the same behavior via a `deletedAt` field on the
-localStorage league object. No hard delete in the UI.
+localStorage league object. No hard delete in the UI. **Nothing
+auto-purges** — the Recently deleted section says so ("Deleted leagues
+stay here and can be restored anytime"); if a purge policy ever lands,
+that copy is where it gets stated.
 
 **Share token + public read path (shared league page).**
 `public.leagues` carries a `share_token text` column — unique index,
@@ -858,7 +887,17 @@ copy of a component drifts away from the original.
   sticky boundaries as the scroll affordance (scroll-position-driven,
   pointer-events none; the old floating chevrons overlapped row content
   and were removed; sticky cells use opaque layered backgrounds so
-  scrolled columns can't ghost through). Print: filter rail hidden, default
+  scrolled columns can't ghost through — and dim/opacity for eligible
+  rows goes on cell CONTENT, never on the sticky `<td>` itself, or the
+  ghosting comes back through the faded background). **Contract/Status
+  are compact, display-only strings**: contract = `Y1/3` (`Final yr
+  Y3/3` red when final, `Expired Y3/3` on the expired view, muted `—`
+  for uncontracted — no fake year); status pill = the owner name only,
+  color carrying the state (keeper accent for declared keepers and
+  under-contract players, readable grey for rostered-only; team-filter
+  views show `Keeper` / no pill instead since the name is redundant
+  there); auction keeps `Keep for $X`. Same strings on mobile rows.
+  Print: filter rail hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   empty state (no keepers declared anywhere) is the page's one
   mascot-*speech* surface.
@@ -883,7 +922,12 @@ copy of a component drifts away from the original.
   in-league keeper/rostered status next to suggestions
 - `src/lib/players.js` — `loadPlayers(sport)`, `normalizeName`,
   `buildStatusIndex(league)` — **the** util for matching league
-  rosters to the player directory. Returns `{ teamId, teamName,
+  rosters to the player directory. `normalizeName` treats diacritics,
+  punctuation, AND spacing as noise (strips everything non-alphanumeric
+  after NFD de-diacriticing) so "A.J."/"AJ"/"A. J.", "O'Reilly"/
+  "OReilly", "Pierre-Luc"/"Pierre Luc", "Stützle"/"Stutzle" all
+  converge — it's the comparison key on every side, so changes to it
+  re-key consistently. Returns `{ teamId, teamName,
   status: 'rostered'|'keeper'|'expired', isExpired, keeperList,
   keeperIdx, tradedTo*, ... }` keyed by normalized name.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
@@ -1087,7 +1131,10 @@ copy of a component drifts away from the original.
   unmatched rows store no `pos` and are flagged in the preview for
   spelling fixes). `cleanPlayerName`'s status-flag strip requires
   whitespace before the flag (`\s+`) — with `\s*` it truncated names
-  ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
+  ending in K/O/Q/P (Hellebuyck → "Hellebuyc"). Every preview row and
+  the "+ Add player manually" path render the real `PlayerAutocomplete`
+  (not a bare input), so an unmatched row is fixed in place by picking
+  the directory's suggestion; the × button remains the dismiss path.
 - `scripts/fetch-players-nhl.mjs` — build-time NHL fetch. Emits
   `ppg`/`ppa` (skaters, from summary `ppGoals`/`ppPoints`) and `saves`
   (goalies) — field names match `STAT_CATEGORIES` keys on the shared

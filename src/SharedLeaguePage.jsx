@@ -161,8 +161,11 @@ function statLineFor(rec) {
   return `${rec.team} · ${rec.gp ?? 0} GP · ${rec.g ?? 0}G · ${rec.a ?? 0}A · ${rec.p ?? 0} PTS`;
 }
 
-// Contract text — typePill scale, bold-800 value, colored per state. Auction
-// leagues show the keep cost instead (never both), at stat-line prominence.
+// Contract text — compact, value-only (display-only; the underlying kinds are
+// unchanged). Contracted players show just "Y1/3"; the final year keeps the
+// red treatment with a short "Final yr" label; uncontracted players show a
+// muted "—" (no fake year); expired keeps its label so it can't be misread as
+// final-year in mixed lists. Auction leagues show the keep cost instead.
 function ContractText({ row, league, isDark }) {
   const t = makeTheme(isDark);
   if (league.draftType === 'auction') {
@@ -172,42 +175,52 @@ function ContractText({ row, league, isDark }) {
       </span>
     );
   }
-  let label, value, color;
-  if (row.kind === 'expired') { label = 'Expired'; value = `Y${row.len}/${row.len}`; color = tokens.danger; }
-  else if (row.final) { label = 'Final year'; value = `Y${row.len}/${row.len}`; color = tokens.danger; }
-  else if (row.kind === 'rostered') { label = 'No contract'; value = `Y1/${row.len}`; color = t.textMuted; }
-  else { label = 'On contract'; value = `Y${row.year}/${row.len}`; color = tokens.info; }
+  if (row.kind === 'rostered') {
+    return <span style={{ ...tokens.typePill, color: t.textMuted }}>—</span>;
+  }
+  let label = null, color = tokens.info;
+  if (row.kind === 'expired') { label = 'Expired'; color = tokens.danger; }
+  else if (row.final) { label = 'Final yr'; color = tokens.danger; }
   return (
     <span style={{ ...tokens.typePill, color, whiteSpace: 'nowrap' }}>
-      {label} <span style={{ fontWeight: 800 }}>{value}</span>
+      {label && <>{label} </>}<span style={{ fontWeight: 800 }}>{`Y${row.year}/${row.len}`}</span>
     </span>
   );
 }
 
-// Status pill — StatusPill visual language. Keeper takes the grid accent
-// (blue snake / orange auction); Eligible is neutral; "was {team}" is the
-// Expired view's danger tint. Team name drops when a team filter is active.
-function RowStatusPill({ row, league, hideTeam, isDark }) {
+// Status pill — the OWNER NAME only; color carries the state (display-only).
+// Keeper-accent tint (blue snake / orange auction) for declared keepers AND
+// players under contract; a readable neutral grey for rostered-but-
+// uncontracted players; "was {team}" keeps the Expired danger tint. On a
+// team-filter view the name drops (it's the team's own page): declared
+// keepers show a plain "Keeper" pill, eligible rows show no pill at all —
+// the section eyebrow already labels them.
+function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
   const t = makeTheme(isDark);
   const auction = league.draftType === 'auction';
+  const accent = auction
+    ? { bg: tokens.warningBg, border: tokens.warningBorder, color: tokens.warning }
+    : { bg: tokens.infoBg, border: tokens.infoBorder, color: tokens.info };
   let bg, border, color, label;
-  if (row.kind === 'keeper') {
-    bg = auction ? tokens.warningBg : tokens.infoBg;
-    border = auction ? tokens.warningBorder : tokens.infoBorder;
-    color = auction ? tokens.warning : tokens.info;
-    label = hideTeam ? 'Keeper' : `Keeper · ${row.teamName}`;
-  } else if (row.kind === 'expired') {
+  if (row.kind === 'expired') {
     bg = tokens.dangerBg; border = tokens.dangerBorder; color = tokens.danger;
     label = `was ${row.teamName}`;
+  } else if (hideTeam) {
+    if (row.kind !== 'keeper') return null;
+    ({ bg, border, color } = accent);
+    label = 'Keeper';
+  } else if (row.kind === 'keeper' || row.kind === 'contract') {
+    ({ bg, border, color } = accent);
+    label = row.teamName;
   } else {
-    bg = t.badgeBg; border = 'transparent'; color = t.badgeColor;
-    label = hideTeam ? 'Eligible' : `Eligible · ${row.teamName}`;
+    bg = t.badgeBg; border = t.border; color = t.textSecondary;
+    label = row.teamName;
   }
   return (
     <span style={{
       ...tokens.typePill, background: bg, color, border: `1px solid ${border}`,
       borderRadius: tokens.radiusPill, padding: '2px 9px',
-      whiteSpace: 'nowrap', maxWidth: 190, overflow: 'hidden', textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap', maxWidth: maxWidth ?? STATUS_W - 28, overflow: 'hidden', textOverflow: 'ellipsis',
       boxSizing: 'border-box',
     }}>{label}</span>
   );
@@ -230,7 +243,7 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
       border: `1px solid ${expired ? t.dangerBorder : t.border}`,
       borderRadius: tokens.radiusLg, padding: `${tokens.spaceSm}px`,
       minHeight: 58, boxSizing: 'border-box',
-      opacity: dim ? 0.6 : 1,
+      opacity: dim ? 0.75 : 1,
     }}>
       {isHockey && <SharedHeadshot rec={rec} isDark={isDark} />}
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -248,7 +261,7 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0, minWidth: 0 }}>
         <ContractText row={row} league={league} isDark={isDark} />
-        <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
+        <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} maxWidth={190} />
       </div>
     </div>
   );
@@ -275,10 +288,13 @@ function RowList({ rows, league, playerMap, isDark, hideTeam, dimEligible }) {
 // chevrons overlapped rows). Explicit pixel table width in scroll mode
 // (tableLayout: fixed truncation), per-td row dividers (a <tr> border
 // doesn't paint under borderCollapse: separate).
+// Contract/Status are content-fit now that the wordy labels are gone
+// ("On contract Y1/3" → "Y1/3", "Keeper · Ben" → "Ben") — the freed width
+// goes to the stat group, so rows end flush instead of collecting dead air.
 const PLAYER_W = 230;
 const STAT_W = 64;
-const CONTRACT_W = 150;
-const STATUS_W = 160;
+const CONTRACT_W = 100;
+const STATUS_W = 116;
 
 function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dimEligible, groupKeepers, defaultSortKey }) {
   const t = makeTheme(isDark);
@@ -420,7 +436,9 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                   {part.eyebrow && (
                     <tr className="kh-share-tr">
                       <td colSpan={totalCols} style={{ padding: '10px 14px 4px', ...tokens.typeLabelEyebrow, color: t.textMuted, borderBottom: 'none' }}>
-                        {part.eyebrow}
+                        {/* Sticky within the wide colSpan cell so the label
+                            doesn't slide out of view on horizontal scroll. */}
+                        <span style={{ display: 'inline-block', position: 'sticky', left: 14 }}>{part.eyebrow}</span>
                       </td>
                     </tr>
                   )}
@@ -429,12 +447,16 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                     const isLast = renderedSoFar === flatCount;
                     const rowBorder = isLast ? 'none' : `1px solid ${t.border}`;
                     const expired = row.kind === 'expired';
-                    const dim = (part.dim || (dimEligible && row.kind !== 'keeper')) ? 0.6 : 1;
+                    // Dim goes on cell CONTENT, never on the sticky <td>s
+                    // themselves — a semi-transparent sticky cell lets
+                    // scrolled stat columns ghost through its background
+                    // (the PR #27 transparency bug in a new costume).
+                    const dim = (part.dim || (dimEligible && row.kind !== 'keeper')) ? 0.75 : 1;
                     const pos = displayPos(row, rec);
                     return (
                       <tr key={`${row.teamId}-${row.player}`} className="kh-share-tr" style={{ verticalAlign: 'middle' }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, opacity: dim }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0 }}>
+                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
                             <SharedHeadshot rec={rec} isDark={isDark} size={30} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -461,11 +483,15 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                             </span>
                           </td>
                         )}
-                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: CONTRACT_W, minWidth: CONTRACT_W, borderBottom: rowBorder, whiteSpace: 'nowrap', opacity: dim }}>
-                          <ContractText row={row} league={league} isDark={isDark} />
+                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: CONTRACT_W, minWidth: CONTRACT_W, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
+                          <span style={{ display: 'inline-block', opacity: dim }}>
+                            <ContractText row={row} league={league} isDark={isDark} />
+                          </span>
                         </td>
-                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder, opacity: dim }}>
-                          <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
+                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
+                          <span style={{ display: 'inline-block', opacity: dim }}>
+                            <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
+                          </span>
                         </td>
                       </tr>
                     );
