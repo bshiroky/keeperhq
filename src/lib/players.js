@@ -3,7 +3,11 @@ const memCache = {};
 
 export async function loadPlayers(sport) {
   if (memCache[sport]) return memCache[sport];
-  const key = `khq_players_${sport}_v3`;
+  // v4: record shape grew ppg/ppa (skaters) + saves (goalies). Bumping the key
+  // forces a refetch so stat columns don't sit empty for a cache-TTL window
+  // after a deploy changes the directory schema.
+  const key = `khq_players_${sport}_v4`;
+  try { localStorage.removeItem(`khq_players_${sport}_v3`); } catch {}
 
   try {
     const raw = localStorage.getItem(key);

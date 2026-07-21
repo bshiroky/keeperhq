@@ -93,6 +93,41 @@ features have shipped through their own branches (all merged):
   old blanket "no share-this-league UI" rule for exactly this
   read-only surface — member logins / collaboration remain deferred**
   (see Roadmap split B).
+- **Off-season workflow fixes (this branch's PR):** six fixes from real
+  commissioner data entry on production. (1) **Roster-import positions
+  come from the NHL directory, not the Yahoo paste** — the paste/OCR
+  step extracts names only (Yahoo's left column is a lineup slot, not a
+  position); names are matched via `loadPlayers('nhl')` +
+  `normalizeName`, matched rows get real position chips, unmatched rows
+  save with no `pos` and are flagged "unmatched — check spelling" in
+  the preview. Also fixed a name-truncation bug in `cleanPlayerName`
+  (the status-flag strip needed `\s+`, not `\s*` — it was chopping the
+  last letter off names ending in K/O/Q/P: Hellebuyck, Tkachuk…).
+  (2) **Team renames in Settings** — a "Teams" `EditableCard`; renames
+  propagate everywhere because teams are referenced by id.
+  (3) **Soft delete + restore** — `deleted_at` column on
+  `public.leagues` (`003_soft_delete.sql`), danger-styled Delete League
+  card in Settings with inline confirm, active/deleted split in
+  `App.jsx` (localStorage leagues carry a `deletedAt` field; Supabase
+  rows surface the column via `fetchLeagues`), "Recently deleted"
+  section with Restore on My Leagues, `get_shared_league` returns NULL
+  for deleted leagues (member link → invalid-link state). RLS
+  unchanged. (4) **Contract year at entry** — the draft import now
+  works for snake leagues (cost is optional in the parse regex) and
+  writes `contractYear`/`contractLength` on `priorKeepers`, with a
+  per-player "Enters Y_/len" select in the preview (stored as
+  entering-year − 1, the years-served convention). KeeperEditModal and
+  the Set-keepers slot already had Y selects — verified Y3/3 shows
+  Final-yr on the grid + shared page with no season advance.
+  (5) **Shared-page polish** — the desktop stat table's floating
+  chevrons are gone, replaced by scroll-position-driven edge-fade
+  gradients (NHL.com style) at the sticky boundaries; the keeper
+  deadline gained a time (`keeperDeadlineTime`, defaults 11:59 PM,
+  date-only data still reads as 11:59 PM) read by both `DeadlineLine`
+  and the shared countdown. (6) **PPG/PPA plumbing verified** — script
+  fields and page keys already align; bumped the `loadPlayers`
+  localStorage cache key v3→v4 so schema changes propagate immediately
+  instead of after the 12h TTL.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -266,6 +301,19 @@ container):**
   `VITE_SUPABASE_PUBLISHABLE_KEY` (both are the publishable/anon-tier
   keys — safe for the browser bundle, RLS is what actually protects
   data).
+
+**Soft delete (`deleted_at`).** `public.leagues` carries a nullable
+`deleted_at timestamptz` column (`003_soft_delete.sql`) — a real
+column, never inside the `data` blob (`saveLeague` strips the app-side
+`deletedAt` field before writing). Set = the league is soft-deleted:
+`fetchLeagues` surfaces it as `deletedAt` on the league object,
+`App.jsx` splits active vs deleted (routes and grids see active only;
+the "Recently deleted" section on My Leagues lists the rest with
+Restore), and `get_shared_league` returns NULL for its token so member
+links render the invalid-link state. Restore clears the column. RLS is
+unchanged — delete/restore are plain owner-scoped UPDATEs. Logged-out /
+demo leagues get the same behavior via a `deletedAt` field on the
+localStorage league object. No hard delete in the UI.
 
 **Share token + public read path (shared league page).**
 `public.leagues` carries a `share_token text` column — unique index,
@@ -769,15 +817,22 @@ copy of a component drifts away from the original.
   `PayoutsTab`, `SettingsPanel`, and `ImportPanel` rendered inside a
   routed `SectionPanel` (right slide-in sheet); Lottery is a full-page
   branch. Holds the Overview↔Set-keepers view state and the selected
-  team. `DeadlineLine` (writes `league.keeperDeadline`) and `SubTabs`
-  live here. The two-column Pool & Payouts grid stacks to one column at
-  ≤760px (mobile sheet width). `ShareLeagueCard` (in the Settings
-  sheet, between Keeper Rules and Season) is the commissioner-side
-  control for the shared page: truncated tokenized URL + Copy
-  (SaveToast "Link copied") + "Regenerate link" behind an inline
-  danger confirm with the old-link-stops-working warning; shows a
-  quiet sign-in note for demo/localStorage leagues (no Supabase row =
-  no token).
+  team. `DeadlineLine` (writes `league.keeperDeadline` date +
+  `league.keeperDeadlineTime` 'HH:MM'; picking a date defaults the time
+  to 23:59, clearing the date clears both; date-only legacy data reads
+  as 11:59 PM) and `SubTabs` live here. The two-column Pool & Payouts
+  grid stacks to one column at ≤760px (mobile sheet width). The
+  Settings sheet stacks: Keeper Rules → **Teams** (`EditableCard` of
+  per-team name fields; renames propagate by team id; a blanked field
+  keeps the old name) → `ShareLeagueCard` → Season rollover →
+  **`DeleteLeagueCard`** (danger-styled soft delete behind an inline
+  confirm, same pattern as the share-link regenerate; calls the
+  `onDeleteLeague` prop threaded from `App.jsx`). `ShareLeagueCard` is
+  the commissioner-side control for the shared page: truncated
+  tokenized URL + Copy (SaveToast "Link copied") + "Regenerate link"
+  behind an inline danger confirm with the old-link-stops-working
+  warning; shows a quiet sign-in note for demo/localStorage leagues
+  (no Supabase row = no token).
 - `src/components.jsx` — shared UI primitives + `SPORT_CONFIG`,
   `getLeagueStats`, `Tooltip`, `SportLogo`, `makeTheme`, and
   `TradingCard` (extracted from `HomeView`; takes a
@@ -788,7 +843,8 @@ copy of a component drifts away from the original.
   (`/l/:token`). `SharedLeagueRoute` (token → RPC → page / invalid
   state) + `SharedLeaguePage`: own header (non-interactive wordmark +
   "Shared league page" kicker), league band with **live countdown**
-  (days granularity; hours/minutes ticking inside 48h; quiet
+  (reads `keeperDeadline` + `keeperDeadlineTime`, date-only data =
+  11:59 PM; days granularity; hours/minutes ticking inside 48h; quiet
   "🔒 Keepers locked" past deadline; no countdown when no deadline
   set), sticky countdown pill (IntersectionObserver on the band),
   filter rail (Keepable/All players · Under contract · Expired
@@ -798,9 +854,11 @@ copy of a component drifts away from the original.
   status pill), and a desktop (≥1024px, hockey-only) stat table per
   skater/goalie group — sortable stat headers, Player pinned left,
   Contract/Status pinned right, stat columns scroll-snapping between
-  them with one-column-per-click chevrons (the CompactKeeperGrid
-  mechanics; sticky cells use opaque layered backgrounds so scrolled
-  columns can't ghost through). Print: filter rail hidden, default
+  them on native horizontal scroll with **edge-fade gradients** at the
+  sticky boundaries as the scroll affordance (scroll-position-driven,
+  pointer-events none; the old floating chevrons overlapped row content
+  and were removed; sticky cells use opaque layered backgrounds so
+  scrolled columns can't ghost through). Print: filter rail hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   empty state (no keepers declared anywhere) is the page's one
   mascot-*speech* surface.
@@ -815,6 +873,11 @@ copy of a component drifts away from the original.
 - `supabase/migrations/002_share_token.sql` — share_token column +
   `get_shared_league` function + grants (run via Supabase SQL Editor;
   the container can't reach Supabase).
+- `supabase/migrations/003_soft_delete.sql` — `deleted_at timestamptz`
+  column + `get_shared_league` recreated to exclude soft-deleted
+  leagues and project `keeperDeadlineTime`. Run after 002 (same
+  run-via-SQL-Editor caveat). RLS untouched; grants survive the
+  CREATE OR REPLACE.
 - `src/PlayerAutocomplete.jsx` — autocomplete input backed by
   `loadPlayers`; takes `disabledNames` to block dupes; shows
   in-league keeper/rostered status next to suggestions
@@ -1016,8 +1079,22 @@ copy of a component drifts away from the original.
 - `src/tabs/SourcesTab.jsx` — `DataSourcesPanel` (roster + contract
   import buttons inside the wizard)
 - `src/tabs/RosterImportTab.jsx` — Yahoo screenshot/paste roster
-  parser. Uses `window.claude.complete` for AI screenshot OCR.
-- `scripts/fetch-players-nhl.mjs` — build-time NHL fetch
+  parser. Uses `window.claude.complete` for AI screenshot OCR. **The
+  parse extracts names only** — Yahoo's leftmost column is a lineup
+  slot (BN, IR+, Util…), not a position, so slot labels anchor the
+  parse and are then discarded; positions come from the NHL directory
+  match (matched rows store `pos` like `LW` via the L/R→LW/RW map,
+  unmatched rows store no `pos` and are flagged in the preview for
+  spelling fixes). `cleanPlayerName`'s status-flag strip requires
+  whitespace before the flag (`\s+`) — with `\s*` it truncated names
+  ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
+- `scripts/fetch-players-nhl.mjs` — build-time NHL fetch. Emits
+  `ppg`/`ppa` (skaters, from summary `ppGoals`/`ppPoints`) and `saves`
+  (goalies) — field names match `STAT_CATEGORIES` keys on the shared
+  page. `loadPlayers` caches the JSON in localStorage under a
+  versioned key (`khq_players_{sport}_v4`); **bump the version when
+  the record shape changes** or browsers serve the old shape for up
+  to the 12h TTL.
 
 ### Note about "orphan" tab files
 

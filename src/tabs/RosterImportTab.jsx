@@ -1,12 +1,21 @@
 import React from 'react';
 import { Camera, Loader, Check } from 'lucide-react';
 import { makeTheme, tokens } from '../components.jsx';
+import { loadPlayers, normalizeName } from '../lib/players.js';
 import '../claudeStub.js';
 
 // Per-Team Roster Import
 // - Paste mode: parses Yahoo's roster HTML/text where player names appear twice consecutively
 //   below a position code. Tolerant of stat rows, totals, IR sections, etc.
-// - Screenshot mode: uploads image(s) and asks claude-haiku to extract a JSON list of {player, pos}.
+// - Screenshot mode: uploads image(s) and asks claude-haiku to extract a JSON list of names.
+//
+// The paste/OCR step extracts player NAMES only. Yahoo's leftmost column is a
+// LINEUP SLOT (BN, IR+, Util…), not a position — a benched player is not
+// position "BN" — so slot labels are used purely as parsing anchors and then
+// discarded. Positions come from the NHL player directory (loadPlayers +
+// normalizeName, the same matching machinery buildStatusIndex uses); names
+// with no directory match are stored with no position and flagged in the
+// preview so spelling can be fixed before saving.
 
 const ROSTER_POSITIONS = new Set([
   // Hockey
@@ -21,6 +30,12 @@ const ROSTER_POSITIONS = new Set([
   'BN', 'IR', 'IR+', 'IL', 'IL+', 'NA',
 ]);
 
+// Directory position codes are the NHL API's single letters (C/L/R/D/G);
+// wings display and store as the familiar LW/RW.
+function posLabel(pos) {
+  return { L: 'LW', R: 'RW' }[pos] || pos;
+}
+
 // Strip trailing junk Yahoo appends to player-name cells when you select the page text:
 //   "No new player Notes", "NA No new player Notes", "New Player Note", "Player Note",
 //   plus 1-2 char status flags (O, Q, IR, GTD, NA, K) and leftover whitespace.
@@ -29,9 +44,11 @@ function cleanPlayerName(raw) {
   let s = raw;
   // Strip the long note-action phrases first (any case)
   s = s.replace(/(?:no\s+new\s+player\s+notes?|new\s+player\s+note|player\s+note)\s*$/i, '');
-  // Strip trailing status flags glued onto the name (NA, O, Q, IR, GTD, DTD, K)
-  // We only strip the LAST 1–3 chars if they're a known flag and there's at least 4 chars before.
-  s = s.replace(/\s*(NA|GTD|DTD|IR|IL|K|O|Q|P)\s*$/i, (m, flag, off) => off >= 4 ? '' : m);
+  // Strip trailing status flags after the name (NA, O, Q, IR, GTD, DTD, K).
+  // The flag must be whitespace-separated — with `\s*` this used to chop the
+  // last letter off any name ending in a flag character (Hellebuyck → K,
+  // Tkachuk → K, Marchenko → O), which then never matched the directory.
+  s = s.replace(/\s+(NA|GTD|DTD|IR|IL|K|O|Q|P)\s*$/i, (m, flag, off) => off >= 4 ? '' : m);
   // Collapse whitespace
   s = s.replace(/\s+/g, ' ').trim();
   return s;
@@ -68,7 +85,9 @@ function parseYahooRosterText(text) {
     if (!player || player.length < 2) continue;
     // If two consecutive lines both equal a position code (rare table-header case), skip.
     if (ROSTER_POSITIONS.has(player)) continue;
-    out.push({ player, pos: line, _ok: !!looksValid });
+    // The slot label (`line`) is deliberately dropped — it anchors the parse
+    // but is a lineup slot, not a position.
+    out.push({ player, _ok: !!looksValid });
     i = next.idx; // advance past the name line
   }
 
@@ -102,9 +121,9 @@ async function extractRosterFromImage(file) {
   const prompt = `This is a screenshot of a Yahoo Fantasy roster page. Extract EVERY player visible, including bench (BN) and injured reserve (IR, IR+, IL) slots.
 
 Return ONLY a valid JSON array. No prose, no markdown fences. Each entry must be:
-{"player": "Full Name", "pos": "POSITION_CODE"}
+{"player": "Full Name"}
 
-Use the position code from the leftmost "Pos" column (e.g. C, LW, RW, D, G, Util, BN, IR, IR+, PG, SG, SF, PF, QB, WR, RB, TE, K, DEF, etc).
+Extract player names only — ignore the lineup-slot column (BN, IR, Util, etc.) and any stats.
 Do not include team totals or summary rows.`;
 
   const response = await window.claude.complete({
@@ -122,7 +141,7 @@ Do not include team totals or summary rows.`;
   if (!match) throw new Error('No JSON array found in extraction response.');
   const arr = JSON.parse(match[0]);
   if (!Array.isArray(arr)) throw new Error('Extraction did not return an array.');
-  return arr.map(p => ({ player: String(p.player || '').trim(), pos: String(p.pos || '?').trim() })).filter(p => p.player);
+  return arr.map(p => ({ player: String(p.player || '').trim() })).filter(p => p.player);
 }
 
 function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImport, onClose }) {
@@ -132,9 +151,30 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
   const [teamId, setTeamId] = React.useState(initialTeamId || league.teams[0]?.id);
   const [mode, setMode] = React.useState('paste'); // 'paste' | 'screenshot'
   const [text, setText] = React.useState('');
-  const [players, setPlayers] = React.useState([]); // [{player, pos}]
+  const [players, setPlayers] = React.useState([]); // [{player}] — positions derive from the directory
   const [extracting, setExtracting] = React.useState(false);
   const [error, setError] = React.useState(null);
+
+  // NHL player directory — the source of truth for positions. Only hockey has
+  // a directory today; other sports import names with no position data.
+  const supportsDirectory = league.sport === 'hockey' || league.sport === 'nhl';
+  const [directory, setDirectory] = React.useState(null);
+  React.useEffect(() => {
+    if (!supportsDirectory) return;
+    let cancelled = false;
+    loadPlayers('nhl')
+      .then(d => { if (!cancelled) setDirectory(d.players || []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [supportsDirectory]);
+  const dirMap = React.useMemo(() => {
+    if (!directory) return null;
+    const m = new Map();
+    directory.forEach(p => { const k = normalizeName(p.name); if (k && !m.has(k)) m.set(k, p); });
+    return m;
+  }, [directory]);
+  // Directory record for a typed name; null = unmatched, undefined = no directory to match against.
+  const matchFor = (name) => dirMap && dirMap.size > 0 ? (dirMap.get(normalizeName(name)) || null) : undefined;
 
   const selectedTeam = league.teams.find(tm => tm.id === teamId) || league.teams[0];
   const existingRoster = selectedTeam?.roster || [];
@@ -184,11 +224,18 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
     setPlayers(players.filter((_, i) => i !== idx));
   }
   function addEmpty() {
-    setPlayers([...players, { player: '', pos: '?' }]);
+    setPlayers([...players, { player: '' }]);
   }
 
   function doImport() {
-    const cleaned = players.filter(p => p.player.trim()).map(p => ({ player: p.player.trim(), pos: p.pos || '?' }));
+    // Position comes from the directory match (real position codes), never
+    // from the paste. Unmatched names save with no pos at all — better no
+    // data than a lineup-slot label masquerading as a position.
+    const cleaned = players.filter(p => p.player.trim()).map(p => {
+      const name = p.player.trim();
+      const rec = matchFor(name);
+      return rec?.pos ? { player: name, pos: posLabel(rec.pos) } : { player: name };
+    });
     if (cleaned.length === 0) {
       setError("Nothing to import.");
       return;
@@ -319,12 +366,20 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             <div style={{ padding: '10px 12px', background: 'rgba(232,82,82,0.08)', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, fontSize: 12, color: '#e85252' }}>{error}</div>
           )}
 
-          {/* Preview / edit list */}
+          {/* Preview / edit list. Position chips are derived live from the
+              directory match on the typed name — editing a misspelled name
+              re-matches as you type. */}
           {players.length > 0 && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                   Preview · {players.length} player{players.length === 1 ? '' : 's'}
+                  {(() => {
+                    const unmatchedCount = players.filter(p => p.player.trim() && matchFor(p.player) === null).length;
+                    return unmatchedCount > 0
+                      ? <span style={{ color: tokens.danger, marginLeft: 8 }}>· {unmatchedCount} unmatched</span>
+                      : null;
+                  })()}
                 </div>
                 <button onClick={() => setPlayers([])}
                   style={{ background: 'none', border: 'none', fontSize: 11, color: t.textMuted, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>
@@ -332,16 +387,28 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
                 </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                {players.map((p, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 6 }}>
-                    <input value={p.pos} onChange={e => updatePlayer(i, { pos: e.target.value.toUpperCase() })}
-                      style={{ width: 42, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 4, padding: '3px 5px', fontSize: 11, color: t.textPrimary, fontFamily: 'inherit', textAlign: 'center', fontWeight: 700 }} />
-                    <input value={p.player} onChange={e => updatePlayer(i, { player: e.target.value })}
-                      style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600 }} />
-                    <button onClick={() => removePlayer(i)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 14, lineHeight: 1, padding: '0 2px', fontFamily: 'inherit' }}>×</button>
-                  </div>
-                ))}
+                {players.map((p, i) => {
+                  const rec = matchFor(p.player);
+                  const unmatched = rec === null && !!p.player.trim();
+                  return (
+                    <div key={i} style={{ padding: '6px 8px', background: t.sectionBg, border: `1px solid ${unmatched ? tokens.dangerBorder : t.border}`, borderRadius: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 42, boxSizing: 'border-box', flexShrink: 0, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 4, padding: '3px 5px', fontSize: 11, color: rec?.pos ? t.textPrimary : t.textMuted, textAlign: 'center', fontWeight: 700 }}>
+                          {rec?.pos ? posLabel(rec.pos) : '—'}
+                        </span>
+                        <input value={p.player} onChange={e => updatePlayer(i, { player: e.target.value })}
+                          style={{ flex: 1, minWidth: 0, background: 'none', border: 'none', fontSize: 12, color: unmatched ? tokens.danger : t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600 }} />
+                        <button onClick={() => removePlayer(i)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 14, lineHeight: 1, padding: '0 2px', fontFamily: 'inherit' }}>×</button>
+                      </div>
+                      {unmatched && (
+                        <div style={{ marginTop: 3, paddingLeft: 48, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
+                          unmatched — check spelling
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <button onClick={addEmpty}
                 style={{ alignSelf: 'flex-start', background: 'none', border: `1px dashed ${t.border}`, borderRadius: 6, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer', color: t.textMuted, fontFamily: 'inherit' }}>
