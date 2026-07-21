@@ -3,11 +3,14 @@ const memCache = {};
 
 export async function loadPlayers(sport) {
   if (memCache[sport]) return memCache[sport];
-  // v4: record shape grew ppg/ppa (skaters) + saves (goalies). Bumping the key
-  // forces a refetch so stat columns don't sit empty for a cache-TTL window
-  // after a deploy changes the directory schema.
-  const key = `khq_players_${sport}_v4`;
-  try { localStorage.removeItem(`khq_players_${sport}_v3`); } catch {}
+  // v5: directory became roster-based — new no-stat records (stat fields
+  // absent entirely) and players who missed last season. Bumping the key
+  // forces a refetch so the new population doesn't wait out the cache TTL.
+  const key = `khq_players_${sport}_v5`;
+  try {
+    localStorage.removeItem(`khq_players_${sport}_v3`);
+    localStorage.removeItem(`khq_players_${sport}_v4`);
+  } catch {}
 
   try {
     const raw = localStorage.getItem(key);

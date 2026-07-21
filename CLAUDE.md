@@ -154,6 +154,26 @@ features have shipped through their own branches (all merged):
   alphanumeric after de-diacriticing), so "AJ Greer" = "A.J. Greer",
   "OReilly" = "O'Reilly", "Pierre Luc" = "Pierre-Luc" — it's the map
   key on all comparison sides, so the re-key is consistent everywhere.
+- **Roster-based player directory (this branch's PR):** the NHL
+  directory source in `scripts/fetch-players-nhl.mjs` is now
+  **roster-based, not stats-based** — players who missed all of last
+  season (injury; real case: Aleksander Barkov) used to be absent
+  because the old source was the stats list (games-played only). Now:
+  every current team's full roster (api-web `/v1/roster/{TEAM}/current`,
+  teams from `/v1/standings/now`) is the base; last-season stats merge
+  on by playerId; roster players with no stats carry **no stat fields**
+  (readers render "—"); stats-only players not on any current roster
+  (unsigned/retired) are kept so coverage never shrinks. Roster fields
+  (name/team/pos/headshot) win over stats fields on merge — current
+  team beats where the player finished last season. Output shape is
+  backward-compatible (same file/fields; stat fields simply absent).
+  A `MIN_ROSTER_PLAYERS` (500) sanity guard + the existing
+  keep-last-good-JSON fallback protect the build if endpoints change.
+  `loadPlayers` cache key bumped v4→v5. Readers verified against the
+  merged shape (import matcher/autocomplete, eligible pool, shared
+  page desktop/mobile) — no UI changes needed. Tradeoff noted: deep
+  historical coverage (players absent from both current rosters AND
+  last season's stats) is not attempted for v1.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -1135,13 +1155,25 @@ copy of a component drifts away from the original.
   the "+ Add player manually" path render the real `PlayerAutocomplete`
   (not a bare input), so an unmatched row is fixed in place by picking
   the directory's suggestion; the × button remains the dismiss path.
-- `scripts/fetch-players-nhl.mjs` — build-time NHL fetch. Emits
+- `scripts/fetch-players-nhl.mjs` — build-time NHL fetch,
+  **roster-based**: current-roster sweep (api-web standings → per-team
+  `/roster/{TEAM}/current`) is the base population — includes players
+  with zero games last season; last-season stats (stats REST
+  season-aggregate endpoints, which include hits/blocks) merge on by
+  playerId, roster identity fields winning (current team beats
+  last-season `teamAbbrevs`); stats-only players not on a current
+  roster are appended so coverage never shrinks. No-stat records have
+  stat fields **absent** (not zeroed) — readers show "—". Emits
   `ppg`/`ppa` (skaters, from summary `ppGoals`/`ppPoints`) and `saves`
   (goalies) — field names match `STAT_CATEGORIES` keys on the shared
-  page. `loadPlayers` caches the JSON in localStorage under a
-  versioned key (`khq_players_{sport}_v4`); **bump the version when
-  the record shape changes** or browsers serve the old shape for up
-  to the 12h TTL.
+  page. Failure handling: any fetch error or a roster sweep under
+  `MIN_ROSTER_PLAYERS` (500) keeps the last good JSON instead of
+  breaking the build. `loadPlayers` caches the JSON in localStorage
+  under a versioned key (`khq_players_{sport}_v5`); **bump the version
+  when the record shape changes** or browsers serve the old shape for
+  up to the 12h TTL. Tradeoff (v1): players on neither a current
+  roster nor last season's stats list (long-retired, career-AHL) are
+  not covered — acceptable; no historical-roster union attempted.
 
 ### Note about "orphan" tab files
 

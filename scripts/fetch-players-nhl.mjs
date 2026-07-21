@@ -1,15 +1,32 @@
-// Fetch NHL player stats from the NHL Stats REST API and write to
-// public/players-nhl.json. Uses the season-aggregate endpoints which include
-// hits/blocks (the api-web /club-stats endpoint omits those). Designed to run
-// as part of `npm run build` on Vercel; if the fetch fails the build keeps any
-// existing players-nhl.json in place rather than failing.
+// Fetch the NHL player directory and write it to public/players-nhl.json.
+//
+// The directory is ROSTER-based: every current NHL team's full roster (from
+// the api-web roster endpoints) is the base population, so players who missed
+// all of last season (e.g. a season-long injury) are still present and
+// matchable. Last-season stats from the stats REST API are merged onto those
+// players where they exist; roster players with no stats simply carry no stat
+// fields (readers render "—" / zeros). Last-season players who are NOT on any
+// current roster (unsigned UFAs, retirees) are kept as stats-only records so
+// coverage never shrinks vs the old stats-derived list.
+//
+// Uses the stats REST season-aggregate endpoints for stats because they
+// include hits/blocks (the api-web /club-stats endpoint omits those).
+// Designed to run as part of `npm run build` on Vercel; if any fetch fails
+// (or the roster sweep looks implausibly small) the build keeps the existing
+// players-nhl.json in place rather than failing.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const SEASON_ID = '20252026'; // Most recent completed regular season (April 2026).
 const STATS_BASE = 'https://api.nhle.com/stats/rest/en';
+const WEB_BASE = 'https://api-web.nhle.com/v1';
 const OUT_PATH = path.join(process.cwd(), 'public', 'players-nhl.json');
+
+// A full-league roster sweep is ~700+ players (32 teams × ~23). Anything far
+// below that means the roster endpoints changed shape or a team went missing —
+// fall back to the last good file instead of shipping a hollow directory.
+const MIN_ROSTER_PLAYERS = 500;
 
 async function fetchJson(url) {
   const res = await fetch(url);
@@ -56,6 +73,50 @@ function headshotUrl(playerId, team) {
   if (!team) return null;
   return `https://assets.nhle.com/mugs/nhl/${SEASON_ID}/${team}/${playerId}.png`;
 }
+
+// ── Roster base ─────────────────────────────────────────────────────────────
+
+async function fetchTeamAbbrevs() {
+  const data = await fetchJson(`${WEB_BASE}/standings/now`);
+  const abbrevs = [...new Set(
+    (data.standings || []).map(row => row.teamAbbrev?.default).filter(Boolean)
+  )];
+  if (abbrevs.length === 0) throw new Error('standings/now returned no teams');
+  return abbrevs;
+}
+
+// One record per rostered player, regardless of games played. The roster
+// endpoint supplies its own headshot URL; fall back to the mugs pattern.
+async function fetchRosters(abbrevs) {
+  const out = [];
+  const rosters = await Promise.all(abbrevs.map(async team => {
+    const r = await fetchJson(`${WEB_BASE}/roster/${team}/current`);
+    return { team, r };
+  }));
+  for (const { team, r } of rosters) {
+    for (const group of ['forwards', 'defensemen', 'goalies']) {
+      for (const p of r[group] || []) {
+        if (!p?.id) continue;
+        const firstName = p.firstName?.default || '';
+        const lastName = p.lastName?.default || '';
+        const pos = p.positionCode || (group === 'goalies' ? 'G' : '');
+        out.push({
+          id: String(p.id),
+          firstName,
+          lastName,
+          name: `${firstName} ${lastName}`.trim(),
+          pos,
+          team,
+          headshot: p.headshot || headshotUrl(p.id, team),
+          kind: pos === 'G' ? 'goalie' : 'skater',
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Last-season stats (merged onto the roster base) ─────────────────────────
 
 async function fetchSkaters() {
   const [summary, realtime] = await Promise.all([
@@ -118,13 +179,43 @@ async function fetchGoalies() {
   });
 }
 
+// ── Merge ───────────────────────────────────────────────────────────────────
+// Roster record wins on identity fields (name, current team, position,
+// headshot) — the stats list's team is where the player *finished last
+// season*, which goes stale after off-season moves. Stat fields ride along
+// from the stats record; a roster player with no stats record simply has no
+// stat fields (readers show "—"). Stats-only players (not on any current
+// roster) are appended unchanged so last season's coverage never shrinks.
+function buildDirectory(rosterPlayers, skaters, goalies) {
+  const statsById = new Map([...skaters, ...goalies].map(p => [p.id, p]));
+  const byId = new Map();
+  for (const rp of rosterPlayers) {
+    const stats = statsById.get(rp.id);
+    byId.set(rp.id, stats ? { ...stats, ...rp } : rp);
+  }
+  for (const [id, p] of statsById) {
+    if (!byId.has(id)) byId.set(id, p);
+  }
+  return Array.from(byId.values());
+}
+
 async function main() {
-  console.log(`[players-nhl] Fetching for season ${SEASON_ID}…`);
+  console.log(`[players-nhl] Fetching rosters + season ${SEASON_ID} stats…`);
   let players;
   try {
-    const [skaters, goalies] = await Promise.all([fetchSkaters(), fetchGoalies()]);
-    players = [...skaters, ...goalies];
-    console.log(`[players-nhl] ${skaters.length} skaters, ${goalies.length} goalies`);
+    const abbrevs = await fetchTeamAbbrevs();
+    const [rosterPlayers, skaters, goalies] = await Promise.all([
+      fetchRosters(abbrevs),
+      fetchSkaters(),
+      fetchGoalies(),
+    ]);
+    console.log(`[players-nhl] ${rosterPlayers.length} rostered across ${abbrevs.length} teams; ${skaters.length} skaters + ${goalies.length} goalies with stats`);
+    if (rosterPlayers.length < MIN_ROSTER_PLAYERS) {
+      throw new Error(`Roster sweep looks too small (${rosterPlayers.length} < ${MIN_ROSTER_PLAYERS})`);
+    }
+    players = buildDirectory(rosterPlayers, skaters, goalies);
+    const noStats = players.filter(p => p.gp == null).length;
+    console.log(`[players-nhl] ${players.length} directory records (${noStats} without last-season stats)`);
   } catch (e) {
     console.warn(`[players-nhl] Fetch failed: ${e.message}`);
     return keepOrStub(e.message);
