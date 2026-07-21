@@ -5,15 +5,28 @@
 // all of last season (e.g. a season-long injury) are still present and
 // matchable. Last-season stats from the stats REST API are merged onto those
 // players where they exist; roster players with no stats simply carry no stat
-// fields (readers render "—" / zeros). Last-season players who are NOT on any
-// current roster (unsigned UFAs, retirees) are kept as stats-only records so
-// coverage never shrinks vs the old stats-derived list.
+// fields (readers render "—"). Last-season players who are NOT on any current
+// roster (unsigned UFAs, retirees) are kept as stats-only records so coverage
+// never shrinks vs the old stats-derived list.
 //
-// Uses the stats REST season-aggregate endpoints for stats because they
-// include hits/blocks (the api-web /club-stats endpoint omits those).
-// Designed to run as part of `npm run build` on Vercel; if any fetch fails
-// (or the roster sweep looks implausibly small) the build keeps the existing
-// players-nhl.json in place rather than failing.
+// Off-season resilience (this script runs in July too):
+//   * The team list tries /v1/standings/now first, but standings can be empty
+//     between seasons — fallback derives the team set from the stats sweep's
+//     teamAbbrevs (the stats host is the one the old script proved works).
+//   * Each team's roster is the UNION of /roster/{team}/current and
+//     /roster/{team}/{SEASON_ID} (current wins on shared players) — "current"
+//     can be a thin next-season skeleton or 404 in the off-season, while the
+//     completed season's roster always exists.
+//
+// FAILURE POLICY — never ship an empty directory silently:
+//   * If the fetch fails but a previous GOOD players-nhl.json (non-empty
+//     players array) exists, keep it and warn.
+//   * If the fetch fails and there is no good previous file (e.g. a fresh
+//     Vercel clone where the committed file is the empty placeholder), FAIL
+//     THE BUILD (exit 1). A red build beats an app with no directory.
+//     Consequence: `npm run build` in the NHL-API-blocked dev container fails
+//     at this step unless a good players-nhl.json is present — use
+//     `npx vite build` there, or seed a stub file.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -24,12 +37,22 @@ const WEB_BASE = 'https://api-web.nhle.com/v1';
 const OUT_PATH = path.join(process.cwd(), 'public', 'players-nhl.json');
 
 // A full-league roster sweep is ~700+ players (32 teams × ~23). Anything far
-// below that means the roster endpoints changed shape or a team went missing —
-// fall back to the last good file instead of shipping a hollow directory.
+// below that means the roster endpoints changed shape or teams went missing —
+// treat the sweep as failed rather than shipping a hollow directory.
 const MIN_ROSTER_PLAYERS = 500;
 
+const log = (msg) => console.log(`[players-nhl] ${msg}`);
+const warn = (msg) => console.warn(`[players-nhl] ${msg}`);
+
 async function fetchJson(url) {
-  const res = await fetch(url);
+  // A real-browser UA — some NHL endpoints are picky about default
+  // fetch/bot user agents; the header is harmless where they aren't.
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+      'Accept': 'application/json',
+    },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
 }
@@ -59,6 +82,7 @@ async function fetchAllPaged(endpoint) {
     if (items.length < limit || newCount === 0) break;
     start += limit;
   }
+  log(`stats ${endpoint}: ${byId.size} records`);
   return Array.from(byId.values());
 }
 
@@ -74,55 +98,92 @@ function headshotUrl(playerId, team) {
   return `https://assets.nhle.com/mugs/nhl/${SEASON_ID}/${team}/${playerId}.png`;
 }
 
-// ── Roster base ─────────────────────────────────────────────────────────────
-
-async function fetchTeamAbbrevs() {
-  const data = await fetchJson(`${WEB_BASE}/standings/now`);
-  const abbrevs = [...new Set(
-    (data.standings || []).map(row => row.teamAbbrev?.default).filter(Boolean)
-  )];
-  if (abbrevs.length === 0) throw new Error('standings/now returned no teams');
+// ── Team list ───────────────────────────────────────────────────────────────
+// standings/now first; if it errors or comes back empty (it can between
+// seasons), derive the team set from every abbrev the stats sweep mentioned.
+async function resolveTeamAbbrevs(statsRecords) {
+  try {
+    const data = await fetchJson(`${WEB_BASE}/standings/now`);
+    const abbrevs = [...new Set(
+      (data.standings || []).map(row => row.teamAbbrev?.default).filter(Boolean)
+    )];
+    if (abbrevs.length > 0) {
+      log(`team list: ${abbrevs.length} teams from standings/now`);
+      return abbrevs;
+    }
+    warn('standings/now returned no teams (off-season?) — deriving team list from stats');
+  } catch (e) {
+    warn(`standings/now failed (${e.message}) — deriving team list from stats`);
+  }
+  const fromStats = new Set();
+  for (const rec of statsRecords) {
+    for (const t of String(rec.teamAbbrevs || '').split(',')) {
+      const abbrev = t.trim();
+      if (abbrev) fromStats.add(abbrev);
+    }
+  }
+  const abbrevs = [...fromStats].sort();
+  log(`team list: ${abbrevs.length} teams derived from stats teamAbbrevs`);
+  if (abbrevs.length === 0) throw new Error('No team list from standings/now or stats teamAbbrevs');
   return abbrevs;
 }
 
-// One record per rostered player, regardless of games played. The roster
-// endpoint supplies its own headshot URL; fall back to the mugs pattern.
-async function fetchRosters(abbrevs) {
+// ── Roster base ─────────────────────────────────────────────────────────────
+
+function flattenRoster(r, team) {
   const out = [];
-  const rosters = await Promise.all(abbrevs.map(async team => {
-    const r = await fetchJson(`${WEB_BASE}/roster/${team}/current`);
-    return { team, r };
-  }));
-  for (const { team, r } of rosters) {
-    for (const group of ['forwards', 'defensemen', 'goalies']) {
-      for (const p of r[group] || []) {
-        if (!p?.id) continue;
-        const firstName = p.firstName?.default || '';
-        const lastName = p.lastName?.default || '';
-        const pos = p.positionCode || (group === 'goalies' ? 'G' : '');
-        out.push({
-          id: String(p.id),
-          firstName,
-          lastName,
-          name: `${firstName} ${lastName}`.trim(),
-          pos,
-          team,
-          headshot: p.headshot || headshotUrl(p.id, team),
-          kind: pos === 'G' ? 'goalie' : 'skater',
-        });
-      }
+  for (const group of ['forwards', 'defensemen', 'goalies']) {
+    for (const p of r?.[group] || []) {
+      if (!p?.id) continue;
+      const firstName = p.firstName?.default || '';
+      const lastName = p.lastName?.default || '';
+      const pos = p.positionCode || (group === 'goalies' ? 'G' : '');
+      out.push({
+        id: String(p.id),
+        firstName,
+        lastName,
+        name: `${firstName} ${lastName}`.trim(),
+        pos,
+        team,
+        headshot: p.headshot || headshotUrl(p.id, team),
+        kind: pos === 'G' ? 'goalie' : 'skater',
+      });
     }
   }
   return out;
 }
 
+// Union of the current roster and the completed season's roster (current wins
+// on shared players — fresher team/position/headshot). Per-source failures
+// are logged and tolerated; a team failing BOTH sources is reported to the
+// caller so the sweep-size guard can decide whether the run is usable.
+async function fetchTeamRoster(team) {
+  const byId = new Map();
+  const counts = [];
+  for (const seasonPath of ['current', SEASON_ID]) {
+    try {
+      const r = await fetchJson(`${WEB_BASE}/roster/${team}/${seasonPath}`);
+      const players = flattenRoster(r, team);
+      counts.push(`${seasonPath}:${players.length}`);
+      for (const p of players) if (!byId.has(p.id)) byId.set(p.id, p);
+    } catch (e) {
+      counts.push(`${seasonPath}:ERR(${e.message.replace(/ for http.*$/, '')})`);
+    }
+  }
+  log(`  ${team}: ${byId.size} players (${counts.join(' · ')})`);
+  return Array.from(byId.values());
+}
+
+async function fetchRosters(abbrevs) {
+  const perTeam = await Promise.all(abbrevs.map(fetchTeamRoster));
+  const failedTeams = abbrevs.filter((_, i) => perTeam[i].length === 0);
+  if (failedTeams.length > 0) warn(`no roster from any source for: ${failedTeams.join(', ')}`);
+  return perTeam.flat();
+}
+
 // ── Last-season stats (merged onto the roster base) ─────────────────────────
 
-async function fetchSkaters() {
-  const [summary, realtime] = await Promise.all([
-    fetchAllPaged('skater/summary'),
-    fetchAllPaged('skater/realtime'),
-  ]);
+function mapSkaters(summary, realtime) {
   const rtById = new Map(realtime.map(r => [r.playerId, r]));
   return summary.map(s => {
     const rt = rtById.get(s.playerId) || {};
@@ -154,8 +215,7 @@ async function fetchSkaters() {
   });
 }
 
-async function fetchGoalies() {
-  const summary = await fetchAllPaged('goalie/summary');
+function mapGoalies(summary) {
   return summary.map(g => {
     const firstName = g.goalieFullName?.split(' ')[0] || '';
     const lastName = g.goalieFullName?.split(' ').slice(1).join(' ') || '';
@@ -200,28 +260,33 @@ function buildDirectory(rosterPlayers, skaters, goalies) {
 }
 
 async function main() {
-  console.log(`[players-nhl] Fetching rosters + season ${SEASON_ID} stats…`);
+  log(`Fetching rosters + season ${SEASON_ID} stats…`);
   let players;
   try {
-    const abbrevs = await fetchTeamAbbrevs();
-    const [rosterPlayers, skaters, goalies] = await Promise.all([
-      fetchRosters(abbrevs),
-      fetchSkaters(),
-      fetchGoalies(),
+    // Stats first — they also back the team-list fallback.
+    const [skaterSummary, skaterRealtime, goalieSummary] = await Promise.all([
+      fetchAllPaged('skater/summary'),
+      fetchAllPaged('skater/realtime'),
+      fetchAllPaged('goalie/summary'),
     ]);
-    console.log(`[players-nhl] ${rosterPlayers.length} rostered across ${abbrevs.length} teams; ${skaters.length} skaters + ${goalies.length} goalies with stats`);
+    const skaters = mapSkaters(skaterSummary, skaterRealtime);
+    const goalies = mapGoalies(goalieSummary);
+
+    const abbrevs = await resolveTeamAbbrevs([...skaterSummary, ...goalieSummary]);
+    log(`roster sweep over ${abbrevs.length} teams…`);
+    const rosterPlayers = await fetchRosters(abbrevs);
+    log(`roster sweep total: ${rosterPlayers.length} unique roster records; ${skaters.length} skaters + ${goalies.length} goalies with stats`);
     if (rosterPlayers.length < MIN_ROSTER_PLAYERS) {
-      throw new Error(`Roster sweep looks too small (${rosterPlayers.length} < ${MIN_ROSTER_PLAYERS})`);
+      throw new Error(`Roster sweep too small (${rosterPlayers.length} < ${MIN_ROSTER_PLAYERS}) — see per-team log lines above`);
     }
     players = buildDirectory(rosterPlayers, skaters, goalies);
     const noStats = players.filter(p => p.gp == null).length;
-    console.log(`[players-nhl] ${players.length} directory records (${noStats} without last-season stats)`);
+    log(`${players.length} directory records (${noStats} without last-season stats)`);
   } catch (e) {
-    console.warn(`[players-nhl] Fetch failed: ${e.message}`);
-    return keepOrStub(e.message);
+    return failOrKeep(e.message);
   }
 
-  if (!players.length) return keepOrStub('No players returned');
+  if (!players.length) return failOrKeep('No players returned');
 
   const out = {
     sport: 'nhl',
@@ -231,22 +296,28 @@ async function main() {
   };
   await fs.mkdir(path.dirname(OUT_PATH), { recursive: true });
   await fs.writeFile(OUT_PATH, JSON.stringify(out));
-  console.log(`[players-nhl] Wrote ${players.length} players → ${OUT_PATH}`);
+  log(`Wrote ${players.length} players → ${OUT_PATH}`);
 }
 
-async function keepOrStub(reason) {
+// Never ship an empty directory silently: keep a previous GOOD file (players
+// array non-empty) with a warning; otherwise fail the build loudly. The
+// committed placeholder has zero players, so a fresh clone with a failing
+// fetch goes red instead of deploying a dead directory.
+async function failOrKeep(reason) {
   try {
-    await fs.access(OUT_PATH);
-    console.log(`[players-nhl] Keeping existing file (reason: ${reason}).`);
-    return;
+    const existing = JSON.parse(await fs.readFile(OUT_PATH, 'utf8'));
+    if (Array.isArray(existing?.players) && existing.players.length > 0) {
+      warn(`Fetch failed: ${reason}`);
+      warn(`Keeping previous good file (${existing.players.length} players).`);
+      return;
+    }
   } catch {}
-  await fs.mkdir(path.dirname(OUT_PATH), { recursive: true });
-  const stub = { sport: 'nhl', season: SEASON_ID, fetchedAt: null, players: [], error: reason };
-  await fs.writeFile(OUT_PATH, JSON.stringify(stub));
-  console.log(`[players-nhl] Wrote empty stub (reason: ${reason}).`);
+  console.error(
+    `[players-nhl] FATAL: fetch failed (${reason}) and no previous good ` +
+    `players-nhl.json exists — refusing to ship an empty player directory. ` +
+    `Failing the build; check the per-step log lines above for the failing endpoint.`
+  );
+  process.exit(1);
 }
 
-main().catch(e => {
-  console.warn(`[players-nhl] Unexpected error: ${e.message}`);
-  process.exit(0);
-});
+main().catch(e => failOrKeep(`Unexpected error: ${e.message}`));

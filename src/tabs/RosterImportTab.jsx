@@ -152,16 +152,26 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 
   // NHL player directory — the source of truth for positions. Only hockey has
   // a directory today; other sports import names with no position data.
+  // dirStatus distinguishes "still loading" from "loaded but EMPTY/broken" —
+  // an empty directory must read as an error state (banner below), not as
+  // every name silently passing with no position.
   const supportsDirectory = league.sport === 'hockey' || league.sport === 'nhl';
   const [directory, setDirectory] = React.useState(null);
+  const [dirStatus, setDirStatus] = React.useState(supportsDirectory ? 'loading' : 'none'); // loading | ready | empty | error | none
   React.useEffect(() => {
     if (!supportsDirectory) return;
     let cancelled = false;
     loadPlayers('nhl')
-      .then(d => { if (!cancelled) setDirectory(d.players || []); })
-      .catch(() => {});
+      .then(d => {
+        if (cancelled) return;
+        const list = d.players || [];
+        setDirectory(list);
+        setDirStatus(list.length > 0 ? 'ready' : 'empty');
+      })
+      .catch(() => { if (!cancelled) setDirStatus('error'); });
     return () => { cancelled = true; };
   }, [supportsDirectory]);
+  const dirUnavailable = dirStatus === 'empty' || dirStatus === 'error';
   const dirMap = React.useMemo(() => {
     if (!directory) return null;
     const m = new Map();
@@ -305,6 +315,18 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 
         {/* Body — scrollable */}
         <div style={{ padding: '16px 22px', overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {dirUnavailable && (
+            <div style={{
+              padding: '10px 12px', background: tokens.warningBg,
+              border: `1px solid ${tokens.warningBorder}`, borderRadius: 6,
+              fontSize: 12, color: tokens.warning, lineHeight: 1.5,
+            }}>
+              <strong>Player directory unavailable</strong> — names can't be checked
+              against the NHL directory right now, so spelling won't be verified and
+              positions won't be filled in. You can still import names and re-import
+              later, but matching is off until the directory loads.
+            </div>
+          )}
           {mode === 'paste' && (
             <>
               <div style={{ fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>

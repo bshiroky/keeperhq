@@ -17,7 +17,10 @@ export async function loadPlayers(sport) {
     if (raw) {
       const parsed = JSON.parse(raw);
       const age = Date.now() - new Date(parsed.cachedAt).getTime();
-      if (age < CACHE_TTL_MS && parsed.data) {
+      // Never serve a cached EMPTY directory — an empty payload means a
+      // broken deploy, and caching it would pin the breakage for the TTL
+      // even after a fixed build ships.
+      if (age < CACHE_TTL_MS && parsed.data && (parsed.data.players || []).length > 0) {
         memCache[sport] = parsed.data;
         return parsed.data;
       }
@@ -27,9 +30,14 @@ export async function loadPlayers(sport) {
   const res = await fetch(`/players-${sport}.json`);
   if (!res.ok) throw new Error(`Player data unavailable for ${sport}`);
   const data = await res.json();
-  memCache[sport] = data;
+  const hasPlayers = (data.players || []).length > 0;
+  // Empty payloads are returned (callers decide how to degrade) but never
+  // cached, so recovery is instant once a good build deploys.
+  if (hasPlayers) memCache[sport] = data;
   try {
-    localStorage.setItem(key, JSON.stringify({ cachedAt: new Date().toISOString(), data }));
+    if (hasPlayers) {
+      localStorage.setItem(key, JSON.stringify({ cachedAt: new Date().toISOString(), data }));
+    }
   } catch {
     // Quota exceeded or storage disabled — memory cache still works.
   }

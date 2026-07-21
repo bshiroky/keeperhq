@@ -173,7 +173,14 @@ features have shipped through their own branches (all merged):
   merged shape (import matcher/autocomplete, eligible pool, shared
   page desktop/mobile) — no UI changes needed. Tradeoff noted: deep
   historical coverage (players absent from both current rosters AND
-  last season's stats) is not attempted for v1.
+  last season's stats) is not attempted for v1. **Hardened after the
+  first preview shipped the empty placeholder** (live fetch failed →
+  fallback deployed a dead directory): off-season endpoint fallbacks
+  (stats-derived team list, current∪season roster union), verbose
+  per-step build logging, fail-the-build-loudly when no good JSON
+  exists, an import-modal "directory unavailable" banner for
+  zero-player directories, and `loadPlayers` never caching an empty
+  payload.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -243,9 +250,16 @@ headless.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
 - This Claude Code container's network policy **blocks** `api-web.nhle.com`
-  and `api.nhle.com`. Vercel's build environment can reach them fine — so
-  the fetch script always works on deploy, but you can't test it in-session.
-- Asking the container to hit NHL APIs will fail; trust Vercel for that.
+  and `api.nhle.com`. Vercel's build environment can reach them — the fetch
+  script runs for real on deploy, but you can't exercise it in-session.
+- **The fetch script FAILS THE BUILD (exit 1) when the fetch errors and no
+  previous good `players-nhl.json` (non-empty `players`) exists** — an
+  empty directory silently killed matching/positions/autocomplete app-wide
+  once, so a red build is the designed behavior. Consequence: `npm run
+  build` in this container fails at the fetch step (blocked API + the
+  committed placeholder has zero players). To verify the app compiles,
+  run `npx vite build`; to test the script's logic, mock `globalThis.fetch`
+  and import the script (see the harness pattern in past PRs).
 
 ## Product positioning
 
@@ -1155,25 +1169,42 @@ copy of a component drifts away from the original.
   the "+ Add player manually" path render the real `PlayerAutocomplete`
   (not a bare input), so an unmatched row is fixed in place by picking
   the directory's suggestion; the × button remains the dismiss path.
+  A directory that fails to load **or loads with zero players** is an
+  explicit error state — a warning banner ("Player directory
+  unavailable…") renders in the modal instead of every name silently
+  passing unflagged with no position; importing name-only stays
+  allowed.
 - `scripts/fetch-players-nhl.mjs` — build-time NHL fetch,
-  **roster-based**: current-roster sweep (api-web standings → per-team
-  `/roster/{TEAM}/current`) is the base population — includes players
-  with zero games last season; last-season stats (stats REST
-  season-aggregate endpoints, which include hits/blocks) merge on by
-  playerId, roster identity fields winning (current team beats
-  last-season `teamAbbrevs`); stats-only players not on a current
-  roster are appended so coverage never shrinks. No-stat records have
-  stat fields **absent** (not zeroed) — readers show "—". Emits
-  `ppg`/`ppa` (skaters, from summary `ppGoals`/`ppPoints`) and `saves`
-  (goalies) — field names match `STAT_CATEGORIES` keys on the shared
-  page. Failure handling: any fetch error or a roster sweep under
-  `MIN_ROSTER_PLAYERS` (500) keeps the last good JSON instead of
-  breaking the build. `loadPlayers` caches the JSON in localStorage
-  under a versioned key (`khq_players_{sport}_v5`); **bump the version
-  when the record shape changes** or browsers serve the old shape for
-  up to the 12h TTL. Tradeoff (v1): players on neither a current
-  roster nor last season's stats list (long-retired, career-AHL) are
-  not covered — acceptable; no historical-roster union attempted.
+  **roster-based**: a per-team roster sweep is the base population —
+  includes players with zero games last season; last-season stats
+  (stats REST season-aggregate endpoints, which include hits/blocks)
+  merge on by playerId, roster identity fields winning (current team
+  beats last-season `teamAbbrevs`); stats-only players not on a
+  current roster are appended so coverage never shrinks. No-stat
+  records have stat fields **absent** (not zeroed) — readers show "—".
+  **Off-season resilience** (the script runs in July too): the team
+  list tries `/v1/standings/now` but falls back to the team set found
+  in the stats sweep's `teamAbbrevs` (standings can be empty between
+  seasons); each team's roster is the UNION of `/roster/{TEAM}/current`
+  and `/roster/{TEAM}/{SEASON_ID}` (current wins on shared players —
+  "current" can 404 or be a thin next-season skeleton off-season).
+  Verbose per-step logging (stats counts, team-list source, per-team
+  roster counts per source) so a failing Vercel build pinpoints the
+  broken endpoint from the log alone. Emits `ppg`/`ppa` (skaters, from
+  summary `ppGoals`/`ppPoints`) and `saves` (goalies) — field names
+  match `STAT_CATEGORIES` keys on the shared page. **Failure policy —
+  never ship an empty directory silently**: on any fetch error or a
+  roster sweep under `MIN_ROSTER_PLAYERS` (500), keep the previous
+  good JSON if one exists (non-empty `players`), otherwise **exit 1
+  and fail the build** (the committed placeholder counts as no-good —
+  a fresh Vercel clone with a failing fetch goes red, not live-empty).
+  `loadPlayers` caches the JSON in localStorage under a versioned key
+  (`khq_players_{sport}_v5`) and **never caches an empty payload** (so
+  a fixed deploy recovers instantly); **bump the version when the
+  record shape changes** or browsers serve the old shape for up to the
+  12h TTL. Tradeoff (v1): players on neither a current roster nor
+  last season's stats list (long-retired, career-AHL) are not
+  covered — acceptable; no historical-roster union attempted.
 
 ### Note about "orphan" tab files
 
