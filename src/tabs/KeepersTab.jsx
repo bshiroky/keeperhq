@@ -3,6 +3,8 @@ import { ArrowLeftRight, Check } from 'lucide-react';
 import { makeTheme, tokens, Button } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
+import { ACQUISITION_METHODS, ACQUISITION_LABEL, acquisitionOf } from '../lib/acquisition.js';
+import { getDraftRounds } from '../lib/draftPicks.js';
 
 // Keepers Tab — full management with inline add/edit/remove
 
@@ -13,9 +15,9 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
     // If asked to auto-add and there's room, append an empty slot so user goes straight to the form
     if (autoAddOnOpen && initial.length < league.keeperSlots) {
       if (league.draftType === 'snake') {
-        initial.push({ player: '', contractYear: 1, contractLength: 3, expiresAfter: '' });
+        initial.push({ player: '', contractYear: 1, contractLength: 3, expiresAfter: '', ...acquisitionOf(null) });
       } else {
-        initial.push({ player: '', keptFor: 1, yearsKept: 1 });
+        initial.push({ player: '', keptFor: 1, yearsKept: 1, ...acquisitionOf(null) });
       }
     }
     return initial;
@@ -26,9 +28,9 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
   function addKeeper() {
     if (keepers.length >= league.keeperSlots) return;
     if (league.draftType === 'snake') {
-      setKeepers([...keepers, { player: '', contractYear: 1, contractLength: 3, expiresAfter: '' }]);
+      setKeepers([...keepers, { player: '', contractYear: 1, contractLength: 3, expiresAfter: '', ...acquisitionOf(null) }]);
     } else {
-      setKeepers([...keepers, { player: '', keptFor: 1, yearsKept: 1 }]);
+      setKeepers([...keepers, { player: '', keptFor: 1, yearsKept: 1, ...acquisitionOf(null) }]);
     }
   }
 
@@ -214,6 +216,30 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                 </button>
                 <button onClick={() => removeKeeper(i)} style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: '#e85252', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
+
+              {/* Acquisition row — quiet bookkeeping fields (foundation for the
+                  pick-cost keeper archetype; no rules read these yet). */}
+              {(() => {
+                const acq = acquisitionOf(k);
+                const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
+                const acqSelStyle = { background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 6px', color: t.textSecondary, fontSize: '11px', fontFamily: 'inherit', cursor: 'pointer' };
+                return (
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '10px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Acquisition</span>
+                    <select value={acq.acquisitionMethod} onChange={e => updateKeeper(i, 'acquisitionMethod', e.target.value)} style={acqSelStyle} aria-label="Acquisition method">
+                      {ACQUISITION_METHODS.map(m => <option key={m} value={m}>{ACQUISITION_LABEL[m]}</option>)}
+                    </select>
+                    <select value={acq.acquisitionRound ?? ''} onChange={e => updateKeeper(i, 'acquisitionRound', e.target.value === '' ? null : parseInt(e.target.value))} style={acqSelStyle} aria-label="Acquisition round">
+                      <option value="">Rd —</option>
+                      {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
+                    </select>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '11px', fontWeight: 600, color: t.textMuted, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={acq.rookieAtAcquisition} onChange={e => updateKeeper(i, 'rookieAtAcquisition', e.target.checked)} style={{ margin: 0, accentColor }} />
+                      Rookie when acquired
+                    </label>
+                  </div>
+                );
+              })()}
 
               {/* Trade indicator badge (when traded but not editing) */}
               {k.tradedTo && tradingIdx !== i && (

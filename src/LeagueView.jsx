@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
+import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { DraftImportModal } from './tabs/ImportTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
@@ -1191,7 +1192,12 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
-    ...(league.draftType === 'snake' ? [{ id: 'lottery', label: 'Lottery', Icon: Dices }] : []),
+    // Picks + Lottery are snake-only: round-based draft picks don't exist in
+    // an auction, and the route gate mirrors this (both redirect to overview).
+    ...(league.draftType === 'snake' ? [
+      { id: 'picks',   label: 'Picks',   Icon: ListOrdered },
+      { id: 'lottery', label: 'Lottery', Icon: Dices },
+    ] : []),
     { id: 'settings', label: 'Settings', Icon: SettingsIcon },
   ];
 
@@ -1322,6 +1328,11 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
       {activeTab === 'import' && (
         <SectionPanel title="Import Rosters &amp; Draft" isDark={isDark} onClose={closePanel}>
           <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+        </SectionPanel>
+      )}
+      {activeTab === 'picks' && league.draftType === 'snake' && (
+        <SectionPanel title="Draft Picks" isDark={isDark} onClose={closePanel}>
+          <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
         </SectionPanel>
       )}
 
