@@ -186,7 +186,7 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
         <button onClick={() => setAcqOpen(o => !o)}
           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, whiteSpace: 'nowrap' }}
           aria-expanded={acqOpen} aria-label="Edit acquisition details">
-          Acq · {acquisitionSummary(keeper)} {acqOpen ? '▾' : '▸'}
+          Acquired: {acquisitionSummary(keeper)} {acqOpen ? '▾' : '▸'}
         </button>
         {acqOpen && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

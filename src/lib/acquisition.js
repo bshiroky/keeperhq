@@ -29,12 +29,21 @@ export function acquisitionOf(entry) {
   };
 }
 
-// Short display string for the quiet acquisition line, e.g. "Draft R3 · Rookie",
-// "Waiver", "Manual".
+// Readable short form for the quiet "Acquired: …" line, e.g. "draft R3 ·
+// rookie", "waiver pickup", "manual entry". Lowercase on purpose — it reads
+// as a sentence fragment after the "Acquired:" label, not as a pill.
+const SUMMARY_LABEL = {
+  draft: 'draft',
+  waiver: 'waiver pickup',
+  trade: 'trade',
+  manual: 'manual entry',
+};
+
 export function acquisitionSummary(entry) {
   const acq = acquisitionOf(entry);
-  const base = acq.acquisitionMethod === 'draft' && acq.acquisitionRound != null
-    ? `Draft R${acq.acquisitionRound}`
-    : ACQUISITION_LABEL[acq.acquisitionMethod];
-  return acq.rookieAtAcquisition ? `${base} · Rookie` : base;
+  let base = SUMMARY_LABEL[acq.acquisitionMethod];
+  if (acq.acquisitionMethod === 'draft' && acq.acquisitionRound != null) {
+    base = `draft R${acq.acquisitionRound}`;
+  }
+  return acq.rookieAtAcquisition ? `${base} · rookie` : base;
 }
