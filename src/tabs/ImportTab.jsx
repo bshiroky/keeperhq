@@ -59,6 +59,9 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
   // contract); K-marked players default to Y2 (already kept once).
   const [entryYears, setEntryYears] = React.useState({});
   const [expandedTeams, setExpandedTeams] = React.useState({}); // {teamName: bool}
+  // Result step: set after a successful import so the modal ends by showing
+  // what it did (per-team counts) instead of closing into silence.
+  const [result, setResult] = React.useState(null); // { teams: [{name, players, withContracts, withPrices}] }
 
   const yearKey = (teamName, player) => `${teamName}|${player}`;
   const entryYearFor = (teamName, p) => entryYears[yearKey(teamName, p.player)] ?? (p.isKeeper ? Math.min(2, contractLen) : 1);
@@ -83,6 +86,7 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
   function doImport() {
     if (!preview) return;
     // Build new teams array with priorKeepers populated
+    const summary = [];
     const newTeams = league.teams.map(tm => {
       const fromParsed = preview.find(p => mapping[p.name] === tm.id);
       if (!fromParsed) return tm;
@@ -109,12 +113,22 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
           yearsKept: p.isKeeper ? 1 : 0, // if marked as keeper in last year's draft, they were already kept once
         };
       });
+      summary.push({
+        name: tm.name,
+        players: priorKeepers.length,
+        // Snake: contracts carried forward mid-deal (entering year > 1).
+        // Auction: carry-over keepers (kept before) + rows with a price.
+        withContracts: isSnake
+          ? priorKeepers.filter(k => (k.contractYear || 0) > 0).length
+          : priorKeepers.filter(k => (k.yearsKept || 0) > 0).length,
+        withPrices: isSnake ? null : priorKeepers.filter(k => k.keptFor != null).length,
+      });
       return { ...tm, priorKeepers };
     });
     // Persist the confirmed Yahoo-name → team mappings so the next import
     // (even after a Yahoo rename on either side) resolves without asking.
     onImport(rememberYahooTeams({ ...league, teams: newTeams }, mapping));
-    onClose();
+    setResult({ teams: summary });
   }
 
   const overlay = {
@@ -136,14 +150,47 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                 content (with Back) — the mapping is never a second stacked
                 modal. The step line makes the flow's shape explicit. */}
             <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
-              {preview ? 'Step 2 of 2 · Match teams & confirm' : 'Step 1 of 2 · Paste the full team-by-team draft results from your fantasy site.'}
+              {result ? 'Import complete' : preview ? 'Step 2 of 2 · Match teams & confirm' : 'Step 1 of 2 · Paste the full team-by-team draft results from your fantasy site.'}
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
 
         <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {!preview && (
+          {result && (() => {
+            const totalPlayers = result.teams.reduce((s, tm) => s + tm.players, 0);
+            const check = <span style={{ color: '#4caf7d', fontWeight: 700 }}>✓</span>;
+            return (
+              <>
+                <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary }}>
+                  {check} {totalPlayers} player{totalPlayers === 1 ? '' : 's'} imported across {result.teams.length} team{result.teams.length === 1 ? '' : 's'}
+                </div>
+                <div style={{ border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden' }}>
+                  {result.teams.map((tm, i) => (
+                    <div key={tm.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: t.sectionBg, borderBottom: i < result.teams.length - 1 ? `1px solid ${t.divider}` : 'none' }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tm.name}</span>
+                      <span style={{ fontSize: 12, color: t.textSecondary, whiteSpace: 'nowrap' }}>{tm.players} player{tm.players === 1 ? '' : 's'}</span>
+                      <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>
+                        · {tm.withContracts} {isSnake ? 'with contracts' : 'kept before'}
+                      </span>
+                      {tm.withPrices != null && (
+                        <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>· {tm.withPrices} with prices</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
+                  {isSnake
+                    ? "These players now seed each team's eligible keeper pool with their contract years and draft rounds."
+                    : "These players now seed each team's eligible keeper pool — next-season keeper costs are calculated from the imported prices."}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={onClose} style={{ background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Done</button>
+                </div>
+              </>
+            );
+          })()}
+          {!preview && !result && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
                 Format: each team block has the team name on its own line, then rows of <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>N. (pick) Player (TEAM - POS){isSnake ? '' : ' $cost'}</code>{isSnake ? ' — no dollar amounts needed for a snake draft' : ', ending with "Unused $X"'}. Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
@@ -162,7 +209,7 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
             </>
           )}
 
-          {preview && (
+          {preview && !result && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary, marginBottom: 4 }}>
                 Parsed <strong>{preview.length}</strong> team{preview.length === 1 ? '' : 's'} ·{' '}
