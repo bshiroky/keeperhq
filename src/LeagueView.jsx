@@ -902,7 +902,12 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Import Last Year's Draft</div>
-          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Paste your fantasy site's draft results to pre-populate every team's eligible keeper pool with player names and prices.</div>
+          {/* What the import is FOR differs by league type — say it up front. */}
+          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
+            {league.draftType === 'auction'
+              ? "Attaches each player's drafted price — this is how keeper costs are calculated."
+              : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing contracts.'}
+          </div>
         </div>
         <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowImport(true)} style={{ flexShrink: 0 }}>Paste Draft</Button>
       </div>
@@ -1230,39 +1235,15 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
 
   const closePanel = () => navigate(`${basePath}/overview`);
 
-  // Lottery and Picks are full-page takeovers (snake-only; the route gate
-  // enforces it). Picks was born a slide-in sheet but the round×team grid is
-  // page-sized content — it graduated to the Lottery pattern.
-  if (activeTab === 'lottery' && league.draftType === 'snake') {
-    return (
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 80px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
-          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Lottery</h1>
-          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
-            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
-            ← Back to Keepers
-          </Link>
-        </div>
-        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
-      </div>
-    );
-  }
-  if (activeTab === 'picks' && league.draftType === 'snake') {
-    return (
-      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
-          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Picks</h1>
-          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
-            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
-            ← Back to Keepers
-          </Link>
-        </div>
-        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-      </div>
-    );
-  }
+  // Lottery and Picks are full-page views (snake-only; the route gate
+  // enforces it) — but they keep the league's persistent nav: the identity
+  // card and the Overview/Set-keepers + section-door row render on every
+  // full page exactly as on the Keepers home, with the current door active.
+  // No "Back" button — any door/tab navigates directly. Sheets (Import /
+  // Pool / Settings) still overlay the Keepers home.
+  const fullPage = (activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
+    ? activeTab
+    : null;
 
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
@@ -1313,9 +1294,13 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         </div>
       </div>
 
-      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right) */}
+      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right).
+          On a full-page view neither sub-tab is active (the active door carries
+          the current-surface signal); clicking one navigates back to the
+          Keepers home with that sub-view selected. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '0 0 16px' }}>
-        <SubTabs view={view} onChange={setView} isDark={isDark} accentColor={accentColor} />
+        <SubTabs view={fullPage ? null : view} isDark={isDark} accentColor={accentColor}
+          onChange={v => { setView(v); if (fullPage) navigate(`${basePath}/overview`); }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
           {sectionDoors.map(d => (
             <SectionDoorButton key={d.id} to={`${basePath}/${d.id}`} active={activeTab === d.id} label={d.label} Icon={d.Icon} isDark={isDark} />
@@ -1323,7 +1308,11 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         </div>
       </div>
 
-      {view === 'overview' ? (
+      {fullPage === 'lottery' ? (
+        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+      ) : fullPage === 'picks' ? (
+        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+      ) : view === 'overview' ? (
         <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
       ) : (
         <SetKeepersWorkbench

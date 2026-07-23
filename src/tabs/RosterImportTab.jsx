@@ -149,6 +149,9 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
   const [players, setPlayers] = React.useState([]); // [{player}] — positions derive from the directory
   const [extracting, setExtracting] = React.useState(false);
   const [error, setError] = React.useState(null);
+  // Result step: after saving, show what the import did (counts + directory
+  // match rate) instead of closing into silence.
+  const [result, setResult] = React.useState(null); // { teamName, total, matched }
 
   // NHL player directory — the source of truth for positions. Only hockey has
   // a directory today; other sports import names with no position data.
@@ -247,7 +250,11 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
     }
     const newTeams = league.teams.map(tm => tm.id === teamId ? { ...tm, roster: cleaned } : tm);
     onImport({ ...league, teams: newTeams });
-    onClose();
+    setResult({
+      teamName: selectedTeam?.name || '?',
+      total: cleaned.length,
+      matched: cleaned.filter(p => p.pos).length,
+    });
   }
 
   // Roster import is pure ingest: just capture who was on the team that day.
@@ -277,7 +284,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
         </div>
 
         {/* Team picker */}
-        <div style={{ padding: '14px 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        {!result && <div style={{ padding: '14px 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 180 }}>
             <label style={{ fontSize: 10, color: t.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Team</label>
             <select value={teamId} onChange={e => { setTeamId(e.target.value); setPlayers([]); setText(''); setError(null); }}
@@ -292,10 +299,10 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               <Check size={12} strokeWidth={2} /> {existingRoster.length} players already imported — re-import will overwrite.
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Mode tabs */}
-        <div style={{ padding: '0 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', gap: 0 }}>
+        {!result && <div style={{ padding: '0 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', gap: 0 }}>
           {[
             { id: 'paste', label: 'Paste from Yahoo' },
             { id: 'screenshot', label: 'Upload Screenshot' },
@@ -311,11 +318,29 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               {m.label}
             </button>
           ))}
-        </div>
+        </div>}
 
         {/* Body — scrollable */}
         <div style={{ padding: '16px 22px', overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {dirUnavailable && (
+          {result && (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 700, color: t.textPrimary }}>
+                <span style={{ color: tokens.success, fontWeight: 700 }}>✓</span> {result.total} player{result.total === 1 ? '' : 's'} saved to {result.teamName}
+              </div>
+              {supportsDirectory && dirStatus === 'ready' && (
+                <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+                  {result.matched} matched the NHL directory (position filled in)
+                  {result.total - result.matched > 0 && (
+                    <span style={{ color: tokens.warning }}> · {result.total - result.matched} unmatched — saved name-only, re-import to fix spelling</span>
+                  )}.
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
+                This roster seeds {result.teamName}'s eligible keeper pool (players with no prior contract show as fresh deals).
+              </div>
+            </>
+          )}
+          {!result && dirUnavailable && (
             <div style={{
               padding: '10px 12px', background: tokens.warningBg,
               border: `1px solid ${tokens.warningBorder}`, borderRadius: 6,
@@ -327,7 +352,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               later, but matching is off until the directory loads.
             </div>
           )}
-          {mode === 'paste' && (
+          {!result && mode === 'paste' && (
             <>
               <div style={{ fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
                 On Yahoo, open the team's roster page (use the URL date trick if needed), select the whole page, copy, and paste here. The parser keys on the duplicated player-name pattern Yahoo uses, so stats columns are ignored automatically.
@@ -348,7 +373,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             </>
           )}
 
-          {mode === 'screenshot' && (
+          {!result && mode === 'screenshot' && (
             <>
               <div style={{ fontSize: 11, color: t.textSecondary, lineHeight: 1.5 }}>
                 Drop one or more screenshots of the team's Yahoo roster page. Each image is sent through an OCR pass that pulls out player names and positions. Upload multiple if the roster spans goalies / pitchers / IR slots on separate scrolls.
@@ -379,14 +404,14 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             </>
           )}
 
-          {error && (
+          {!result && error && (
             <div style={{ padding: '10px 12px', background: 'rgba(232,82,82,0.08)', border: '1px solid rgba(232,82,82,0.3)', borderRadius: 6, fontSize: 12, color: '#e85252' }}>{error}</div>
           )}
 
           {/* Preview / edit list. Position chips are derived live from the
               directory match on the typed name — editing a misspelled name
               re-matches as you type. */}
-          {players.length > 0 && (
+          {!result && players.length > 0 && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -451,7 +476,13 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '12px 22px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ padding: '12px 22px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: result ? 'flex-end' : 'space-between', gap: 8 }}>
+          {result ? (
+            <button onClick={onClose}
+              style={{ background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 22px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              Done
+            </button>
+          ) : (<>
           <button onClick={onClose}
             style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit' }}>
             Cancel
@@ -465,6 +496,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             }}>
             Save Roster for {selectedTeam?.name}
           </button>
+          </>)}
         </div>
       </div>
     </div>

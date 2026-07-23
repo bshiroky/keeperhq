@@ -24,6 +24,11 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
   });
   const [tradingIdx, setTradingIdx] = React.useState(null);
   const [tradeForm, setTradeForm] = React.useState({ toTeamId: '', note: '' });
+  // Acquisition metadata (round/method/rookie) is dormant foundation data —
+  // no current league archetype consumes it, so it's hidden by default and
+  // revealed only by this modal-level toggle (for commissioners pre-filling
+  // ahead of the pick-cost archetype). Imports keep stamping it silently.
+  const [showAcq, setShowAcq] = React.useState(false);
 
   function addKeeper() {
     if (keepers.length >= league.keeperSlots) return;
@@ -218,8 +223,9 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
               </div>
 
               {/* Acquisition row — quiet bookkeeping fields (foundation for the
-                  pick-cost keeper archetype; no rules read these yet). */}
-              {(() => {
+                  pick-cost keeper archetype; no rules read these yet), shown
+                  only when the modal-level toggle is on. */}
+              {showAcq && (() => {
                 const acq = acquisitionOf(k);
                 const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
                 const acqSelStyle = { background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 6px', color: t.textSecondary, fontSize: '11px', fontFamily: 'inherit', cursor: 'pointer' };
@@ -293,6 +299,16 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
             >
               + Add Keeper
             </button>
+          )}
+
+          {keepers.length > 0 && (
+            <div>
+              <button onClick={() => setShowAcq(v => !v)}
+                title="Round / method / rookie bookkeeping — used by pick-based keeper rules (not active in this league yet)"
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: 600, color: t.textMuted, textDecoration: 'underline' }}>
+                {showAcq ? 'Hide acquisition details' : 'Show acquisition details'}
+              </button>
+            </div>
           )}
         </div>
 

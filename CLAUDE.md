@@ -268,6 +268,39 @@ features have shipped through their own branches (all merged):
   with a helper line when expanded ("Set each player's current
   contract year entering this season.").
 
+- **Import/picks IA + clarity fixes (this branch's PR):** four fixes on
+  the import/picks surfaces. (1) **Persistent nav on full pages** — the
+  Picks and Lottery full-page views now keep the league identity card
+  AND the Overview/Set-keepers + section-door row exactly as the
+  Keepers home shows them; the current door renders active, any
+  door/tab navigates directly, and "← Back to Keepers" is gone. On a
+  full page neither sub-tab is highlighted (the active door carries the
+  current-surface signal); clicking a sub-tab routes back to
+  `…/overview` with that view selected. Standing rule recorded in
+  Build constraints. (2) **Draft import says what it's for and shows
+  what it did** — the Import-sheet card's blurb is per-league-type
+  (auction: drafted price → keeper costs; snake: optional — draft
+  rounds + contract carry-forward), and both `DraftImportModal` and
+  `RosterImportModal` end on a RESULT step ("N players imported across
+  M teams" with per-team contract/price counts; roster: saved count +
+  directory match rate) with a Done button instead of closing
+  silently. (3) **Acquisition metadata is hidden by default** — the
+  keeper-slot "Acquired:" line is removed and `KeeperEditModal`'s
+  per-keeper Acquisition row sits behind a single "Show acquisition
+  details" toggle; capture at import is unchanged (verified: pastes
+  still stamp round/method silently). See the acquisition-visibility
+  rule below. (4) **Picks grid advertises click-to-reassign** — lead
+  copy is now "Click any pick to record a trade", untraded cells get a
+  hover state (`.kh-pick-cell`), and cell tooltips say "click to
+  record a trade".
+
+  **Acquisition-visibility rule:** acquisition metadata
+  (round/method/rookie) is dormant foundation data — no shipped
+  archetype consumes it, so no surface displays it by default. It's
+  reachable only via the KeeperEditModal toggle. When the pick-cost
+  keeper archetype ships, its leagues surface these fields by default
+  (per-league gating on the archetype config, not a global reveal).
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -514,8 +547,8 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
 | `/league/:leagueId/import` | `LeagueView` + Import sheet (rosters & last-year's-draft upload) open |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
-| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks takeover (round×team pick-ownership grid + paste import) — **snake only**; auction redirects to overview |
-| `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery takeover — **snake only**; auction redirects to overview |
+| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks view (round×team pick-ownership grid + paste import) with the persistent league nav — **snake only**; auction redirects to overview |
+| `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery view with the persistent league nav — **snake only**; auction redirects to overview |
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
@@ -951,6 +984,17 @@ copy of a component drifts away from the original.
   lottery) gets a full-page route, not a sheet. Known dormant
   exception: the unrouted `SeasonSetupWizard` overlay opens import
   modals on top; fix it if that flow is ever revived.
+- **Full pages keep the league nav — no Back buttons.** A full-page
+  league view (Picks, Lottery, and any future one) renders the league
+  identity card + the Overview/Set-keepers + section-door row exactly
+  as the Keepers home does, with its own door active; every door/tab
+  navigates directly. Never a "← Back" link as the only way out. (On a
+  full page neither sub-tab is highlighted; clicking one routes to
+  `…/overview` with that view.)
+- **Imports end on a result step, never in silence.** A multi-step
+  import modal's last step states what it did (counts per team /
+  match rate) with a single Done button — see `DraftImportModal` and
+  `RosterImportModal`. New import flows follow suit.
 
 ## File map (most-edited)
 
@@ -1069,9 +1113,11 @@ copy of a component drifts away from the original.
   `ACQUISITION_METHODS` / `ACQUISITION_LABEL`, `acquisitionOf(entry)`
   (normalized read — absent fields default to round null / method
   'manual' / rookie false; **no migration needed for old data**), and
-  `acquisitionSummary` (the quiet one-line display string). Foundation
-  for the pick-cost keeper archetype; nothing computes rules from these
-  fields yet.
+  `acquisitionSummary` (readable short form, e.g. "draft R3 · rookie").
+  Foundation for the pick-cost keeper archetype; nothing computes rules
+  from these fields yet, and **no surface displays them by default** —
+  see the acquisition-visibility rule (KeeperEditModal toggle only;
+  imports keep stamping the fields silently).
 - `src/lib/draftPicks.js` — draft-pick ownership helpers over the
   SPARSE `league.draftPicks` model (see the pick-ownership PR bullet):
   `getDraftRounds` / `defaultDraftRounds`, `pickOwnerId`,
