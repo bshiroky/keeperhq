@@ -132,7 +132,12 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
         <div style={{ padding: '16px 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary }}>Import Last Year's Draft</div>
-            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>Paste the full team-by-team draft results from your fantasy site.</div>
+            {/* One modal, steps within: paste ↔ match/confirm swap the modal's
+                content (with Back) — the mapping is never a second stacked
+                modal. The step line makes the flow's shape explicit. */}
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
+              {preview ? 'Step 2 of 2 · Match teams & confirm' : 'Step 1 of 2 · Paste the full team-by-team draft results from your fantasy site.'}
+            </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
@@ -186,7 +191,7 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                       {isSnake && (
                         <button onClick={() => setExpandedTeams({ ...expandedTeams, [p.name]: !isExpanded })}
                           style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                          {isExpanded ? 'Hide players ▾' : 'Contract years ▸'}
+                          {isExpanded ? 'Hide players ▾' : 'Set contract years (carry-forward) ▸'}
                         </button>
                       )}
                       <select value={mapping[p.name] || ''} onChange={e => setMapping({ ...mapping, [p.name]: e.target.value })}
@@ -199,6 +204,9 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                     </div>
                     {isSnake && isExpanded && (
                       <div style={{ borderTop: `1px solid ${t.divider}`, padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.4, padding: '2px 0 4px' }}>
+                          Set each player's current contract year entering this season.
+                        </div>
                         {p.players.map((pl, pi) => {
                           const y = entryYearFor(p.name, pl);
                           return (

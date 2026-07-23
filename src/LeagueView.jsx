@@ -1192,8 +1192,9 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
-    // Picks + Lottery are snake-only: round-based draft picks don't exist in
-    // an auction, and the route gate mirrors this (both redirect to overview).
+    // Picks + Lottery are snake-only (round-based draft picks don't exist in
+    // an auction; the route gate mirrors this) and both open as FULL PAGES,
+    // not sheets — the round×team grid is page-sized content.
     ...(league.draftType === 'snake' ? [
       { id: 'picks',   label: 'Picks',   Icon: ListOrdered },
       { id: 'lottery', label: 'Lottery', Icon: Dices },
@@ -1229,7 +1230,9 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
 
   const closePanel = () => navigate(`${basePath}/overview`);
 
-  // Lottery is a full-page takeover (snake-only; the route gate enforces it).
+  // Lottery and Picks are full-page takeovers (snake-only; the route gate
+  // enforces it). Picks was born a slide-in sheet but the round×team grid is
+  // page-sized content — it graduated to the Lottery pattern.
   if (activeTab === 'lottery' && league.draftType === 'snake') {
     return (
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 80px' }}>
@@ -1242,6 +1245,21 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
           </Link>
         </div>
         <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+      </div>
+    );
+  }
+  if (activeTab === 'picks' && league.draftType === 'snake') {
+    return (
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
+          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Picks</h1>
+          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
+            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
+            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
+            ← Back to Keepers
+          </Link>
+        </div>
+        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
       </div>
     );
   }
@@ -1328,11 +1346,6 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
       {activeTab === 'import' && (
         <SectionPanel title="Import Rosters &amp; Draft" isDark={isDark} onClose={closePanel}>
           <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-        </SectionPanel>
-      )}
-      {activeTab === 'picks' && league.draftType === 'snake' && (
-        <SectionPanel title="Draft Picks" isDark={isDark} onClose={closePanel}>
-          <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
         </SectionPanel>
       )}
 

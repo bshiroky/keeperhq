@@ -207,8 +207,9 @@ features have shipped through their own branches (all merged):
   list on file (fallback 15) unless `draftPicks.rounds` is set explicitly
   from the sheet's Rounds input (`getDraftRounds` /
   `defaultDraftRounds`, `src/lib/draftPicks.js`). Commissioner UI: a
-  **snake-only "Picks" section door** (`/league/:id/picks`, slide-in
-  sheet like Import/Pool/Settings; auction redirects to overview like
+  **snake-only "Picks" section door** (`/league/:id/picks`; shipped as
+  a slide-in sheet, since promoted to a full page — see the
+  picks-surface-cleanup bullet; auction redirects to overview like
   Lottery) with a round×team grid — click a cell to reassign, traded
   cells show `via {owner}` in warning tint, a "Traded Picks" roll-up
   below lists `R2 · Alex's pick → Blake` with an undo ×. **Lottery
@@ -230,6 +231,42 @@ features have shipped through their own branches (all merged):
   persist at import via `rememberYahooTeams`. Roster pastes are
   per-team (commissioner picks the team from a dropdown; the paste
   carries no Yahoo team names) — verified unaffected.
+
+- **Picks surface cleanup + paste import (this branch's PR):** four
+  follow-ups on the pick-ownership foundation. (1) **Picks is a full
+  page now, not a sheet** — the round×team grid is page-sized content,
+  so `/league/:id/picks` uses the exact Lottery pattern (full-page
+  takeover, `← Back to Keepers`, maxWidth 1240); the section-door
+  button is unchanged. (2) **Pick-ownership paste import** — a "Paste
+  from Yahoo" button on the Picks page opens `PicksPasteModal`
+  (paste → preview/mapping → confirm, one modal with steps within).
+  `parseDraftPicksText` reads team-name blocks with pick lines
+  (`Round 2`, `Round 2 (from X)`, `(via X)`, `(to X)`, `Rd 2`,
+  `2nd Round pick`, optional year prefixes); plain rounds are
+  no-ops, annotated ones become trades (deduped per round+original,
+  trade-annotated entries winning since Yahoo lists a traded pick
+  under both teams). Names resolve through the same
+  `yahooTeamMap`-then-`suggestTeam` path as the draft import, with
+  red selects for unrecognized names; Apply chains `reassignPick`
+  (so round-1 lottery sync holds), grows `draftPicks.rounds` if a
+  traded round is deeper than the grid, and remembers mappings.
+  **Parser format is provisional** — built tolerant from the other
+  Yahoo pastes' noise patterns; iterate when the user pastes a real
+  sample in the PR conversation. Manual click-to-reassign stays.
+  (3) **One-sheet/one-modal-max audited** — see the standing rule in
+  Build constraints; the live import flows already complied (the
+  draft-import mapping is a STEP inside `DraftImportModal`, now made
+  explicit with a "Step 1 of 2 / Step 2 of 2" line in the modal
+  header). The only overlay-on-overlay left is the dormant
+  `SeasonSetupWizard` path (wizard overlay → import modals), which is
+  unrouted since the #21 redesign — flagged, not refactored (wizard
+  work out of scope). (4) **Label clarity** — the keeper-slot
+  acquisition line reads `Acquired: draft R3 · rookie` /
+  `Acquired: manual entry` (lowercase readable forms via
+  `acquisitionSummary`; still one quiet collapsed line), and the
+  draft-import expander is `Set contract years (carry-forward) ▸`
+  with a helper line when expanded ("Set each player's current
+  contract year entering this season.").
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -477,7 +514,7 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
 | `/league/:leagueId/import` | `LeagueView` + Import sheet (rosters & last-year's-draft upload) open |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
-| `/league/:leagueId/picks` | `LeagueView` + Draft Picks sheet open (round×team pick-ownership grid) — **snake only**; auction redirects to overview |
+| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks takeover (round×team pick-ownership grid + paste import) — **snake only**; auction redirects to overview |
 | `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery takeover — **snake only**; auction redirects to overview |
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
@@ -493,10 +530,10 @@ The old `/league/:leagueId/players` route is gone — the standalone
 NHL directory was folded into the Set-keepers Eligible Pool ("League"
 sub-tab), so `/players` redirects to overview. `VALID_TABS` in
 `App.jsx` is `['overview', 'import', 'payouts', 'picks', 'lottery',
-'settings']`. Import / Pool / Picks / Settings render as routed
-slide-in sheets over the Keepers home (the `activeTab` decides which
-sheet is open; closing routes back to `…/overview`); Lottery is the one
-full-page route. Picks and Lottery are both snake-gated in
+'settings']`. Import / Pool / Settings render as routed slide-in
+sheets over the Keepers home (the `activeTab` decides which sheet is
+open; closing routes back to `…/overview`); Picks and Lottery are
+**full-page** routes (page-sized content), and both are snake-gated in
 `LeagueRoute` (auction redirects to overview).
 
 **Wiring:**
@@ -906,6 +943,14 @@ copy of a component drifts away from the original.
 - **Design handoff** → approved designs come from **Claude Design as a
   written spec** (tokens, sizes, states, components to reuse), not just
   screenshots. Screenshots are for **final QA only**.
+- **Overlay depth: one sheet, one modal max — steps within.** A routed
+  sheet may open a modal, but a modal must never open another modal —
+  multi-stage flows (paste → mapping → confirm) swap the modal's
+  content as steps with a Back affordance (see `DraftImportModal`,
+  `PicksPasteModal`). Page-sized content (round×team grids, the
+  lottery) gets a full-page route, not a sheet. Known dormant
+  exception: the unrouted `SeasonSetupWizard` overlay opens import
+  modals on top; fix it if that flow is ever revived.
 
 ## File map (most-edited)
 
@@ -1040,12 +1085,16 @@ copy of a component drifts away from the original.
   (fuzzy suggestion vs team names), `rememberYahooTeams` (accumulate
   confirmed pairs at import time; identity mappings kept on purpose —
   they're what survives a later app-side team rename).
-- `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the Picks sheet:
-  intro card with an editable Rounds input ("auto" note when derived),
-  the round×team ownership grid (sticky round column with opaque
-  layered background — the sticky-transparency rule applies here too;
-  click a cell → inline team select; traded cells `via {owner}` in
-  warning tint), and the Traded Picks roll-up with per-trade undo.
+- `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the **full-page**
+  Picks surface (rendered by `LeagueView` in the Lottery full-page
+  pattern): intro card with an editable Rounds input ("auto" note when
+  derived) + the "Paste from Yahoo" button, the round×team ownership
+  grid (sticky round column with opaque layered background — the
+  sticky-transparency rule applies here too; click a cell → inline
+  team select; traded cells `via {owner}` in warning tint), and the
+  Traded Picks roll-up with per-trade undo. Also exports
+  `parseDraftPicksText` + `PicksPasteModal` (the pick-trades paste
+  import; parser format provisional pending a real Yahoo sample).
 - `src/tabs/OverviewTab.jsx` — exports **`KeepersOverview`** (the live
   Overview surface) plus the now-dormant `CompactKeeperGrid`.
   **`KeepersOverview`** is a full-width responsive grid
