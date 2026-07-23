@@ -182,6 +182,55 @@ features have shipped through their own branches (all merged):
   zero-player directories, and `loadPlayers` never caching an empty
   payload.
 
+- **Pick-ownership foundation (this branch's PR):** the data foundation
+  for a third keeper archetype — **pick-cost keepers** (keeping a player
+  consumes the draft round he was taken in) — plus rookie rules and
+  trade validation. **Deliberately no rules logic** — nothing computes a
+  keeper cost from a round yet; this PR only captures data the imports
+  used to throw away and makes pick ownership first-class. Three parts:
+  (1) **Acquisition metadata** — `acquisitionRound` (int | null),
+  `acquisitionMethod` (`'draft'|'waiver'|'trade'|'manual'`), and
+  `rookieAtAcquisition` (bool) on keeper/priorKeeper entries in the blob.
+  The draft paste stamps them (`ImportTab` — the leading `N.` on Yahoo's
+  team-by-team export is the ROUND, now captured per row; method
+  `'draft'`, rookie false); `buildTeamPool` threads them through pool
+  entries and `makeKeeper` stamps them on new keepers; absent fields
+  read as defaults via `acquisitionOf` (`src/lib/acquisition.js`) so old
+  data needs no migration. Editable in both edit surfaces, visually
+  quiet: a collapsed `Acq · Draft R3 · Rookie` disclosure line on the
+  Set-keepers `KeeperSlot`, an always-visible small "Acquisition" row
+  per keeper in `KeeperEditModal`. (2) **Draft-pick ownership** —
+  `league.draftPicks = { rounds?, ownership: {"<round>:<originalTeamId>":
+  ownerTeamId} }`, SPARSE (absent = team owns its own pick; reassigning
+  back to the original deletes the entry, so the default state costs
+  zero storage). Round count derives from the deepest roster/priorKeepers
+  list on file (fallback 15) unless `draftPicks.rounds` is set explicitly
+  from the sheet's Rounds input (`getDraftRounds` /
+  `defaultDraftRounds`, `src/lib/draftPicks.js`). Commissioner UI: a
+  **snake-only "Picks" section door** (`/league/:id/picks`, slide-in
+  sheet like Import/Pool/Settings; auction redirects to overview like
+  Lottery) with a round×team grid — click a cell to reassign, traded
+  cells show `via {owner}` in warning tint, a "Traded Picks" roll-up
+  below lists `R2 · Alex's pick → Blake` with an undo ×. **Lottery
+  unification:** draftPicks is the source of truth for pick OWNERSHIP;
+  the Lottery slate remains draft ORDER. Lottery reassignments write
+  through to round-1 ownership (`recordLotteryPickTrade`, names→ids)
+  and Picks-grid round-1 edits patch saved `lotteryResults` back
+  (`reassignPick`), so the two surfaces can't disagree. Shared page:
+  picks are commissioner-only for now (out of scope). (3)
+  **Yahoo-name↔GM mapping** — `league.yahooTeamMap: {"<yahoo name>":
+  teamId}` in the blob, ACCUMULATED (old names stay mapped so
+  re-imports after Yahoo renames still resolve; identity mappings are
+  stored too, because the commissioner may later rename the app team).
+  The draft-paste preview resolves each parsed team via the saved map
+  first (silent), then a similarity suggestion vs team names
+  (exact/containment/edit-distance ≥ 0.7, `suggestTeam` in
+  `src/lib/teamMap.js`); still-unresolved rows show the existing red
+  dropdown plus an "Unrecognized team name" hint, and confirmed picks
+  persist at import via `rememberYahooTeams`. Roster pastes are
+  per-team (commissioner picks the team from a dropdown; the paste
+  carries no Yahoo team names) — verified unaffected.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -428,6 +477,7 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
 | `/league/:leagueId/import` | `LeagueView` + Import sheet (rosters & last-year's-draft upload) open |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
+| `/league/:leagueId/picks` | `LeagueView` + Draft Picks sheet open (round×team pick-ownership grid) — **snake only**; auction redirects to overview |
 | `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery takeover — **snake only**; auction redirects to overview |
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
@@ -442,10 +492,12 @@ introduced.
 The old `/league/:leagueId/players` route is gone — the standalone
 NHL directory was folded into the Set-keepers Eligible Pool ("League"
 sub-tab), so `/players` redirects to overview. `VALID_TABS` in
-`App.jsx` is `['overview', 'import', 'payouts', 'lottery', 'settings']`.
-Import / Pool / Settings render as routed slide-in sheets over the
-Keepers home (the `activeTab` decides which sheet is open; closing
-routes back to `…/overview`); Lottery is the one full-page route.
+`App.jsx` is `['overview', 'import', 'payouts', 'picks', 'lottery',
+'settings']`. Import / Pool / Picks / Settings render as routed
+slide-in sheets over the Keepers home (the `activeTab` decides which
+sheet is open; closing routes back to `…/overview`); Lottery is the one
+full-page route. Picks and Lottery are both snake-gated in
+`LeagueRoute` (auction redirects to overview).
 
 **Wiring:**
 
@@ -965,7 +1017,35 @@ copy of a component drifts away from the original.
   status: 'rostered'|'keeper'|'expired', isExpired, keeperList,
   keeperIdx, tradedTo*, ... }` keyed by normalized name.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
-  years, drops expired, resets keepers, etc.)
+  years, drops expired, resets keepers, etc.). `advanceKeeper` spreads
+  the keeper object, so acquisition metadata survives season rollovers
+  for free.
+- `src/lib/acquisition.js` — acquisition metadata helpers:
+  `ACQUISITION_METHODS` / `ACQUISITION_LABEL`, `acquisitionOf(entry)`
+  (normalized read — absent fields default to round null / method
+  'manual' / rookie false; **no migration needed for old data**), and
+  `acquisitionSummary` (the quiet one-line display string). Foundation
+  for the pick-cost keeper archetype; nothing computes rules from these
+  fields yet.
+- `src/lib/draftPicks.js` — draft-pick ownership helpers over the
+  SPARSE `league.draftPicks` model (see the pick-ownership PR bullet):
+  `getDraftRounds` / `defaultDraftRounds`, `pickOwnerId`,
+  `reassignPick` (Picks-grid entry point; round-1 changes patch saved
+  `lotteryResults` by team name), `recordLotteryPickTrade` (Lottery
+  entry point; team names → ids → round-1 ownership), `tradedPicks`
+  (the roll-up list). draftPicks = OWNERSHIP truth; lotteryResults =
+  ORDER truth; both write-throughs keep them consistent.
+- `src/lib/teamMap.js` — Yahoo-team-name↔GM mapping:
+  `resolveYahooTeam` (saved-map lookup, normalized), `suggestTeam`
+  (fuzzy suggestion vs team names), `rememberYahooTeams` (accumulate
+  confirmed pairs at import time; identity mappings kept on purpose —
+  they're what survives a later app-side team rename).
+- `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the Picks sheet:
+  intro card with an editable Rounds input ("auto" note when derived),
+  the round×team ownership grid (sticky round column with opaque
+  layered background — the sticky-transparency rule applies here too;
+  click a cell → inline team select; traded cells `via {owner}` in
+  warning tint), and the Traded Picks roll-up with per-trade undo.
 - `src/tabs/OverviewTab.jsx` — exports **`KeepersOverview`** (the live
   Overview surface) plus the now-dormant `CompactKeeperGrid`.
   **`KeepersOverview`** is a full-width responsive grid
@@ -1361,19 +1441,18 @@ buttons, no member login until (B)'s trigger is hit.
     is currently underdocumented — capture it properly when touched.
     (A **read-only Yahoo API** application is in review — when approved
     it supplements the paste/OCR path with a direct pull; see #15.)
-14. **Draft-pick ownership / validation (deferred, captured for when
-    it returns).** In the off-season, teams trade draft picks for
-    other teams' excess keepers; the commissioner annotates this by
-    hand. Recurring headache: people try to trade picks they no longer
-    own, forcing the commissioner to pull the Yahoo draft-picks page
-    (web again) to verify. Full pick import may be overkill now, but
-    the underlying need — knowing **who owns which picks** to validate
-    trades — is real. Revisit whether importing pick ownership solves
-    it. **Refinement:** uploaded picks carry **Yahoo team names**, but
-    this app keys teams by **GM / owner name**, and team names change
-    through the season — so a pick import needs a **mapping layer
-    (Yahoo team name ↔ GM/owner)**, not a raw import. Same mapping
-    concern likely applies to roster/draft uploads generally.
+14. **Draft-pick ownership / validation — FOUNDATION SHIPPED (this
+    branch's PR); validation logic still open.** The underlying need —
+    knowing **who owns which picks** — is now first-class:
+    `league.draftPicks` + the snake-only Picks sheet let the
+    commissioner record pick trades by hand and see ownership at a
+    glance (see the pick-ownership PR bullet). The **mapping layer
+    (Yahoo team name ↔ GM/owner)** also shipped
+    (`league.yahooTeamMap`, wired into the draft-paste preview).
+    Still open from the original item: actual trade *validation*
+    (warning when someone trades a pick they no longer own) and any
+    direct pick *import* from Yahoo — both are rules/ingest layers on
+    top of the now-existing ownership data.
 15. **Account creation + login — SHIPPED (PR #23).** Google SSO is
     live (`AccountMenu` in `src/App.jsx`, `supabase.auth.signInWithOAuth`).
     Tightly coupled with the backend (#7): login identifies the

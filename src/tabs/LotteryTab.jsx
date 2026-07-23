@@ -1,6 +1,7 @@
 import React from 'react';
 import { RotateCcw, Lock, Pencil, ArrowLeftRight } from 'lucide-react';
 import { makeTheme, tokens } from '../components.jsx';
+import { recordLotteryPickTrade } from '../lib/draftPicks.js';
 
 // Lottery Tab — bottom 4 teams compete for picks 1-4; top 8 get 5-12 in reverse standings.
 // Supports traded pick reassignment before AND after the draw.
@@ -58,7 +59,16 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
       return { ...s, owner: newOwner };
     });
     setSlate(updated);
-    if (locked && onUpdateLeague) onUpdateLeague({ ...league, lotteryResults: updated });
+    if (onUpdateLeague) {
+      // A lottery reassignment IS a round-1 pick trade — write it through to
+      // league.draftPicks so the Picks grid never disagrees with this page.
+      // The lotteryResults slate itself still only persists once locked.
+      const slot = slate.find(s => s.pick === pickNum);
+      const originalName = slot?.original || (slot?.lottery ? lotteryTeams[pickNum - 1]?.name : null);
+      let next = originalName ? recordLotteryPickTrade(league, originalName, newOwner) : league;
+      if (locked) next = { ...next, lotteryResults: updated };
+      if (next !== league) onUpdateLeague(next);
+    }
     setEditingPick(null);
   }
 

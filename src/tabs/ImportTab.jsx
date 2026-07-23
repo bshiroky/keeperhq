@@ -1,5 +1,6 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
+import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
 
 // Import Last Year's Draft — paste tool for draft results
 // Auction format: lines like "1.   (22)   Cooper Flagg (DAL - PG,SG,SF)   $30"
@@ -26,12 +27,13 @@ function parseDraftResults(text) {
     const m = raw.match(playerRegex);
     if (m) {
       if (!current) continue; // player line without a team — skip
+      const round = parseInt(m[1], 10); // the leading "N." on a Yahoo team-by-team export is the ROUND
       const playerName = m[2].replace(/\s+/g, ' ').trim();
       const proTeam = m[3];
       const positions = m[4].split(',').map(s => s.trim()).join(',');
       const dollar = m[5] != null ? parseInt(m[5], 10) : null;
       const isKeeper = / {2,}\(|\(K\)/.test(raw);
-      current.players.push({ player: playerName, draftedFor: dollar, isKeeper, proTeam, positions });
+      current.players.push({ player: playerName, round: Number.isFinite(round) ? round : null, draftedFor: dollar, isKeeper, proTeam, positions });
       continue;
     }
 
@@ -66,15 +68,14 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
     setPreview(parsed);
     setEntryYears({});
     setExpandedTeams({});
-    // Auto-map by name (case-insensitive, fuzzy contains)
+    // Resolve each parsed Yahoo team name: the saved league.yahooTeamMap first
+    // (previously-confirmed names resolve silently, surviving Yahoo renames),
+    // then a string-similarity suggestion against the league's team names.
+    // Anything still unresolved shows the red dropdown for the commissioner.
     const mapInit = {};
     parsed.forEach(p => {
-      const norm = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const match = league.teams.find(tm => {
-        const tn = tm.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-        return norm.includes(tn) || tn.includes(norm);
-      });
-      if (match) mapInit[p.name] = match.id;
+      const match = resolveYahooTeam(league, p.name) || suggestTeam(league, p.name);
+      if (match) mapInit[p.name] = match;
     });
     setMapping(mapInit);
   }
@@ -86,7 +87,16 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
       const fromParsed = preview.find(p => mapping[p.name] === tm.id);
       if (!fromParsed) return tm;
       const priorKeepers = fromParsed.players.map(p => {
-        const base = { player: p.player, proTeam: p.proTeam, positions: p.positions };
+        const base = {
+          player: p.player, proTeam: p.proTeam, positions: p.positions,
+          // Acquisition metadata (foundation for pick-cost keepers / rookie
+          // rules): the draft paste is a draft record, so method is 'draft'
+          // and the round comes straight from the parse. Rookie status isn't
+          // in the paste — defaults false, commissioner-editable.
+          acquisitionRound: p.round ?? null,
+          acquisitionMethod: 'draft',
+          rookieAtAcquisition: false,
+        };
         if (isSnake) {
           // priorKeepers.contractYear stores years already served (data.js
           // convention: 0 = drafted last year, entering Y1 if kept), so the
@@ -101,7 +111,9 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
       });
       return { ...tm, priorKeepers };
     });
-    onImport({ ...league, teams: newTeams });
+    // Persist the confirmed Yahoo-name → team mappings so the next import
+    // (even after a Yahoo rename on either side) resolves without asking.
+    onImport(rememberYahooTeams({ ...league, teams: newTeams }, mapping));
     onClose();
   }
 
@@ -165,6 +177,11 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: t.textPrimary }}>{p.name}</div>
                         <div style={{ fontSize: 11, color: t.textMuted, marginTop: 1 }}>{p.players.length} players · {p.players.filter(pl => pl.isKeeper).length} marked as carry-over keepers</div>
+                        {!mapping[p.name] && (
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#e85252', marginTop: 2 }}>
+                            Unrecognized team name — pick whose team this is. It's remembered for future imports.
+                          </div>
+                        )}
                       </div>
                       {isSnake && (
                         <button onClick={() => setExpandedTeams({ ...expandedTeams, [p.name]: !isExpanded })}

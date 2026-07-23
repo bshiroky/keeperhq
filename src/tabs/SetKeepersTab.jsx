@@ -3,6 +3,8 @@ import { ArrowLeftRight, Check, Plus, Search, X } from 'lucide-react';
 import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
+import { ACQUISITION_METHODS, ACQUISITION_LABEL, acquisitionOf, acquisitionSummary } from '../lib/acquisition.js';
+import { getDraftRounds } from '../lib/draftPicks.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -15,17 +17,22 @@ import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js'
 // Build a keeper record from a pool/directory entry, in the shape today's data
 // model uses (snake: contractYear/contractLength; auction: keptFor/yearsKept).
 function makeKeeper(entry, league) {
+  // Acquisition metadata rides along from the pool entry (which carried it
+  // from the prior-keeper / roster record); absent fields normalize to the
+  // defaults (round null, method 'manual', rookie false).
   if (league.draftType === 'snake') {
     return {
       player: entry.player,
       contractYear: entry.nextYear || 1,
       contractLength: entry.length || league.contractYears || 3,
+      ...acquisitionOf(entry),
     };
   }
   return {
     player: entry.player,
     keptFor: entry.nextCost != null ? entry.nextCost : (league.auctionRules?.undraftedStartCost || 5),
     yearsKept: entry.yearsKept || 1,
+    ...acquisitionOf(entry),
   };
 }
 
@@ -45,6 +52,16 @@ function buildTeamPool(league, team) {
 
   const isExpired = (p) => !!(p.expired || (isSnake && (p.contractYear || 0) + 1 > (p.contractLength || len)));
 
+  // Thread acquisition metadata through pool entries (only fields actually
+  // present on the source record) so makeKeeper can stamp it on the keeper.
+  const acqCarry = (p) => {
+    const out = {};
+    if (p.acquisitionRound != null) out.acquisitionRound = p.acquisitionRound;
+    if (p.acquisitionMethod) out.acquisitionMethod = p.acquisitionMethod;
+    if (p.rookieAtAcquisition) out.rookieAtAcquisition = true;
+    return out;
+  };
+
   const onContract = [];
   const expired = [];
   priors.forEach(p => {
@@ -55,9 +72,9 @@ function buildTeamPool(league, team) {
     if (isSnake) {
       const nextYear = (p.contractYear || 0) + 1;
       const length = p.contractLength || len;
-      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextYear, length, final: nextYear >= length });
+      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextYear, length, final: nextYear >= length, ...acqCarry(p) });
     } else {
-      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextCost: (p.keptFor != null ? p.keptFor + bump : base), wasCost: p.keptFor, yearsKept: (p.yearsKept || 0) + 1 });
+      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextCost: (p.keptFor != null ? p.keptFor + bump : base), wasCost: p.keptFor, yearsKept: (p.yearsKept || 0) + 1, ...acqCarry(p) });
     }
   });
 
@@ -65,8 +82,8 @@ function buildTeamPool(league, team) {
   roster.forEach(r => {
     if (priorByName.has(normalizeName(r.player))) return;
     rosteredNoContract.push(isSnake
-      ? { player: r.player, pos: r.pos, kind: 'rostered', nextYear: 1, length: len, final: 1 >= len }
-      : { player: r.player, pos: r.pos, kind: 'rostered', nextCost: base, yearsKept: 1 });
+      ? { player: r.player, pos: r.pos, kind: 'rostered', nextYear: 1, length: len, final: 1 >= len, ...acqCarry(r) }
+      : { player: r.player, pos: r.pos, kind: 'rostered', nextCost: base, yearsKept: 1, ...acqCarry(r) });
   });
 
   return { onContract, rosteredNoContract, expired };
@@ -91,6 +108,9 @@ function TradeButton({ isDark }) {
 function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
+  // Acquisition editor disclosure — collapsed by default; these are quiet
+  // bookkeeping fields, not headline data.
+  const [acqOpen, setAcqOpen] = React.useState(false);
 
   if (!keeper) {
     return (
@@ -117,13 +137,18 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
     padding: '5px 6px', color: t.textPrimary, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
   };
 
+  const acq = acquisitionOf(keeper);
+  const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
+  const acqSelStyle = { ...selStyle, fontSize: 11, color: t.textSecondary, padding: '3px 5px' };
+
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box',
+      display: 'flex', flexDirection: 'column', gap: 4, width: '100%', boxSizing: 'border-box',
       background: expiring ? t.dangerBg : t.sectionBg,
       border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
       borderRadius: tokens.radiusMd, padding: '8px 10px',
     }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{index + 1}</span>
       <Headshot name={keeper.player} map={playerMap} size={28} isDark={isDark} />
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -152,6 +177,33 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
         style={{ background: t.dangerBg, border: 'none', borderRadius: tokens.radiusSm, padding: '6px 8px', cursor: 'pointer', color: t.danger, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit' }}>
         <X size={14} strokeWidth={2} />
       </button>
+      </div>
+
+      {/* Acquisition line — quiet bookkeeping (round / method / rookie),
+          collapsed to a one-line summary. Foundation for the pick-cost
+          keeper archetype; no rules read these fields yet. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 30, flexWrap: 'wrap' }}>
+        <button onClick={() => setAcqOpen(o => !o)}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, whiteSpace: 'nowrap' }}
+          aria-expanded={acqOpen} aria-label="Edit acquisition details">
+          Acq · {acquisitionSummary(keeper)} {acqOpen ? '▾' : '▸'}
+        </button>
+        {acqOpen && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <select value={acq.acquisitionMethod} onChange={e => onUpdate({ acquisitionMethod: e.target.value })} style={acqSelStyle} aria-label="Acquisition method">
+              {ACQUISITION_METHODS.map(m => <option key={m} value={m}>{ACQUISITION_LABEL[m]}</option>)}
+            </select>
+            <select value={acq.acquisitionRound ?? ''} onChange={e => onUpdate({ acquisitionRound: e.target.value === '' ? null : parseInt(e.target.value) })} style={acqSelStyle} aria-label="Acquisition round">
+              <option value="">Rd —</option>
+              {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, cursor: 'pointer' }}>
+              <input type="checkbox" checked={acq.rookieAtAcquisition} onChange={e => onUpdate({ rookieAtAcquisition: e.target.checked })} style={{ margin: 0, accentColor: gridAccent }} />
+              Rookie
+            </label>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
