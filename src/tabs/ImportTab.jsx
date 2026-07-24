@@ -145,7 +145,10 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
               Carry-forward contracts: expand a team to set each player's contract year <em>entering this season</em> (Y1–Y{contractLen}, defaults to Y1). A player entering Y{contractLen} is in their final keepable year.
             </div>
           )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 380, overflowY: 'auto' }}>
+          {/* Width-driven grid: two-up mapping rows on a full page, one column
+              in the dormant modal (its 760px box stays under the 420px min).
+              No internal max-height — the host (page or modal) scrolls. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(420px, 100%), 1fr))', gap: 8, alignItems: 'start' }}>
             {preview.map((p, i) => {
               const isExpanded = !!expandedTeams[p.name];
               return (

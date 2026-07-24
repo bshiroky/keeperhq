@@ -171,9 +171,11 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
   }
 
   // ── Import mode: the paste→map→confirm flow as page content ────────────────
+  // Full content width, like every other full page — no sheet-era maxWidth
+  // (the flow's mapping list is width-aware and goes two-up on desktop).
   if (importing) {
     return (
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden', maxWidth: 800 }}>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Import Last Year's Draft</div>
         </div>
