@@ -8,7 +8,7 @@ import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
-import { RosterImportModal } from './tabs/RosterImportTab.jsx';
+import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
@@ -897,6 +897,11 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const navigate = useNavigate();
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
+  // Post-import roster corrections: "Edit roster" opens the shared
+  // RosterEditor in a MODAL over this page (page→modal per the
+  // overlay-direction rule) — team rows stay one line each, nothing expands
+  // inline.
+  const [editingRosterTeam, setEditingRosterTeam] = React.useState(null); // teamId
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
 
@@ -958,6 +963,12 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
                     {hasRoster ? `${tm.roster.length} players · as of ${tm.rosterAsOfDate || '—'}` : 'No roster on file'}
                   </div>
                 </div>
+                {hasRoster && (
+                  <button onClick={() => setEditingRosterTeam(tm.id)}
+                    style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                    Edit roster
+                  </button>
+                )}
                 <button onClick={() => setShowRosterImport(tm.id)}
                   style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: hasRoster ? t.textSecondary : accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
                   {hasRoster ? 'Re-import' : 'Import'}
@@ -968,6 +979,13 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         </div>
       </div>
 
+      {editingRosterTeam && (() => {
+        const tm = (league.teams || []).find(x => x.id === editingRosterTeam);
+        return tm ? (
+          <RosterEditorModal league={league} team={tm} isDark={isDark} accentColor={accentColor}
+            onUpdateLeague={onUpdateLeague} onClose={() => setEditingRosterTeam(null)} />
+        ) : null;
+      })()}
       {showRosterImport && <RosterImportModal
         league={league}
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}

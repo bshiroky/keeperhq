@@ -421,6 +421,40 @@ features have shipped through their own branches (all merged):
   no headshots, single-line cells) instead of mobile cards stretched
   wide. Hockey rows/table verified unchanged (regression-asserted).
 
+- **Shared/import polish round (this branch's PR):** five fixes from
+  real basketball QA. (1) **Sport-aware paste examples** — the roster
+  modal's placeholder and the draft paste step's hint/placeholder show
+  rows shaped like the league's own sport (`ROSTER_SAMPLES` /
+  `DRAFT_SAMPLE_ROWS`, keyed off `league.sport`, hockey fallback).
+  (2) **Yahoo placeholder rows filtered + roster editing** — the
+  roster parser (extracted to `src/lib/rosterParse.js`) skips
+  vacant-slot furniture ("--empty--", "(Empty)", punctuation-only
+  lines; `isRosterPlaceholder`), and saved rosters gained minimal
+  editing via a shared **`RosterEditor`** (`RosterImportTab.jsx`):
+  per-player remove × and a `PlayerAutocomplete`-backed add (directory
+  picks carry the position; typed adds save name-only). Its one entry
+  point is the Import page's per-team **"Edit roster" → a MODAL**
+  (`RosterEditorModal`; page→modal per the overlay-direction rule) —
+  team rows stay one line each, nothing expands inline. Earlier forms
+  (an inline accordion; an Eligible Pool "Edit roster" entry) were
+  tried and REVERTED — the accordion left a huge empty grid cell
+  beside the expanded roster, and the pool editor hijacked the
+  keeper-picking flow (the pool's job is selection, not roster
+  repair). See Open item #24 for the eventual real home. (3) **Shared-page
+  value sort for stats-less leagues** — `sortRowsDefault` takes the
+  league now: auction sorts keep-cost desc, stats-less snake sorts
+  round asc (rows carry `round` from `acquisitionRound` via
+  `buildSharedRows`), alphabetical only as tiebreak/fallback; hockey's
+  points sort unchanged, and the desktop table's `orderRows` passes
+  stats-less lists through instead of re-alphabetizing. (4) **Player
+  search on the shared page** — an input under the filter chips
+  (inside `.kh-share-rail`, so print hides it) filters the current
+  view by `normalizeName` matching (same as the Eligible Pool);
+  no-match shows "No players match “x”." and never summons the
+  mascot. (5) **"Eligible, not protected" unified** — desktop team
+  filter renders it as the in-table partition row (since #36); the
+  mobile eyebrow now matches that treatment's tight spacing.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -488,8 +522,9 @@ headless.
 - `npm run build` — runs `scripts/fetch-players-nhl.mjs` then `vite build`.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
-- `npm run test:parser` — draft-paste parser unit tests
-  (`scripts/test-draft-parser.mjs`, plain node, no framework)
+- `npm run test:parser` — paste-parser unit tests, draft + roster
+  (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`;
+  plain node, no framework)
 - This Claude Code container's network policy **blocks** `api-web.nhle.com`
   and `api.nhle.com`. Vercel's build environment can reach them — the fetch
   script runs for real on deploy, but you can't exercise it in-session.
@@ -1522,16 +1557,26 @@ copy of a component drifts away from the original.
   Overview tab "Continue setup" button.
 - `src/tabs/SourcesTab.jsx` — `DataSourcesPanel` (roster + contract
   import buttons inside the wizard)
-- `src/tabs/RosterImportTab.jsx` — Yahoo screenshot/paste roster
-  parser. Uses `window.claude.complete` for AI screenshot OCR. **The
-  parse extracts names only** — Yahoo's leftmost column is a lineup
-  slot (BN, IR+, Util…), not a position, so slot labels anchor the
-  parse and are then discarded; positions come from the NHL directory
-  match (matched rows store `pos` like `LW` via the L/R→LW/RW map,
-  unmatched rows store no `pos` and are flagged in the preview for
-  spelling fixes). `cleanPlayerName`'s status-flag strip requires
+- `src/lib/rosterParse.js` — the Yahoo roster-paste parser, pure JS
+  (extracted from RosterImportTab; fixtures in
+  `scripts/test-roster-parser.mjs`). **Names only** — Yahoo's leftmost
+  column is a lineup slot (BN, IR+, Util…), not a position, so slot
+  labels anchor the parse and are discarded; vacant-slot furniture
+  ("--empty--", "(Empty)", punctuation-only lines) is skipped via
+  `isRosterPlaceholder` (a real basketball import once saved a player
+  named "--empty--"). `cleanPlayerName`'s status-flag strip requires
   whitespace before the flag (`\s+`) — with `\s*` it truncated names
-  ending in K/O/Q/P (Hellebuyck → "Hellebuyc"). Every preview row and
+  ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
+- `src/tabs/RosterImportTab.jsx` — the roster-import modal (paste via
+  lib/rosterParse + `window.claude.complete` screenshot OCR) plus the
+  shared **`RosterEditor`** and its **`RosterEditorModal`** wrapper
+  (saved-roster corrections: remove × + add via autocomplete; opened
+  from the Import page's per-team "Edit roster" — one component,
+  never forked). Paste samples are sport-aware (`ROSTER_SAMPLES`,
+  keyed off league.sport). Positions come from the NHL directory match
+  (matched rows store `pos` like `LW` via the L/R→LW/RW map, unmatched
+  rows store no `pos` and are flagged in the preview for spelling
+  fixes). Every preview row and
   the "+ Add player manually" path render the real `PlayerAutocomplete`
   (not a bare input), so an unmatched row is fixed in place by picking
   the directory's suggestion; the × button remains the dismiss path.
@@ -1878,6 +1923,13 @@ buttons, no member login until (B)'s trigger is hit.
       stat-columns model (`STAT_CATEGORIES` /
       `league.statCategories`) applies as-is (rushing/receiving/
       passing yards, TDs, INTs, etc.).
+
+24. **FUTURE — dedicated Rosters page.** A full page owning roster
+    data + roster import (mirroring the Last Draft page's
+    data-has-a-home pattern), dissolving the Import page into two
+    proper homes (rosters / draft). Do as a deliberate IA pass, not
+    piecemeal — the interim state is the Import page's roster section
+    with its per-team Edit-roster modal.
 
 ## Cleanup pending
 
