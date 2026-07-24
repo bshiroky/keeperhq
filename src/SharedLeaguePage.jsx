@@ -697,7 +697,9 @@ function SharedLeaguePage({ league, isDark }) {
 
   const chips = [
     { id: 'keepable', label: locked ? 'Final keepers' : (isSnake ? 'Keepable' : 'All players') },
-    { id: 'contracts', label: 'Under contract' },
+    // Auction has no contract concept — the same row set (keepers + players
+    // with a prior price) reads as "Drafted last year" there.
+    { id: 'contracts', label: isSnake ? 'Under contract' : 'Drafted last year' },
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
   ];

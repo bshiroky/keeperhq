@@ -369,6 +369,37 @@ features have shipped through their own branches (all merged):
   rule; eligibility windows vary by league and aren't modeled yet.
   Same de-specification in `RosterImportModal`'s header line.
 
+- **Auction-vocabulary + mapping polish (this branch's PR, final
+  round):** four fixes from real basketball QA. (1) **No contract
+  language in auction contexts** — auction has no contract concept, so
+  the eligible pool says `Drafted $83` (muted status) instead of "On
+  contract", `Undrafted` instead of "No contract", group headers read
+  "Drafted last year · eligible" / "Rostered · undrafted", the pool's
+  Expired tab is snake-only (like the shared page's Expired filter),
+  the shared page's "Under contract" chip relabels to "Drafted last
+  year" on auction, and the workbench tip says "drafted prices".
+  (2) **Escalation math is visible wherever a keep cost renders**:
+  pool rows pair `Drafted $83` with a `Keep $88` value, keeper slots
+  show `Drafted $83 →` before the editable keep-cost input (via a
+  `draftedCostByName` lookup against `team.priorKeepers`), the shared
+  page already had the pair, and the Last Draft header (auction)
+  states the league's rule from config: "Keeper cost = drafted price
+  + $N/yr · undrafted players start at $M" (same `|| 5` fallbacks as
+  `buildTeamPool`, so the stated rule always matches computed costs).
+  (3) **Draft-import mapping blocks duplicates**: teams mapped on
+  another row stay in every dropdown marked `✓ (mapped)`; picking one
+  STEALS it (the other row visibly reverts to unmapped), auto-resolver
+  collisions (saved map + similarity can both hit one team) show an
+  inline error naming the team and disable Import until fixed, and an
+  "N of M teams mapped" counter (distinct teams) sits by the confirm.
+  (4) **Value-sorted rows**: the Last Draft page sorts each team's
+  players by price desc (auction) / round asc (snake), missing values
+  last, alphabetical tiebreak — display order only; edits/removes
+  still address the ORIGINAL `priorKeepers` index, and the auction
+  price cell commits on blur/Enter (`PriceCell`) so the list can't
+  resort under the cursor mid-edit. The auction pool's drafted list
+  sorts by keep cost desc the same way.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system

@@ -105,7 +105,7 @@ function TradeButton({ isDark }) {
 
 // One keeper slot in the left panel. Filled = editable value + trade/remove;
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
-function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, showAcq }) {
+function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, showAcq, draftedCost }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
 
@@ -163,7 +163,13 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
             </select>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {/* Escalation math in place: last year's price → this year's keep
+                cost (the editable input). Only when the imported draft
+                actually carries a price for this player. */}
+            {draftedCost != null && (
+              <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>Drafted ${draftedCost} →</span>
+            )}
             <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
             <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
               style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
@@ -190,8 +196,11 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
 // rows show a disabled Keep.
 function PoolRow({ entry, isDark, accentColor, gridAccent, isSnake, keeping, blocked, disabled, onToggle }) {
   const t = makeTheme(isDark);
+  // Auction value states the ACTION cost ("Keep $88") so it reads as the keep
+  // price next to the muted "Drafted $83" status — the +$/yr math is visible
+  // on the row instead of an unexplained number.
   const valueText = entry.kind === 'expired' ? null
-    : isSnake ? `Y${entry.nextYear}/${entry.length}` : `$${entry.nextCost}`;
+    : isSnake ? `Y${entry.nextYear}/${entry.length}` : `Keep $${entry.nextCost}`;
   const valueColor = entry.final ? t.danger : gridAccent;
 
   let btn;
@@ -261,25 +270,45 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     return { keeping, disabled: (!keeping && isFull) || elsewhere, onToggle: () => toggle(entry) };
   };
 
+  // Auction leagues have no expiry concept — the Expired tab is snake-only
+  // (mirrors the shared page's snake-gated Expired filter).
   const tabs = [
     { id: 'roster',  label: 'My roster' },
     { id: 'league',  label: 'League' },
-    { id: 'expired', label: 'Expired' },
+    ...(isSnake ? [{ id: 'expired', label: 'Expired' }] : []),
   ];
 
   // Build the active tab's rows.
   let body;
   if (tab === 'roster') {
-    const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: e.final ? 'Final year' : 'On contract', statusColor: e.final ? t.danger : tokens.info }));
-    const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: 'No contract', statusColor: t.textMuted }));
+    // Auction vocabulary: no contract concept — the drafted price IS the
+    // state ("Drafted $83", muted), and the value shows the keep cost so the
+    // escalation math reads on the row. Price-bearing lists sort by value
+    // desc, alphabetical tiebreak.
+    const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({
+      ...e,
+      statusLabel: isSnake
+        ? (e.final ? 'Final year' : 'On contract')
+        : (e.wasCost != null ? `Drafted $${e.wasCost}` : 'Drafted'),
+      statusColor: isSnake ? (e.final ? t.danger : tokens.info) : t.textMuted,
+    }));
+    const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({
+      ...e,
+      statusLabel: isSnake ? 'No contract' : 'Undrafted',
+      statusColor: t.textMuted,
+    }));
+    if (!isSnake) {
+      onC.sort((a, b) => ((b.nextCost ?? -1) - (a.nextCost ?? -1)) || a.player.localeCompare(b.player));
+      ros.sort((a, b) => a.player.localeCompare(b.player));
+    }
     if (onC.length === 0 && ros.length === 0) {
       body = <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '24px 12px', lineHeight: 1.5 }}>No eligible players on file.<br/>Import this team's roster or last year's draft from the Import door.</div>;
     } else {
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {onC.length > 0 && <GroupHeader label="On a contract · eligible" isDark={isDark} />}
+          {onC.length > 0 && <GroupHeader label={isSnake ? 'On a contract · eligible' : 'Drafted last year · eligible'} isDark={isDark} />}
           {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
-          {ros.length > 0 && <GroupHeader label="Rostered · no contract" isDark={isDark} />}
+          {ros.length > 0 && <GroupHeader label={isSnake ? 'Rostered · no contract' : 'Rostered · undrafted'} isDark={isDark} />}
           {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
         </div>
       );
@@ -369,6 +398,15 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   // Desktop never holds the overlay open (e.g. after a resize from mobile).
   React.useEffect(() => { if (!isMobile && poolOpen) setPoolOpen(false); }, [isMobile, poolOpen]);
   const openPool = () => { if (isMobile) setPoolOpen(true); };
+
+  // Auction: last year's drafted price per player (from the imported draft),
+  // shown next to the keep-cost input so the +$/yr escalation reads in place.
+  const draftedCostByName = React.useMemo(() => {
+    if (isSnake) return null;
+    const m = new Map();
+    (team?.priorKeepers || []).forEach(p => { if (p.keptFor != null) m.set(normalizeName(p.player), p.keptFor); });
+    return m;
+  }, [team, isSnake]);
 
   const keepingNames = React.useMemo(() => new Set(keepers.map(k => normalizeName(k.player))), [keepers]);
   const keptAnywhere = React.useMemo(() => {
@@ -474,7 +512,8 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
                   onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
-                  onBrowse={openPool} playerMap={playerMap} showAcq={showAcq} />
+                  onBrowse={openPool} playerMap={playerMap} showAcq={showAcq}
+                  draftedCost={keepers[i] && draftedCostByName ? draftedCostByName.get(normalizeName(keepers[i].player)) ?? null : null} />
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
 
@@ -518,7 +557,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
           {/* Commissioner tip */}
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5, padding: '0 4px' }}>
-            Tip: import this team's roster {isSnake ? '' : 'and last year’s draft '}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with prior contracts{isSnake ? '' : ' and auction prices'}.
+            Tip: import this team's roster {isSnake ? '' : 'and last year’s draft '}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with {isSnake ? 'prior contracts' : 'drafted prices'}.
           </div>
         </div>
 

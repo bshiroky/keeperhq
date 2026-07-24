@@ -53,6 +53,29 @@ function NameCell({ value, onCommit, league, isDark, unmatched, disabledNames })
   );
 }
 
+// Auction price cell — local draft committed on blur/Enter, NOT per
+// keystroke: rows are value-sorted, so a live commit would resort the list
+// under the cursor mid-edit.
+function PriceCell({ value, gridAccent, isDark, onCommit }) {
+  const t = makeTheme(isDark);
+  const [draft, setDraft] = React.useState(value ?? '');
+  React.useEffect(() => { setDraft(value ?? ''); }, [value]);
+  function commit() {
+    const next = draft === '' ? null : (parseInt(draft, 10) || 0);
+    if (next !== (value ?? null)) onCommit(next);
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+      <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
+      <input type="number" min="0" value={draft} placeholder="—" aria-label="Drafted price"
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        style={{ width: 50, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+    </span>
+  );
+}
+
 function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirReady, maxRound, onUpdate, onRemove }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
@@ -90,12 +113,8 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
             {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
           </select>
         ) : (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-            <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
-            <input type="number" min="0" value={entry.keptFor ?? ''} placeholder="—" aria-label="Drafted price"
-              onChange={e => onUpdate({ keptFor: e.target.value === '' ? null : (parseInt(e.target.value) || 0) })}
-              style={{ width: 50, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
-          </span>
+          <PriceCell value={entry.keptFor} gridAccent={gridAccent} isDark={isDark}
+            onCommit={v => onUpdate({ keptFor: v })} />
         )}
         <button onClick={onRemove} aria-label="Remove row" title="Remove row"
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, lineHeight: 1, padding: 4, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit', flexShrink: 0 }}>
@@ -257,6 +276,13 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
               ? 'drafted prices are what keeper costs are calculated from.'
               : 'draft rounds feed pick-based keeper rules; contracts carry into the eligible pool.'}
           </div>
+          {/* State the league's actual escalation rule (from config, matching
+              buildTeamPool's fallbacks) so the price→cost math is explicit. */}
+          {!isSnake && (
+            <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 3 }}>
+              Keeper cost = drafted price + ${league.auctionRules?.costIncreasePerYear || 5}/yr · undrafted players start at ${league.auctionRules?.undraftedStartCost || 5}
+            </div>
+          )}
         </div>
         <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setImporting(true)} style={{ flexShrink: 0 }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -294,11 +320,29 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
             <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{tm.priorKeepers.length} player{tm.priorKeepers.length === 1 ? '' : 's'}</div>
           </div>
           <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {tm.priorKeepers.map((entry, i) => (
-              <DraftRow key={`${tm.id}-${i}`} entry={entry} team={tm} idx={i} league={league} isDark={isDark}
-                gridAccent={gridAccent} dirMap={dirMap} dirReady={dirReady} maxRound={maxRound}
-                onUpdate={patch => updateEntry(tm.id, i, patch)} onRemove={() => removeEntry(tm.id, i)} />
-            ))}
+            {/* Display order is value-sorted (price desc on auction, round asc
+                on snake; missing values last, alphabetical tiebreak) while
+                edits/removes still address the ORIGINAL index into the
+                priorKeepers array — never the display position. */}
+            {tm.priorKeepers
+              .map((entry, i) => ({ entry, i }))
+              .sort((a, b) => {
+                if (isSnake) {
+                  const ra = a.entry.acquisitionRound ?? Infinity;
+                  const rb = b.entry.acquisitionRound ?? Infinity;
+                  if (ra !== rb) return ra - rb;
+                } else {
+                  const ca = a.entry.keptFor ?? -1;
+                  const cb = b.entry.keptFor ?? -1;
+                  if (ca !== cb) return cb - ca;
+                }
+                return (a.entry.player || '').localeCompare(b.entry.player || '');
+              })
+              .map(({ entry, i }) => (
+                <DraftRow key={`${tm.id}-${i}`} entry={entry} team={tm} idx={i} league={league} isDark={isDark}
+                  gridAccent={gridAccent} dirMap={dirMap} dirReady={dirReady} maxRound={maxRound}
+                  onUpdate={patch => updateEntry(tm.id, i, patch)} onRemove={() => removeEntry(tm.id, i)} />
+              ))}
           </div>
         </div>
       ))}

@@ -134,7 +134,16 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
         </>
       )}
 
-      {preview && (
+      {preview && (() => {
+        // Duplicate guard: the auto-resolver (saved map + similarity) can map
+        // two parsed names onto one league team; manual picks steal instead
+        // (see the select's onChange), but auto-created duplicates must be
+        // fixed before importing.
+        const mappedIds = Object.values(mapping).filter(Boolean);
+        const mappedCount = new Set(mappedIds).size;
+        const dupNames = [...new Set(mappedIds.filter((id, i) => mappedIds.indexOf(id) !== i))]
+          .map(id => league.teams.find(tm => tm.id === id)?.name || '?');
+        return (
         <>
           <div style={{ fontSize: 12, color: t.textSecondary, marginBottom: 4 }}>
             Parsed <strong>{preview.length}</strong> team{preview.length === 1 ? '' : 's'} ·{' '}
@@ -169,12 +178,25 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
                       {isExpanded ? 'Hide players ▾' : 'Set contract years (carry-forward) ▸'}
                     </button>
                   )}
-                  <select value={mapping[p.name] || ''} onChange={e => setMapping({ ...mapping, [p.name]: e.target.value })}
+                  <select value={mapping[p.name] || ''}
+                    onChange={e => {
+                      const id = e.target.value;
+                      const next = { ...mapping };
+                      // Picking an already-mapped team STEALS it — the other
+                      // row visibly reverts to unmapped (red) instead of
+                      // silently double-assigning.
+                      if (id) Object.keys(next).forEach(k => { if (k !== p.name && next[k] === id) delete next[k]; });
+                      if (id) next[p.name] = id; else delete next[p.name];
+                      setMapping(next);
+                    }}
                     style={{ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${mapping[p.name] ? accentColor : '#e85252'}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer', minWidth: 140 }}>
                     <option value="">— Pick a team —</option>
-                    {league.teams.map(tm => (
-                      <option key={tm.id} value={tm.id}>{tm.name}</option>
-                    ))}
+                    {/* Teams mapped on OTHER rows stay listed (removing them
+                        forces menu-hopping) but carry a marker. */}
+                    {league.teams.map(tm => {
+                      const usedElsewhere = Object.entries(mapping).some(([k, v]) => v === tm.id && k !== p.name);
+                      return <option key={tm.id} value={tm.id}>{usedElsewhere ? `${tm.name} ✓ (mapped)` : tm.name}</option>;
+                    })}
                   </select>
                 </div>
                 {isSnake && isExpanded && (
@@ -206,15 +228,27 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
               );
             })}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          {dupNames.length > 0 && (
+            <div style={{ padding: '9px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, fontWeight: 600, color: t.danger }}>
+              {dupNames.join(', ')} {dupNames.length === 1 ? 'is' : 'are'} mapped to more than one pasted team — a league team can only receive one draft. Reassign one of the rows.
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={() => setPreview(null)} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit' }}>← Back to paste</button>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11, color: t.textMuted, whiteSpace: 'nowrap' }}>
+                {mappedCount} of {league.teams.length} team{league.teams.length === 1 ? '' : 's'} mapped
+              </span>
               <button onClick={onCancel} style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: t.textSecondary, fontFamily: 'inherit' }}>Cancel</button>
-              <button onClick={doImport} disabled={Object.values(mapping).filter(Boolean).length === 0} style={{ background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>Import {Object.values(mapping).filter(Boolean).length} team{Object.values(mapping).filter(Boolean).length === 1 ? '' : 's'}</button>
+              <button onClick={doImport} disabled={mappedCount === 0 || dupNames.length > 0}
+                style={{ background: mappedCount === 0 || dupNames.length > 0 ? t.sectionBg : accentColor, color: mappedCount === 0 || dupNames.length > 0 ? t.textMuted : '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: mappedCount === 0 || dupNames.length > 0 ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                Import {mappedCount} team{mappedCount === 1 ? '' : 's'}
+              </button>
             </div>
           </div>
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }
