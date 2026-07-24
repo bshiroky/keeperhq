@@ -1,13 +1,13 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, History, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
-import { DraftImportModal } from './tabs/ImportTab.jsx';
+import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
 import { supabase } from './lib/supabase.js';
@@ -888,23 +888,43 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
   );
 }
 
-// ── Import panel — rosters & last-year's-draft upload (the Import door) ───────
+// ── Import page — last-season data intake (the Import door; FULL PAGE) ───────
+// Persistent-nav pattern like Last Draft / Picks / Lottery. The per-team
+// roster paste opens a modal OVER this page (page→modal is fine); the draft
+// entry is a plain pointer link to the Last Draft page (page→page) — per the
+// overlay-direction rule, nothing here navigates out of an overlay.
 function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
-  const [showImport, setShowImport] = React.useState(false);
+  const navigate = useNavigate();
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Import Last Year's Draft</div>
-          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>Paste your fantasy site's draft results to pre-populate every team's eligible keeper pool with player names and prices.</div>
+      {/* Page headline — what this surface is for, in one line. */}
+      <div>
+        <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>Import last season</div>
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 4, lineHeight: 1.5 }}>
+          Bring in rosters, draft prices, and rounds from your fantasy platform — the data KeeperHQ uses to track contracts and keeper costs.
         </div>
-        <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowImport(true)} style={{ flexShrink: 0 }}>Paste Draft</Button>
+      </div>
+
+      {/* Last year's draft lives on its own page — this is a pointer, not a
+          flow. What the import is FOR differs by league type. */}
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Last year's draft</div>
+          <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
+            {league.draftType === 'auction'
+              ? "Attaches each player's drafted price — this is how keeper costs are calculated."
+              : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing contracts.'}
+            {' '}View, edit, and paste it on the Last Draft page.
+          </div>
+        </div>
+        <Button variant="secondary" size="sm" isDark={isDark}
+          onClick={() => navigate(`/league/${league.id}/draft`)} style={{ flexShrink: 0 }}>Open Last Draft →</Button>
       </div>
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
@@ -912,8 +932,8 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <Download size={16} strokeWidth={1.5} color={t.textSecondary} />
             <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Pre-Playoff Rosters</div>
-              <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 2 }}>Snapshot who was on each team's roster before fantasy playoffs — used to verify keeper eligibility (no waiver pickups).</div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Last Season's Rosters</div>
+              <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 2 }}>Paste each team's end-of-season roster from your fantasy site. This seeds who each team can keep.</div>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -948,7 +968,6 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         </div>
       </div>
 
-      {showImport && <DraftImportModal league={league} accentColor={accentColor} isDark={isDark} onImport={onUpdateLeague} onClose={() => setShowImport(false)} />}
       {showRosterImport && <RosterImportModal
         league={league}
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}
@@ -995,11 +1014,11 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
   );
 }
 
-// ── Section sheet (Import / Pool / Settings) ─────────────────────────────────
+// ── Section sheet (Pool / Settings) ──────────────────────────────────────────
 // A right-anchored slide-in panel over a scrim. It's driven by the URL — the
 // section doors are <Link>s and closing routes back to the Keepers home — so
-// deep links and refresh land on the open panel. Lottery is a full page, not a
-// sheet, so it isn't routed through here.
+// deep links and refresh land on the open panel. Import, Last Draft, Picks,
+// and Lottery are full pages, not sheets, so they aren't routed through here.
 const SHEET_STYLES = `
   @keyframes kh-sheet-slide { from { transform: translateX(24px); opacity: 0.4; } to { transform: translateX(0); opacity: 1; } }
   @keyframes kh-scrim-fade  { from { opacity: 0; } to { opacity: 1; } }
@@ -1187,10 +1206,14 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
     : null;
 
   // Section doors — the supporting surfaces, opened from the Keepers tab row.
-  // Pool / Settings / Import open as routed slide-in sheets; Lottery (snake
-  // only) is a full-page takeover, enforced by the route gate.
+  // Pool / Settings open as routed slide-in sheets; Import, Last Draft, and
+  // (snake only) Picks / Lottery are full-page takeovers.
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
+    // Last Draft — the imported prior-year draft's home (full page, both
+    // draft types). "Last" keeps it distinct from Picks (upcoming-draft
+    // pick ownership).
+    { id: 'draft',    label: 'Last Draft', Icon: History },
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
     // Picks + Lottery are snake-only (round-based draft picks don't exist in
     // an auction; the route gate mirrors this) and both open as FULL PAGES,
@@ -1230,39 +1253,17 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
 
   const closePanel = () => navigate(`${basePath}/overview`);
 
-  // Lottery and Picks are full-page takeovers (snake-only; the route gate
-  // enforces it). Picks was born a slide-in sheet but the round×team grid is
-  // page-sized content — it graduated to the Lottery pattern.
-  if (activeTab === 'lottery' && league.draftType === 'snake') {
-    return (
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 80px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
-          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Lottery</h1>
-          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
-            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
-            ← Back to Keepers
-          </Link>
-        </div>
-        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
-      </div>
-    );
-  }
-  if (activeTab === 'picks' && league.draftType === 'snake') {
-    return (
-      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '4px 0 16px' }}>
-          <h1 style={{ margin: 0, ...tokens.typeHeadingPage, color: t.textPrimary }}>Draft Picks</h1>
-          <Link to={`${basePath}/overview`} style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'none', whiteSpace: 'nowrap' }}
-            onMouseEnter={e => { e.currentTarget.style.color = t.textSecondary; }}
-            onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
-            ← Back to Keepers
-          </Link>
-        </div>
-        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-      </div>
-    );
-  }
+  // Import, Last Draft, and (snake-only, route-gated) Picks / Lottery are
+  // full-page views — they keep the league's persistent nav: the identity
+  // card and the Overview/Set-keepers + section-door row render on every
+  // full page exactly as on the Keepers home, with the current door active.
+  // No "Back" button — any door/tab navigates directly. Sheets (Pool /
+  // Settings) still overlay the Keepers home.
+  const fullPage = (activeTab === 'draft' || activeTab === 'import')
+    ? activeTab
+    : ((activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
+      ? activeTab
+      : null);
 
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
@@ -1313,9 +1314,13 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         </div>
       </div>
 
-      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right) */}
+      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right).
+          On a full-page view neither sub-tab is active (the active door carries
+          the current-surface signal); clicking one navigates back to the
+          Keepers home with that sub-view selected. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '0 0 16px' }}>
-        <SubTabs view={view} onChange={setView} isDark={isDark} accentColor={accentColor} />
+        <SubTabs view={fullPage ? null : view} isDark={isDark} accentColor={accentColor}
+          onChange={v => { setView(v); if (fullPage) navigate(`${basePath}/overview`); }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
           {sectionDoors.map(d => (
             <SectionDoorButton key={d.id} to={`${basePath}/${d.id}`} active={activeTab === d.id} label={d.label} Icon={d.Icon} isDark={isDark} />
@@ -1323,7 +1328,15 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         </div>
       </div>
 
-      {view === 'overview' ? (
+      {fullPage === 'lottery' ? (
+        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+      ) : fullPage === 'picks' ? (
+        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+      ) : fullPage === 'draft' ? (
+        <LastDraftPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+      ) : fullPage === 'import' ? (
+        <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+      ) : view === 'overview' ? (
         <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
       ) : (
         <SetKeepersWorkbench
@@ -1341,11 +1354,6 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
       {activeTab === 'settings' && (
         <SectionPanel title="League Settings" isDark={isDark} onClose={closePanel}>
           <SettingsPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} onSaved={notifySaved} onDeleteLeague={onDeleteLeague} />
-        </SectionPanel>
-      )}
-      {activeTab === 'import' && (
-        <SectionPanel title="Import Rosters &amp; Draft" isDark={isDark} onClose={closePanel}>
-          <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
         </SectionPanel>
       )}
 

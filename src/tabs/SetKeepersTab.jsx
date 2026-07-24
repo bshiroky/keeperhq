@@ -3,8 +3,7 @@ import { ArrowLeftRight, Check, Plus, Search, X } from 'lucide-react';
 import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
-import { ACQUISITION_METHODS, ACQUISITION_LABEL, acquisitionOf, acquisitionSummary } from '../lib/acquisition.js';
-import { getDraftRounds } from '../lib/draftPicks.js';
+import { acquisitionOf } from '../lib/acquisition.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -105,12 +104,9 @@ function TradeButton({ isDark }) {
 
 // One keeper slot in the left panel. Filled = editable value + trade/remove;
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
-function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap }) {
+function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, draftedCost }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
-  // Acquisition editor disclosure — collapsed by default; these are quiet
-  // bookkeeping fields, not headline data.
-  const [acqOpen, setAcqOpen] = React.useState(false);
 
   if (!keeper) {
     return (
@@ -137,72 +133,52 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
     padding: '5px 6px', color: t.textPrimary, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
   };
 
-  const acq = acquisitionOf(keeper);
-  const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
-  const acqSelStyle = { ...selStyle, fontSize: 11, color: t.textSecondary, padding: '3px 5px' };
-
+  // Acquisition metadata (round/method/rookie) is dormant foundation data no
+  // current archetype consumes — deliberately NOT displayed or editable here
+  // (unexplainable bloat until the pick-cost archetype surfaces it by
+  // default). Imports keep stamping the fields silently.
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', gap: 4, width: '100%', boxSizing: 'border-box',
+      width: '100%', boxSizing: 'border-box',
       background: expiring ? t.dangerBg : t.sectionBg,
       border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
       borderRadius: tokens.radiusMd, padding: '8px 10px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{index + 1}</span>
-      <Headshot name={keeper.player} map={playerMap} size={28} isDark={isDark} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ ...tokens.typeBody, fontWeight: 700, color: expiring ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keeper.player}</div>
-        {expiring && <div style={{ ...tokens.typePillEmphatic, color: t.danger, marginTop: 1 }}>Final yr · back to draft after this season</div>}
-      </div>
-      {isSnake ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <select value={keeper.contractYear} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Contract year">
-            {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
-          </select>
-          <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
-          <select value={keeper.contractLength} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Contract length">
-            {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
+        <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{index + 1}</span>
+        <Headshot name={keeper.player} map={playerMap} size={28} isDark={isDark} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...tokens.typeBody, fontWeight: 700, color: expiring ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keeper.player}</div>
+          {expiring && <div style={{ ...tokens.typePillEmphatic, color: t.danger, marginTop: 1 }}>Final yr · back to draft after this season</div>}
         </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
-          <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
-            style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
-        </div>
-      )}
-      <TradeButton isDark={isDark} />
-      <button onClick={onRemove} aria-label="Remove keeper"
-        style={{ background: t.dangerBg, border: 'none', borderRadius: tokens.radiusSm, padding: '6px 8px', cursor: 'pointer', color: t.danger, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit' }}>
-        <X size={14} strokeWidth={2} />
-      </button>
-      </div>
-
-      {/* Acquisition line — quiet bookkeeping (round / method / rookie),
-          collapsed to a one-line summary. Foundation for the pick-cost
-          keeper archetype; no rules read these fields yet. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingLeft: 30, flexWrap: 'wrap' }}>
-        <button onClick={() => setAcqOpen(o => !o)}
-          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, whiteSpace: 'nowrap' }}
-          aria-expanded={acqOpen} aria-label="Edit acquisition details">
-          Acquired: {acquisitionSummary(keeper)} {acqOpen ? '▾' : '▸'}
-        </button>
-        {acqOpen && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <select value={acq.acquisitionMethod} onChange={e => onUpdate({ acquisitionMethod: e.target.value })} style={acqSelStyle} aria-label="Acquisition method">
-              {ACQUISITION_METHODS.map(m => <option key={m} value={m}>{ACQUISITION_LABEL[m]}</option>)}
+        {isSnake ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <select value={keeper.contractYear} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Contract year">
+              {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
             </select>
-            <select value={acq.acquisitionRound ?? ''} onChange={e => onUpdate({ acquisitionRound: e.target.value === '' ? null : parseInt(e.target.value) })} style={acqSelStyle} aria-label="Acquisition round">
-              <option value="">Rd —</option>
-              {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
+            <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
+            <select value={keeper.contractLength} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Contract length">
+              {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
             </select>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, cursor: 'pointer' }}>
-              <input type="checkbox" checked={acq.rookieAtAcquisition} onChange={e => onUpdate({ rookieAtAcquisition: e.target.checked })} style={{ margin: 0, accentColor: gridAccent }} />
-              Rookie
-            </label>
-          </span>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            {/* Escalation math in place: last year's price → this year's keep
+                cost (the editable input). Only when the imported draft
+                actually carries a price for this player. */}
+            {draftedCost != null && (
+              <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>Drafted ${draftedCost} →</span>
+            )}
+            <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
+            <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
+              style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+          </div>
         )}
+        <TradeButton isDark={isDark} />
+        <button onClick={onRemove} aria-label="Remove keeper"
+          style={{ background: t.dangerBg, border: 'none', borderRadius: tokens.radiusSm, padding: '6px 8px', cursor: 'pointer', color: t.danger, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit' }}>
+          <X size={14} strokeWidth={2} />
+        </button>
       </div>
     </div>
   );
@@ -213,8 +189,11 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
 // rows show a disabled Keep.
 function PoolRow({ entry, isDark, accentColor, gridAccent, isSnake, keeping, blocked, disabled, onToggle }) {
   const t = makeTheme(isDark);
+  // Auction value states the ACTION cost ("Keep $88") so it reads as the keep
+  // price next to the muted "Drafted $83" status — the +$/yr math is visible
+  // on the row instead of an unexplained number.
   const valueText = entry.kind === 'expired' ? null
-    : isSnake ? `Y${entry.nextYear}/${entry.length}` : `$${entry.nextCost}`;
+    : isSnake ? `Y${entry.nextYear}/${entry.length}` : `Keep $${entry.nextCost}`;
   const valueColor = entry.final ? t.danger : gridAccent;
 
   let btn;
@@ -284,25 +263,45 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     return { keeping, disabled: (!keeping && isFull) || elsewhere, onToggle: () => toggle(entry) };
   };
 
+  // Auction leagues have no expiry concept — the Expired tab is snake-only
+  // (mirrors the shared page's snake-gated Expired filter).
   const tabs = [
     { id: 'roster',  label: 'My roster' },
     { id: 'league',  label: 'League' },
-    { id: 'expired', label: 'Expired' },
+    ...(isSnake ? [{ id: 'expired', label: 'Expired' }] : []),
   ];
 
   // Build the active tab's rows.
   let body;
   if (tab === 'roster') {
-    const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: e.final ? 'Final year' : 'On contract', statusColor: e.final ? t.danger : tokens.info }));
-    const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: 'No contract', statusColor: t.textMuted }));
+    // Auction vocabulary: no contract concept — the drafted price IS the
+    // state ("Drafted $83", muted), and the value shows the keep cost so the
+    // escalation math reads on the row. Price-bearing lists sort by value
+    // desc, alphabetical tiebreak.
+    const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({
+      ...e,
+      statusLabel: isSnake
+        ? (e.final ? 'Final year' : 'On contract')
+        : (e.wasCost != null ? `Drafted $${e.wasCost}` : 'Drafted'),
+      statusColor: isSnake ? (e.final ? t.danger : tokens.info) : t.textMuted,
+    }));
+    const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({
+      ...e,
+      statusLabel: isSnake ? 'No contract' : 'Undrafted',
+      statusColor: t.textMuted,
+    }));
+    if (!isSnake) {
+      onC.sort((a, b) => ((b.nextCost ?? -1) - (a.nextCost ?? -1)) || a.player.localeCompare(b.player));
+      ros.sort((a, b) => a.player.localeCompare(b.player));
+    }
     if (onC.length === 0 && ros.length === 0) {
       body = <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '24px 12px', lineHeight: 1.5 }}>No eligible players on file.<br/>Import this team's roster or last year's draft from the Import door.</div>;
     } else {
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {onC.length > 0 && <GroupHeader label="On a contract · eligible" isDark={isDark} />}
+          {onC.length > 0 && <GroupHeader label={isSnake ? 'On a contract · eligible' : 'Drafted last year · eligible'} isDark={isDark} />}
           {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
-          {ros.length > 0 && <GroupHeader label="Rostered · no contract" isDark={isDark} />}
+          {ros.length > 0 && <GroupHeader label={isSnake ? 'Rostered · no contract' : 'Rostered · undrafted'} isDark={isDark} />}
           {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
         </div>
       );
@@ -388,6 +387,15 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   // Desktop never holds the overlay open (e.g. after a resize from mobile).
   React.useEffect(() => { if (!isMobile && poolOpen) setPoolOpen(false); }, [isMobile, poolOpen]);
   const openPool = () => { if (isMobile) setPoolOpen(true); };
+
+  // Auction: last year's drafted price per player (from the imported draft),
+  // shown next to the keep-cost input so the +$/yr escalation reads in place.
+  const draftedCostByName = React.useMemo(() => {
+    if (isSnake) return null;
+    const m = new Map();
+    (team?.priorKeepers || []).forEach(p => { if (p.keptFor != null) m.set(normalizeName(p.player), p.keptFor); });
+    return m;
+  }, [team, isSnake]);
 
   const keepingNames = React.useMemo(() => new Set(keepers.map(k => normalizeName(k.player))), [keepers]);
   const keptAnywhere = React.useMemo(() => {
@@ -493,9 +501,11 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
                   onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
-                  onBrowse={openPool} playerMap={playerMap} />
+                  onBrowse={openPool} playerMap={playerMap}
+                  draftedCost={keepers[i] && draftedCostByName ? draftedCostByName.get(normalizeName(keepers[i].player)) ?? null : null} />
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
+
 
               {/* + Add manually. Selecting an autocomplete suggestion adds
                   immediately; the Add button commits a typed name, which is the
@@ -527,7 +537,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
           {/* Commissioner tip */}
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5, padding: '0 4px' }}>
-            Tip: import this team's roster {isSnake ? '' : 'and last year’s draft '}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with prior contracts{isSnake ? '' : ' and auction prices'}.
+            Tip: import this team's roster {isSnake ? '' : 'and last year’s draft '}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with {isSnake ? 'prior contracts' : 'drafted prices'}.
           </div>
         </div>
 

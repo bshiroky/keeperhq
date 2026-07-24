@@ -268,6 +268,142 @@ features have shipped through their own branches (all merged):
   with a helper line when expanded ("Set each player's current
   contract year entering this season.").
 
+- **Import/picks IA + clarity fixes (this branch's PR):** four fixes on
+  the import/picks surfaces. (1) **Persistent nav on full pages** — the
+  Picks and Lottery full-page views now keep the league identity card
+  AND the Overview/Set-keepers + section-door row exactly as the
+  Keepers home shows them; the current door renders active, any
+  door/tab navigates directly, and "← Back to Keepers" is gone. On a
+  full page neither sub-tab is highlighted (the active door carries the
+  current-surface signal); clicking a sub-tab routes back to
+  `…/overview` with that view selected. Standing rule recorded in
+  Build constraints. (2) **Draft import says what it's for and shows
+  what it did** — the Import-sheet card's blurb is per-league-type
+  (auction: drafted price → keeper costs; snake: optional — draft
+  rounds + contract carry-forward), and both `DraftImportModal` and
+  `RosterImportModal` end on a RESULT step ("N players imported across
+  M teams" with per-team contract/price counts; roster: saved count +
+  directory match rate) with a Done button instead of closing
+  silently. (3) **Acquisition metadata is hidden by default** — the
+  keeper-slot "Acquired:" line is removed and `KeeperEditModal`'s
+  per-keeper Acquisition row sits behind a single "Show acquisition
+  details" toggle; capture at import is unchanged (verified: pastes
+  still stamp round/method silently). See the acquisition-visibility
+  rule below. (4) **Picks grid advertises click-to-reassign** — lead
+  copy is now "Click any pick to record a trade", untraded cells get a
+  hover state (`.kh-pick-cell`), and cell tooltips say "click to
+  record a trade".
+
+  **Acquisition-visibility rule:** acquisition metadata
+  (round/method/rookie) is dormant-by-design — no shipped archetype
+  consumes it, so **no surface displays or edits it at all** (the
+  "Show acquisition details" toggles that briefly existed on the
+  Set-keepers panel and KeeperEditModal were removed as unexplainable
+  bloat). Imports keep stamping the fields silently, the metadata
+  rides pools/rollovers untouched, and the Last Draft page's snake
+  `Rd` select still writes `acquisitionRound` (as the draft-record
+  round, which is self-explanatory there). The shared `AcquisitionRow`
+  editor stays in `KeepersTab.jsx`, exported but UNWIRED — it returns
+  when the pick-cost archetype ships and its leagues surface these
+  fields by default (per-league gating on the archetype config, not a
+  global reveal).
+
+- **Last Draft page + import-flow flattening (this branch's PR):** the
+  imported prior-year draft finally has a HOME — a **"Last Draft"
+  section door** (both draft types) opening a full page at
+  `/league/:id/draft` (persistent-nav pattern, `LastDraftPanel` in
+  `src/tabs/DraftResultsTab.jsx`). Content: all teams' `priorKeepers`
+  in one view — team chips (All teams + per-team) over per-team
+  sections of rows (headshot · pos chip (directory-first, paste
+  fallback) · name · VALUE · remove ×). The VALUE is inline-editable:
+  drafted price `$` input on auction (`keptFor`), `Rd` select on snake
+  (`acquisitionRound`). Unmatched names get the roster-import
+  treatment — red flag + "unmatched" hint, resolvable in place because
+  every name cell is the real `PlayerAutocomplete` (local draft state,
+  commits on suggestion pick or blur so typing doesn't spam league
+  saves). Empty state = "No draft imported yet" + Paste Draft.
+  **The import lands here and the modal-on-sheet stack is gone:** the
+  paste→map→confirm steps were extracted from `DraftImportModal` into
+  `DraftImportFlow` (`ImportTab.jsx`) and run as PAGE CONTENT on the
+  Last Draft page (zero overlays anywhere in the flow — audited);
+  the PR #34 result-summary step became a transient dismissable
+  success banner over the now-populated table. The Import surface's
+  draft card is a pointer to this page (see the follow-up bullet — the
+  Import sheet became a full page and the `state.startImport`
+  hand-off was dropped for a plain page→page link).
+  `DraftImportModal` survives only as a thin wrapper
+  (flow + result step) for the dormant `SeasonSetupWizard` path.
+  Adjacent fixes: (a) the **"Show acquisition details" toggle moved to
+  the live Set-keepers keeper panel** (PR #34 had put it in
+  `KeeperEditModal`, which isn't reachable in live UI) — later
+  REMOVED entirely in the pre-merge round (see the
+  acquisition-visibility rule); the shared `AcquisitionRow` extracted
+  here survives unwired in `KeepersTab.jsx`;
+  (b) **shared page, auction:** rows show a quiet `Drafted $X`
+  secondary line under `Keep for $X` (threaded as `draftedCost`
+  through `buildSharedRows` — prior record's `keptFor` for keepers,
+  `wasCost` for contract rows; rostered/undrafted rows have none),
+  one treatment on mobile rows + desktop Contract column, and the
+  desktop Contract column widens 100→132 for auction only (snake's
+  compact strings keep 100). NOTE: **PR #34 never actually reached
+  main** — it was merged into `claude/picks-surface-cleanup` after
+  #33 had already landed on main — so this branch cherry-picks it
+  first and builds on top.
+
+- **Parser hardening + Import-as-page (this branch's PR, follow-up):**
+  three fixes from real basketball pastes + an IA pass. (1) **The
+  draft parser handles both Yahoo Draft Results views, sport-
+  agnostic** — extracted to `src/lib/draftParse.js` (see its file-map
+  entry): the flat PICKS view (was parsing its header row as a team
+  named "Pick Player Salary Team" with 0 players) and the TEAM view
+  with basketball/football row shapes (multi-position lists, mixed-
+  case abbrevs, tolerant trailing junk). A parse yielding 0 players
+  now shows an error naming the other Yahoo view instead of an empty
+  preview; unit fixtures cover 3 sports × both views
+  (`npm run test:parser`). (2) **Import is a full page** at
+  `/league/:id/import` (persistent-nav pattern) — the roster paste
+  stays a modal OVER it, and the draft card is a plain pointer link
+  to Last Draft (page→page). This killed the last drawer→page
+  transition and produced the standing **overlay-direction rule** in
+  Build constraints. (3) **Copy:** page headline "Import last season"
+  + one-line sub; "Pre-Playoff Rosters" renamed **"Last Season's
+  Rosters"** with league-agnostic copy ("Paste each team's
+  end-of-season roster… seeds who each team can keep") — the old
+  pre-playoff-snapshot phrasing was one league's specific eligibility
+  rule; eligibility windows vary by league and aren't modeled yet.
+  Same de-specification in `RosterImportModal`'s header line.
+
+- **Auction-vocabulary + mapping polish (this branch's PR, final
+  round):** four fixes from real basketball QA. (1) **No contract
+  language in auction contexts** — auction has no contract concept, so
+  the eligible pool says `Drafted $83` (muted status) instead of "On
+  contract", `Undrafted` instead of "No contract", group headers read
+  "Drafted last year · eligible" / "Rostered · undrafted", the pool's
+  Expired tab is snake-only (like the shared page's Expired filter),
+  the shared page's "Under contract" chip relabels to "Drafted last
+  year" on auction, and the workbench tip says "drafted prices".
+  (2) **Escalation math is visible wherever a keep cost renders**:
+  pool rows pair `Drafted $83` with a `Keep $88` value, keeper slots
+  show `Drafted $83 →` before the editable keep-cost input (via a
+  `draftedCostByName` lookup against `team.priorKeepers`), the shared
+  page already had the pair, and the Last Draft header (auction)
+  states the league's rule from config: "Keeper cost = drafted price
+  + $N/yr · undrafted players start at $M" (same `|| 5` fallbacks as
+  `buildTeamPool`, so the stated rule always matches computed costs).
+  (3) **Draft-import mapping blocks duplicates**: teams mapped on
+  another row stay in every dropdown marked `✓ (mapped)`; picking one
+  STEALS it (the other row visibly reverts to unmapped), auto-resolver
+  collisions (saved map + similarity can both hit one team) show an
+  inline error naming the team and disable Import until fixed, and an
+  "N of M teams mapped" counter (distinct teams) sits by the confirm.
+  (4) **Value-sorted rows**: the Last Draft page sorts each team's
+  players by price desc (auction) / round asc (snake), missing values
+  last, alphabetical tiebreak — display order only; edits/removes
+  still address the ORIGINAL `priorKeepers` index, and the auction
+  price cell commits on blur/Enter (`PriceCell`) so the list can't
+  resort under the cursor mid-edit. The auction pool's drafted list
+  sorts by keep cost desc the same way.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -335,6 +471,8 @@ headless.
 - `npm run build` — runs `scripts/fetch-players-nhl.mjs` then `vite build`.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
+- `npm run test:parser` — draft-paste parser unit tests
+  (`scripts/test-draft-parser.mjs`, plain node, no framework)
 - This Claude Code container's network policy **blocks** `api-web.nhle.com`
   and `api.nhle.com`. Vercel's build environment can reach them — the fetch
   script runs for real on deploy, but you can't exercise it in-session.
@@ -512,10 +650,11 @@ league page is only ever entered by deep link.
 | `/new` | `CreateLeagueWizard` — 4-step create-league flow (Basics → League Format → Teams → Review); writes a new league to localStorage and routes into it |
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
-| `/league/:leagueId/import` | `LeagueView` + Import sheet (rosters & last-year's-draft upload) open |
+| `/league/:leagueId/import` | `LeagueView` — **full-page** Import view ("Import last season" headline; per-team roster paste opens a modal over the page; the draft card is a pointer link to `/draft`) — **both draft types** |
+| `/league/:leagueId/draft` | `LeagueView` — **full-page** "Last Draft" takeover (the imported prior-year draft: inline-editable values, in-place name fixes, and the on-page paste import) — **both draft types** |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
-| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks takeover (round×team pick-ownership grid + paste import) — **snake only**; auction redirects to overview |
-| `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery takeover — **snake only**; auction redirects to overview |
+| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks view (round×team pick-ownership grid + paste import) with the persistent league nav — **snake only**; auction redirects to overview |
+| `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery view with the persistent league nav — **snake only**; auction redirects to overview |
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
@@ -529,12 +668,13 @@ introduced.
 The old `/league/:leagueId/players` route is gone — the standalone
 NHL directory was folded into the Set-keepers Eligible Pool ("League"
 sub-tab), so `/players` redirects to overview. `VALID_TABS` in
-`App.jsx` is `['overview', 'import', 'payouts', 'picks', 'lottery',
-'settings']`. Import / Pool / Settings render as routed slide-in
+`App.jsx` is `['overview', 'import', 'draft', 'payouts', 'picks',
+'lottery', 'settings']`. Pool / Settings render as routed slide-in
 sheets over the Keepers home (the `activeTab` decides which sheet is
-open; closing routes back to `…/overview`); Picks and Lottery are
-**full-page** routes (page-sized content), and both are snake-gated in
-`LeagueRoute` (auction redirects to overview).
+open; closing routes back to `…/overview`); Import, Last Draft,
+Picks, and Lottery are **full-page** routes — Picks and Lottery are
+snake-gated in `LeagueRoute` (auction redirects to overview), Import
+and Last Draft serve both draft types.
 
 **Wiring:**
 
@@ -951,6 +1091,32 @@ copy of a component drifts away from the original.
   lottery) gets a full-page route, not a sheet. Known dormant
   exception: the unrouted `SeasonSetupWizard` overlay opens import
   modals on top; fix it if that flow is ever revived.
+- **Overlay direction: pages open overlays, never the reverse.** A
+  full page may open a modal or drawer over itself (the Import page's
+  per-team roster modal); a drawer or modal must never navigate to a
+  page — a mid-flow overlay that closes itself by changing the route
+  is a broken transition (the Import sheet's "Paste Draft" button
+  used to do exactly this; Import is a full page now). If an overlay
+  needs page-sized content or wants to send the user somewhere, it
+  should have been a page.
+- **Full pages keep the league nav — no Back buttons.** A full-page
+  league view (Picks, Lottery, and any future one) renders the league
+  identity card + the Overview/Set-keepers + section-door row exactly
+  as the Keepers home does, with its own door active; every door/tab
+  navigates directly. Never a "← Back" link as the only way out. (On a
+  full page neither sub-tab is highlighted; clicking one routes to
+  `…/overview` with that view.)
+- **Imports end on a result, never in silence.** A modal import's last
+  step states what it did (counts per team / match rate) with a single
+  Done button (`RosterImportModal`, the dormant `DraftImportModal`);
+  a PAGE-hosted import lands the user on the populated page under a
+  transient success banner instead (the Last Draft page). New import
+  flows follow suit.
+- **An import flow's home is a page, not a modal-on-sheet.** When
+  imported data has a viewing/editing surface, the paste→map→confirm
+  steps run as content ON that page (`DraftImportFlow` on the Last
+  Draft page) — sheets link to the page rather than opening a modal
+  over themselves.
 
 ## File map (most-edited)
 
@@ -974,9 +1140,12 @@ copy of a component drifts away from the original.
   card's `overflow:hidden` so it isn't clipped.
 - `src/LeagueView.jsx` — League detail. The **Keepers home** (identity
   card + Overview/Set-keepers toggle + section-door buttons), plus
-  `PayoutsTab`, `SettingsPanel`, and `ImportPanel` rendered inside a
-  routed `SectionPanel` (right slide-in sheet); Lottery is a full-page
-  branch. Holds the Overview↔Set-keepers view state and the selected
+  `PayoutsTab` and `SettingsPanel` rendered inside a routed
+  `SectionPanel` (right slide-in sheet); `ImportPanel` is a **full
+  page** now ("Import last season" headline + sub, the Last Season's
+  Rosters section whose per-team paste opens `RosterImportModal` over
+  the page, and a pointer card linking to Last Draft); Import, Last
+  Draft, Picks, and Lottery all render as full-page branches. Holds the Overview↔Set-keepers view state and the selected
   team. `DeadlineLine` (writes `league.keeperDeadline` date +
   `league.keeperDeadlineTime` 'HH:MM'; picking a date defaults the time
   to 23:59, clearing the date clears both; date-only legacy data reads
@@ -1027,7 +1196,11 @@ copy of a component drifts away from the original.
   color carrying the state (keeper accent for declared keepers and
   under-contract players, readable grey for rostered-only; team-filter
   views show `Keeper` / no pill instead since the name is redundant
-  there); auction keeps `Keep for $X`. Same strings on mobile rows.
+  there); auction keeps `Keep for $X` with a quiet `Drafted $Y`
+  secondary line when the imported draft carries a price
+  (`row.draftedCost` from `buildSharedRows`; the desktop Contract
+  column widens 100→132 for auction only so the pair fits inside the
+  sticky cell). Same strings on mobile rows.
   Print: filter rail hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   empty state (no keepers declared anywhere) is the page's one
@@ -1069,9 +1242,12 @@ copy of a component drifts away from the original.
   `ACQUISITION_METHODS` / `ACQUISITION_LABEL`, `acquisitionOf(entry)`
   (normalized read — absent fields default to round null / method
   'manual' / rookie false; **no migration needed for old data**), and
-  `acquisitionSummary` (the quiet one-line display string). Foundation
-  for the pick-cost keeper archetype; nothing computes rules from these
-  fields yet.
+  `acquisitionSummary` (readable short form, e.g. "draft R3 · rookie").
+  Foundation for the pick-cost keeper archetype; nothing computes rules
+  from these fields yet, and **no surface displays or edits them** —
+  see the acquisition-visibility rule (all reveal toggles removed; the
+  shared `AcquisitionRow` editor sits unwired in `KeepersTab.jsx`;
+  imports keep stamping the fields silently).
 - `src/lib/draftPicks.js` — draft-pick ownership helpers over the
   SPARSE `league.draftPicks` model (see the pick-ownership PR bullet):
   `getDraftRounds` / `defaultDraftRounds`, `pickOwnerId`,
@@ -1085,6 +1261,41 @@ copy of a component drifts away from the original.
   (fuzzy suggestion vs team names), `rememberYahooTeams` (accumulate
   confirmed pairs at import time; identity mappings kept on purpose —
   they're what survives a later app-side team rename).
+- `src/tabs/DraftResultsTab.jsx` — `LastDraftPanel`, the **full-page**
+  Last Draft surface (the "Last Draft" door, both draft types): the
+  imported prior-year draft (`team.priorKeepers`) as team chips over
+  per-team row sections — headshot, pos chip, in-place
+  `PlayerAutocomplete` name cell (local draft, commits on pick/blur),
+  inline-editable value (auction `$`/`keptFor`, snake `Rd`/
+  `acquisitionRound`), remove ×, unmatched flags when the directory is
+  ready (plus the roster-import "directory unavailable" banner).
+  Hosts the on-page import: `DraftImportFlow` renders as page content
+  (opened by the page's own Paste Draft buttons), completion shows a
+  transient success banner. Empty state = "No draft imported yet" +
+  Paste Draft.
+- `src/tabs/ImportTab.jsx` — `DraftImportFlow` (the paste→map/confirm
+  steps, overlay-free — rendered by the Last Draft page; a zero-player
+  parse shows a helpful error naming Yahoo's other Draft Results view
+  instead of an empty preview) + `DraftImportModal` (thin wrapper:
+  flow + result step; **dormant** — only the unrouted
+  `SeasonSetupWizard` path uses it). Re-exports `parseDraftResults`
+  from `src/lib/draftParse.js`.
+- `src/lib/draftParse.js` — the draft-results paste parser, pure JS
+  (extracted from ImportTab so it's unit-testable without JSX).
+  Handles **both Yahoo Draft Results views, sport-agnostic**: the
+  team-by-team TEAM view (team name line, rows below; leading `N.` =
+  round) and the flat PICKS view (one selection per line, fantasy
+  team at the END of the row; leading `N.` = overall pick, round =
+  `ceil(pick / team count)`). View is auto-detected from trailing
+  team text on the rows; the `$salary` is the split anchor between
+  player block and team name (team names may carry quotes/ellipses/
+  emoji/digits); pro-team abbrevs may be mixed case, position lists
+  comma/slash-separated; header rows ("Pick Player Salary Team") are
+  vocabulary-detected and can never become mappable teams; teams with
+  zero players are dropped as noise. Players are NEVER dropped for
+  failing a directory match. Unit tests:
+  `npm run test:parser` → `scripts/test-draft-parser.mjs` (plain
+  node, fixtures for 3 sports × both views + failure modes).
 - `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the **full-page**
   Picks surface (rendered by `LeagueView` in the Lottery full-page
   pattern): intro card with an editable Rounds input ("auto" note when

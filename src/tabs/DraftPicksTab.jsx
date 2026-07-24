@@ -304,7 +304,7 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Who owns which pick</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
-            Each column is a team's original picks. Click a pick to hand it to another team when a trade includes picks — reassigned picks are highlighted. Round 1 stays in sync with the Lottery page.
+            <strong style={{ color: t.textSecondary }}>Click any pick to record a trade</strong> — it moves to the team you choose and shows highlighted. Each column is a team's original picks. Round 1 stays in sync with the Lottery page.
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -331,6 +331,12 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
 
       {/* Round × team ownership grid */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+        {/* Hover affordance for the click-to-reassign edit path — untraded
+            cells only (traded cells already carry the warning tint). */}
+        <style>{`
+          .kh-pick-cell { transition: background 0.12s, border-color 0.12s, color 0.12s; }
+          .kh-pick-cell:hover { background: ${t.sectionBg}; border-color: ${t.border} !important; color: ${t.textPrimary}; }
+        `}</style>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', width: ROUND_W + teams.length * CELL_W }}>
             <thead>
@@ -367,7 +373,8 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
                           </select>
                         ) : (
                           <button onClick={() => setEditing({ round, teamId: tm.id })}
-                            title={isTraded ? `${tm.name}'s R${round} pick — now owned by ${teamName(ownerId)}` : `${tm.name}'s R${round} pick`}
+                            className={isTraded ? undefined : 'kh-pick-cell'}
+                            title={isTraded ? `${tm.name}'s R${round} pick — now owned by ${teamName(ownerId)}. Click to reassign.` : `${tm.name}'s R${round} pick — click to record a trade`}
                             style={{
                               width: '100%', boxSizing: 'border-box',
                               background: isTraded ? t.warningBg : 'none',

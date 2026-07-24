@@ -169,9 +169,20 @@ function statLineFor(rec) {
 function ContractText({ row, league, isDark }) {
   const t = makeTheme(isDark);
   if (league.draftType === 'auction') {
+    // "Keep for $X" stays the headline; the drafted price (last year's
+    // auction price from the imported draft) rides along as a quiet second
+    // line so members see both — same treatment on mobile rows and the
+    // desktop Contract column.
     return (
-      <span style={{ ...tokens.typeBody, fontWeight: 800, color: tokens.warning, whiteSpace: 'nowrap' }}>
-        Keep for ${row.cost ?? 0}
+      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+        <span style={{ ...tokens.typeBody, fontWeight: 800, color: tokens.warning, whiteSpace: 'nowrap' }}>
+          Keep for ${row.cost ?? 0}
+        </span>
+        {row.draftedCost != null && (
+          <span style={{ ...tokens.typeStatMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>
+            Drafted ${row.draftedCost}
+          </span>
+        )}
       </span>
     );
   }
@@ -305,8 +316,13 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   const [canLeft, setCanLeft] = React.useState(false);
   const [canRight, setCanRight] = React.useState(false);
 
+  // CONTRACT_W is sized for snake's compact "Y1/3" strings; auction's
+  // "Keep for $XX" + "Drafted $XX" pair needs more room or the sticky Status
+  // cell paints over the overflow.
+  const contractW = league.draftType === 'auction' ? 132 : CONTRACT_W;
+
   const nStats = cats.length;
-  const naturalW = PLAYER_W + nStats * STAT_W + CONTRACT_W + STATUS_W;
+  const naturalW = PLAYER_W + nStats * STAT_W + contractW + STATUS_W;
   const stretchMode = containerW > 0 && naturalW <= containerW;
 
   React.useEffect(() => {
@@ -382,7 +398,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
     pointerEvents: 'none', opacity: on ? 1 : 0, transition: 'opacity 0.18s',
     ...(side === 'left'
       ? { left: PLAYER_W, background: `linear-gradient(to right, ${fadeShadow}, transparent)` }
-      : { right: CONTRACT_W + STATUS_W, background: `linear-gradient(to left, ${fadeShadow}, transparent)` }),
+      : { right: contractW + STATUS_W, background: `linear-gradient(to left, ${fadeShadow}, transparent)` }),
   });
 
   let renderedSoFar = 0;
@@ -426,7 +442,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                     </th>
                   );
                 })}
-                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: CONTRACT_W, minWidth: CONTRACT_W }}>Contract</th>
+                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW }}>Contract</th>
                 <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>Status</th>
               </tr>
             </thead>
@@ -483,7 +499,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                             </span>
                           </td>
                         )}
-                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: CONTRACT_W, minWidth: CONTRACT_W, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
+                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <ContractText row={row} league={league} isDark={isDark} />
                           </span>
@@ -681,7 +697,9 @@ function SharedLeaguePage({ league, isDark }) {
 
   const chips = [
     { id: 'keepable', label: locked ? 'Final keepers' : (isSnake ? 'Keepable' : 'All players') },
-    { id: 'contracts', label: 'Under contract' },
+    // Auction has no contract concept — the same row set (keepers + players
+    // with a prior price) reads as "Drafted last year" there.
+    { id: 'contracts', label: isSnake ? 'Under contract' : 'Drafted last year' },
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
   ];
