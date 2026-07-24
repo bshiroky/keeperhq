@@ -429,11 +429,16 @@ features have shipped through their own branches (all merged):
   (2) **Yahoo placeholder rows filtered + roster editing** — the
   roster parser (extracted to `src/lib/rosterParse.js`) skips
   vacant-slot furniture ("--empty--", "(Empty)", punctuation-only
-  lines; `isRosterPlaceholder`), and the Import page's roster section
-  gained minimal per-team editing: an Edit toggle expands the roster
-  list with per-player remove × and a `PlayerAutocomplete`-backed add
-  (directory picks carry the position; typed adds save name-only) —
-  the escape hatch for bad rows already saved. (3) **Shared-page
+  lines; `isRosterPlaceholder`), and saved rosters gained minimal
+  editing via a shared **`RosterEditor`** (`RosterImportTab.jsx`):
+  per-player remove × and a `PlayerAutocomplete`-backed add (directory
+  picks carry the position; typed adds save name-only). It renders in
+  TWO places, one component: the Import page's roster rows ("Edit
+  roster", a SINGLE-OPEN accordion — collapsed by default, opening a
+  team collapses any other, so 12 teams × 13+ players never render at
+  once) and the Eligible Pool's "My roster" tab ("Edit roster" link →
+  editor in the pool body with a "Done editing" return) — the escape
+  hatch lives where bad rows actually get noticed. (3) **Shared-page
   value sort for stats-less leagues** — `sortRowsDefault` takes the
   league now: auction sorts keep-cost desc, stats-less snake sorts
   round asc (rows carry `round` from `acquisitionRound` via
@@ -1561,11 +1566,15 @@ copy of a component drifts away from the original.
   whitespace before the flag (`\s+`) — with `\s*` it truncated names
   ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
 - `src/tabs/RosterImportTab.jsx` — the roster-import modal (paste via
-  lib/rosterParse + `window.claude.complete` screenshot OCR). Paste
-  samples are sport-aware (`ROSTER_SAMPLES`, keyed off league.sport).
-  Positions come from the NHL directory match (matched rows store
-  `pos` like `LW` via the L/R→LW/RW map, unmatched rows store no
-  `pos` and are flagged in the preview for spelling fixes). Every preview row and
+  lib/rosterParse + `window.claude.complete` screenshot OCR) and the
+  shared **`RosterEditor`** (saved-roster corrections: remove × + add
+  via autocomplete; rendered by the Import page's single-open
+  accordion AND the Eligible Pool's "My roster" tab — one component,
+  never forked). Paste samples are sport-aware (`ROSTER_SAMPLES`,
+  keyed off league.sport). Positions come from the NHL directory match
+  (matched rows store `pos` like `LW` via the L/R→LW/RW map, unmatched
+  rows store no `pos` and are flagged in the preview for spelling
+  fixes). Every preview row and
   the "+ Add player manually" path render the real `PlayerAutocomplete`
   (not a bare input), so an unmatched row is fixed in place by picking
   the directory's suggestion; the × button remains the dismiss path.

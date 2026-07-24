@@ -1,6 +1,6 @@
 import React from 'react';
-import { Camera, Loader, Check } from 'lucide-react';
-import { makeTheme, tokens } from '../components.jsx';
+import { Camera, Loader, Check, X } from 'lucide-react';
+import { makeTheme, tokens, Button } from '../components.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText } from '../lib/rosterParse.js';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
@@ -56,6 +56,64 @@ Do not include team totals or summary rows.`;
   const arr = JSON.parse(match[0]);
   if (!Array.isArray(arr)) throw new Error('Extraction did not return an array.');
   return arr.map(p => ({ player: String(p.player || '').trim() })).filter(p => p.player);
+}
+
+// ── Shared roster editor ─────────────────────────────────────────────────────
+// Minimal post-import corrections for one team's saved roster: per-player
+// remove × + a PlayerAutocomplete-backed add (directory picks carry the
+// position; typed adds save name-only). ONE component, rendered by both the
+// Import page's per-team accordion and the Eligible Pool's "My roster" tab —
+// don't fork it.
+function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
+  const t = makeTheme(isDark);
+  const [addValue, setAddValue] = React.useState('');
+  const roster = team?.roster || [];
+
+  function setRoster(next) {
+    onUpdateLeague({
+      ...league,
+      teams: (league.teams || []).map(tm => tm.id === team.id ? { ...tm, roster: next } : tm),
+    });
+  }
+  function removeAt(idx) {
+    setRoster(roster.filter((_, i) => i !== idx));
+  }
+  function add(name, rec) {
+    const clean = (name || '').trim();
+    if (!clean) return;
+    if (roster.some(p => normalizeName(p.player) === normalizeName(clean))) return;
+    setRoster([...roster, rec?.pos ? { player: clean, pos: posForRoster(rec.pos) } : { player: clean }]);
+    setAddValue('');
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {roster.map((p, pi) => (
+        <div key={`${p.player}-${pi}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '4px 8px' }}>
+          <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '0 4px', minWidth: 22, textAlign: 'center', flexShrink: 0 }}>{p.pos || '—'}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.player}</span>
+          <button onClick={() => removeAt(pi)} aria-label={`Remove ${p.player}`} title="Remove player"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, lineHeight: 1, padding: 2, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit', flexShrink: 0 }}>
+            <X size={12} strokeWidth={2} />
+          </button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', marginTop: 2 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PlayerAutocomplete
+            value={addValue}
+            onChange={(name, picked) => { if (picked) add(name, picked); else setAddValue(name); }}
+            sport={league.sport} isDark={isDark} placeholder="Add player…"
+            league={league}
+            disabledNames={new Set(roster.map(p => normalizeName(p.player)))}
+            inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 8px', fontSize: 12, color: t.textPrimary, outline: 'none', fontFamily: 'inherit' }}
+          />
+        </div>
+        <Button variant="secondary" size="sm" isDark={isDark} disabled={!addValue.trim()}
+          onClick={() => add(addValue, null)}>Add</Button>
+      </div>
+    </div>
+  );
 }
 
 // Paste samples per sport — the format explainer should show rows shaped like
@@ -434,4 +492,4 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 
 Object.assign(window, { RosterImportModal, parseYahooRosterText });
 
-export { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText, fileToBase64, extractRosterFromImage, RosterImportModal };
+export { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText, fileToBase64, extractRosterFromImage, RosterImportModal, RosterEditor };

@@ -4,6 +4,7 @@ import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '.
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
+import { RosterEditor } from './RosterImportTab.jsx';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -232,11 +233,15 @@ function GroupHeader({ label, isDark }) {
   return <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: '8px 4px 4px' }}>{label}</div>;
 }
 
-function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull, onAdd, onRemoveName }) {
+function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull, onAdd, onRemoveName, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
   const [tab, setTab] = React.useState('roster'); // 'roster' | 'league' | 'expired'
   const [search, setSearch] = React.useState('');
+  // Roster corrections in place — the SAME RosterEditor the Import page's
+  // accordion renders, because this is where a bad row actually gets noticed.
+  const [editingRoster, setEditingRoster] = React.useState(false);
+  React.useEffect(() => { setEditingRoster(false); }, [team?.id, tab]);
   const [directory, setDirectory] = React.useState(null);
 
   const statusIndex = React.useMemo(() => buildStatusIndex(league), [league]);
@@ -273,7 +278,20 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
 
   // Build the active tab's rows.
   let body;
-  if (tab === 'roster') {
+  if (tab === 'roster' && editingRoster && onUpdateLeague) {
+    body = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>Editing {team?.name}'s roster</span>
+          <button onClick={() => setEditingRoster(false)}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 700, color: accentColor, textDecoration: 'underline' }}>
+            Done editing
+          </button>
+        </div>
+        <RosterEditor league={league} team={team} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />
+      </div>
+    );
+  } else if (tab === 'roster') {
     // Auction vocabulary: no contract concept — the drafted price IS the
     // state ("Drafted $83", muted), and the value shows the keep cost so the
     // escalation math reads on the row. Price-bearing lists sort by value
@@ -303,6 +321,15 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
           {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
           {ros.length > 0 && <GroupHeader label={isSnake ? 'Rostered · no contract' : 'Rostered · undrafted'} isDark={isDark} />}
           {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
+          {onUpdateLeague && (team?.roster || []).length > 0 && (
+            <div style={{ paddingTop: 6 }}>
+              <button onClick={() => setEditingRoster(true)}
+                title="Remove a bad import row or add a missing player"
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 600, color: t.textMuted, textDecoration: 'underline' }}>
+                Edit roster
+              </button>
+            </div>
+          )}
         </div>
       );
     }
@@ -447,7 +474,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
   const poolProps = {
     league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull,
-    onAdd: addEntry, onRemoveName: removeName,
+    onAdd: addEntry, onRemoveName: removeName, onUpdateLeague,
   };
 
   return (
