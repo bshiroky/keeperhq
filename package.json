@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "node scripts/fetch-players-nhl.mjs && vite build",
     "preview": "vite preview",
-    "players:nhl": "node scripts/fetch-players-nhl.mjs"
+    "players:nhl": "node scripts/fetch-players-nhl.mjs",
+    "test:parser": "node scripts/test-draft-parser.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

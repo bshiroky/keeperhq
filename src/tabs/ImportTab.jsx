@@ -1,51 +1,12 @@
 import React from 'react';
 import { makeTheme } from '../components.jsx';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
+import { parseDraftResults } from '../lib/draftParse.js';
 
-// Import Last Year's Draft — paste tool for draft results
-// Auction format: lines like "1.   (22)   Cooper Flagg (DAL - PG,SG,SF)   $30"
-// Snake format: same rows without the trailing cost.
-// Multiple team blocks separated by "Team Name" headers + "Budget $200" markers + "Unused $X" trailers.
-
-function parseDraftResults(text) {
-  const teams = []; // [{ name, players: [{ player, draftedFor, isKeeper }] }]
-  let current = null;
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-  // Match player row: starts with "N." or "N) " then pick, name (TEAM - pos), optional $cost
-  // (snake drafts carry no dollar amounts). Tolerant of various whitespace/tab separators.
-  const playerRegex = /^(\d+)[.)]\s*(?:\(\d+\)\s*)?(.+?)\s*\(([A-Z]{2,4})\s*-\s*([^)]+)\)\s*(?:\$?\s*(\d+))?\s*$/;
-
-  for (const raw of lines) {
-    // Skip header rows
-    if (/^budget\b/i.test(raw)) continue;
-    if (/^unused\b/i.test(raw)) {
-      // End of team block
-      continue;
-    }
-
-    const m = raw.match(playerRegex);
-    if (m) {
-      if (!current) continue; // player line without a team — skip
-      const round = parseInt(m[1], 10); // the leading "N." on a Yahoo team-by-team export is the ROUND
-      const playerName = m[2].replace(/\s+/g, ' ').trim();
-      const proTeam = m[3];
-      const positions = m[4].split(',').map(s => s.trim()).join(',');
-      const dollar = m[5] != null ? parseInt(m[5], 10) : null;
-      const isKeeper = / {2,}\(|\(K\)/.test(raw);
-      current.players.push({ player: playerName, round: Number.isFinite(round) ? round : null, draftedFor: dollar, isKeeper, proTeam, positions });
-      continue;
-    }
-
-    // Otherwise: this is a team name line (heuristic — not all numbers, no $, not the headers we skipped)
-    // We treat this as starting a new team block.
-    if (!/^\d/.test(raw) && !/^\$/.test(raw) && raw.length < 80) {
-      current = { name: raw, players: [] };
-      teams.push(current);
-    }
-  }
-  return teams;
-}
+// Import Last Year's Draft — the paste flow over lib/draftParse.js, which
+// handles BOTH Yahoo Draft Results views (team-by-team blocks and the flat
+// Picks table) across sports. See that file for the format notes; unit
+// fixtures live in scripts/test-draft-parser.mjs.
 
 // ── Draft-import flow (paste → match/confirm) ────────────────────────────────
 // The two-step import as PAGE CONTENT, not an overlay — the live entry point
@@ -66,12 +27,21 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
   // contract); K-marked players default to Y2 (already kept once).
   const [entryYears, setEntryYears] = React.useState({});
   const [expandedTeams, setExpandedTeams] = React.useState({}); // {teamName: bool}
+  const [error, setError] = React.useState(null);
 
   const yearKey = (teamName, player) => `${teamName}|${player}`;
   const entryYearFor = (teamName, p) => entryYears[yearKey(teamName, p.player)] ?? (p.isKeeper ? Math.min(2, contractLen) : 1);
 
   function doPreview() {
     const parsed = parseDraftResults(text);
+    // A valid draft paste always yields players — zero means WE failed to
+    // read the format, so say so (and name the other Yahoo view) instead of
+    // showing an empty or header-derived "team" to map.
+    if (parsed.length === 0 || parsed.every(p => p.players.length === 0)) {
+      setError("Couldn't find any players in that paste. Yahoo's Draft Results page has two views — the team-by-team view and the flat Picks list — and both work here, so try copying the OTHER view and pasting that. Rows should look like “1. Player Name (TEAM - POS) $20”, with the fantasy team either on its own line above its picks or at the end of each row.");
+      return;
+    }
+    setError(null);
     setPreview(parsed);
     setEntryYears({});
     setExpandedTeams({});
@@ -145,8 +115,11 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
       {!preview && (
         <>
           <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-            Format: each team block has the team name on its own line, then rows of <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>N. (pick) Player (TEAM - POS){isSnake ? '' : ' $cost'}</code>{isSnake ? ' — no dollar amounts needed for a snake draft' : ', ending with "Unused $X"'}. Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
+            Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows of <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>N. Player (TEAM - POS){isSnake ? '' : ' $cost'}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
           </div>
+          {error && (
+            <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>{error}</div>
+          )}
           <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
             placeholder={"Anthony!!!\nBudget  $200\n1.\t(22)\tCooper Flagg (DAL - PG,SG,SF)\t$30\n2.\t(31)\tReed Sheppard (HOU - PG,SG)\t$9\n...\nUnused $60\n\nKeanu Reaves\nBudget $200\n1. (2) Tari Eason (HOU - SG,SF,PF) $9\n..."}
             style={{

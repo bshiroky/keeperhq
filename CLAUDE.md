@@ -323,10 +323,11 @@ features have shipped through their own branches (all merged):
   `DraftImportFlow` (`ImportTab.jsx`) and run as PAGE CONTENT on the
   Last Draft page (zero overlays anywhere in the flow — audited);
   the PR #34 result-summary step became a transient dismissable
-  success banner over the now-populated table. The Import sheet's
-  draft card keeps its framing copy but its "Paste Draft" button now
-  navigates to `/draft` with `state.startImport` (drops straight into
-  the paste step). `DraftImportModal` survives only as a thin wrapper
+  success banner over the now-populated table. The Import surface's
+  draft card is a pointer to this page (see the follow-up bullet — the
+  Import sheet became a full page and the `state.startImport`
+  hand-off was dropped for a plain page→page link).
+  `DraftImportModal` survives only as a thin wrapper
   (flow + result step) for the dormant `SeasonSetupWizard` path.
   Adjacent fixes: (a) the **"Show acquisition details" toggle moved to
   the live Set-keepers keeper panel** (PR #34 had put it in
@@ -344,6 +345,29 @@ features have shipped through their own branches (all merged):
   main** — it was merged into `claude/picks-surface-cleanup` after
   #33 had already landed on main — so this branch cherry-picks it
   first and builds on top.
+
+- **Parser hardening + Import-as-page (this branch's PR, follow-up):**
+  three fixes from real basketball pastes + an IA pass. (1) **The
+  draft parser handles both Yahoo Draft Results views, sport-
+  agnostic** — extracted to `src/lib/draftParse.js` (see its file-map
+  entry): the flat PICKS view (was parsing its header row as a team
+  named "Pick Player Salary Team" with 0 players) and the TEAM view
+  with basketball/football row shapes (multi-position lists, mixed-
+  case abbrevs, tolerant trailing junk). A parse yielding 0 players
+  now shows an error naming the other Yahoo view instead of an empty
+  preview; unit fixtures cover 3 sports × both views
+  (`npm run test:parser`). (2) **Import is a full page** at
+  `/league/:id/import` (persistent-nav pattern) — the roster paste
+  stays a modal OVER it, and the draft card is a plain pointer link
+  to Last Draft (page→page). This killed the last drawer→page
+  transition and produced the standing **overlay-direction rule** in
+  Build constraints. (3) **Copy:** page headline "Import last season"
+  + one-line sub; "Pre-Playoff Rosters" renamed **"Last Season's
+  Rosters"** with league-agnostic copy ("Paste each team's
+  end-of-season roster… seeds who each team can keep") — the old
+  pre-playoff-snapshot phrasing was one league's specific eligibility
+  rule; eligibility windows vary by league and aren't modeled yet.
+  Same de-specification in `RosterImportModal`'s header line.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -412,6 +436,8 @@ headless.
 - `npm run build` — runs `scripts/fetch-players-nhl.mjs` then `vite build`.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
+- `npm run test:parser` — draft-paste parser unit tests
+  (`scripts/test-draft-parser.mjs`, plain node, no framework)
 - This Claude Code container's network policy **blocks** `api-web.nhle.com`
   and `api.nhle.com`. Vercel's build environment can reach them — the fetch
   script runs for real on deploy, but you can't exercise it in-session.
@@ -589,7 +615,7 @@ league page is only ever entered by deep link.
 | `/new` | `CreateLeagueWizard` — 4-step create-league flow (Basics → League Format → Teams → Review); writes a new league to localStorage and routes into it |
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
-| `/league/:leagueId/import` | `LeagueView` + Import sheet open (roster uploads; the draft-import card here just navigates to `/draft`) |
+| `/league/:leagueId/import` | `LeagueView` — **full-page** Import view ("Import last season" headline; per-team roster paste opens a modal over the page; the draft card is a pointer link to `/draft`) — **both draft types** |
 | `/league/:leagueId/draft` | `LeagueView` — **full-page** "Last Draft" takeover (the imported prior-year draft: inline-editable values, in-place name fixes, and the on-page paste import) — **both draft types** |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
 | `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks view (round×team pick-ownership grid + paste import) with the persistent league nav — **snake only**; auction redirects to overview |
@@ -608,12 +634,12 @@ The old `/league/:leagueId/players` route is gone — the standalone
 NHL directory was folded into the Set-keepers Eligible Pool ("League"
 sub-tab), so `/players` redirects to overview. `VALID_TABS` in
 `App.jsx` is `['overview', 'import', 'draft', 'payouts', 'picks',
-'lottery', 'settings']`. Import / Pool / Settings render as routed
-slide-in sheets over the Keepers home (the `activeTab` decides which
-sheet is open; closing routes back to `…/overview`); Last Draft,
-Picks, and Lottery are **full-page** routes (page-sized content) —
-Picks and Lottery are snake-gated in `LeagueRoute` (auction redirects
-to overview), Last Draft serves both draft types.
+'lottery', 'settings']`. Pool / Settings render as routed slide-in
+sheets over the Keepers home (the `activeTab` decides which sheet is
+open; closing routes back to `…/overview`); Import, Last Draft,
+Picks, and Lottery are **full-page** routes — Picks and Lottery are
+snake-gated in `LeagueRoute` (auction redirects to overview), Import
+and Last Draft serve both draft types.
 
 **Wiring:**
 
@@ -1030,6 +1056,14 @@ copy of a component drifts away from the original.
   lottery) gets a full-page route, not a sheet. Known dormant
   exception: the unrouted `SeasonSetupWizard` overlay opens import
   modals on top; fix it if that flow is ever revived.
+- **Overlay direction: pages open overlays, never the reverse.** A
+  full page may open a modal or drawer over itself (the Import page's
+  per-team roster modal); a drawer or modal must never navigate to a
+  page — a mid-flow overlay that closes itself by changing the route
+  is a broken transition (the Import sheet's "Paste Draft" button
+  used to do exactly this; Import is a full page now). If an overlay
+  needs page-sized content or wants to send the user somewhere, it
+  should have been a page.
 - **Full pages keep the league nav — no Back buttons.** A full-page
   league view (Picks, Lottery, and any future one) renders the league
   identity card + the Overview/Set-keepers + section-door row exactly
@@ -1071,9 +1105,12 @@ copy of a component drifts away from the original.
   card's `overflow:hidden` so it isn't clipped.
 - `src/LeagueView.jsx` — League detail. The **Keepers home** (identity
   card + Overview/Set-keepers toggle + section-door buttons), plus
-  `PayoutsTab`, `SettingsPanel`, and `ImportPanel` rendered inside a
-  routed `SectionPanel` (right slide-in sheet); Lottery is a full-page
-  branch. Holds the Overview↔Set-keepers view state and the selected
+  `PayoutsTab` and `SettingsPanel` rendered inside a routed
+  `SectionPanel` (right slide-in sheet); `ImportPanel` is a **full
+  page** now ("Import last season" headline + sub, the Last Season's
+  Rosters section whose per-team paste opens `RosterImportModal` over
+  the page, and a pointer card linking to Last Draft); Import, Last
+  Draft, Picks, and Lottery all render as full-page branches. Holds the Overview↔Set-keepers view state and the selected
   team. `DeadlineLine` (writes `league.keeperDeadline` date +
   `league.keeperDeadlineTime` 'HH:MM'; picking a date defaults the time
   to 23:59, clearing the date clears both; date-only legacy data reads
@@ -1199,13 +1236,32 @@ copy of a component drifts away from the original.
   `acquisitionRound`), remove ×, unmatched flags when the directory is
   ready (plus the roster-import "directory unavailable" banner).
   Hosts the on-page import: `DraftImportFlow` renders as page content
-  (auto-started via `location.state.startImport` from the Import
-  sheet), completion shows a transient success banner. Empty state =
-  "No draft imported yet" + Paste Draft.
-- `src/tabs/ImportTab.jsx` — `parseDraftResults` + `DraftImportFlow`
-  (the paste→map/confirm steps, overlay-free — rendered by the Last
-  Draft page) + `DraftImportModal` (thin wrapper: flow + result step;
-  **dormant** — only the unrouted `SeasonSetupWizard` path uses it).
+  (opened by the page's own Paste Draft buttons), completion shows a
+  transient success banner. Empty state = "No draft imported yet" +
+  Paste Draft.
+- `src/tabs/ImportTab.jsx` — `DraftImportFlow` (the paste→map/confirm
+  steps, overlay-free — rendered by the Last Draft page; a zero-player
+  parse shows a helpful error naming Yahoo's other Draft Results view
+  instead of an empty preview) + `DraftImportModal` (thin wrapper:
+  flow + result step; **dormant** — only the unrouted
+  `SeasonSetupWizard` path uses it). Re-exports `parseDraftResults`
+  from `src/lib/draftParse.js`.
+- `src/lib/draftParse.js` — the draft-results paste parser, pure JS
+  (extracted from ImportTab so it's unit-testable without JSX).
+  Handles **both Yahoo Draft Results views, sport-agnostic**: the
+  team-by-team TEAM view (team name line, rows below; leading `N.` =
+  round) and the flat PICKS view (one selection per line, fantasy
+  team at the END of the row; leading `N.` = overall pick, round =
+  `ceil(pick / team count)`). View is auto-detected from trailing
+  team text on the rows; the `$salary` is the split anchor between
+  player block and team name (team names may carry quotes/ellipses/
+  emoji/digits); pro-team abbrevs may be mixed case, position lists
+  comma/slash-separated; header rows ("Pick Player Salary Team") are
+  vocabulary-detected and can never become mappable teams; teams with
+  zero players are dropped as noise. Players are NEVER dropped for
+  failing a directory match. Unit tests:
+  `npm run test:parser` → `scripts/test-draft-parser.mjs` (plain
+  node, fixtures for 3 sports × both views + failure modes).
 - `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the **full-page**
   Picks surface (rendered by `LeagueView` in the Lottery full-page
   pattern): intro card with an editable Rounds input ("auto" note when

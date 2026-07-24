@@ -277,7 +277,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary }}>Import Team Roster</div>
             <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
-              Snapshot of who was on the team's roster before fantasy playoffs. Used to verify keeper eligibility.
+              Paste this team's end-of-season roster from your fantasy site — it seeds who this team can keep.
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 22, lineHeight: 1 }}>×</button>

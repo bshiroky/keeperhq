@@ -1,5 +1,4 @@
 import React from 'react';
-import { useLocation } from 'react-router-dom';
 import { ClipboardList, X } from 'lucide-react';
 import { makeTheme, tokens, Button, Headshot, HScrollRow } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
@@ -114,7 +113,6 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
 
 function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
-  const location = useLocation();
   const isSnake = league.draftType === 'snake';
   const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
   const teams = league.teams || [];
@@ -151,9 +149,7 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
     ? teamsWithDraft.reduce((s, tm) => s + tm.priorKeepers.filter(p => p.player && !dirMap.get(normalizeName(p.player))).length, 0)
     : 0;
 
-  // The Import sheet's "Paste Draft" button lands here with startImport set,
-  // dropping straight into the paste step.
-  const [importing, setImporting] = React.useState(() => !!location.state?.startImport);
+  const [importing, setImporting] = React.useState(false);
   const [summary, setSummary] = React.useState(null); // transient success banner
   const [teamFilter, setTeamFilter] = React.useState('all');
 
