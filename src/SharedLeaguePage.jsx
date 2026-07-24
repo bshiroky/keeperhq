@@ -238,15 +238,37 @@ function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
 }
 
 // ── Mobile / list row ───────────────────────────────────────────────────────
-// The production Eligible Pool row DNA: bordered full-width card, name left,
-// status stacked right. One no-stats treatment everywhere — same right
-// column, min-height matched to the two-line hockey row.
+// Two deliberate layouts, not one layout minus content:
+// - Hockey (directory sport): headshot + two-line card (name over stat line),
+//   status stacked right — the original handoff row.
+// - Stats-less leagues (no directory): a COMPACT single-line row — name+pos
+//   left, price/status inline right, tighter padding, no reserved headshot or
+//   stat-line space. "Other sports look intentional, not broken."
 function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
   const t = makeTheme(isDark);
   const isHockey = league.sport === 'hockey';
   const expired = row.kind === 'expired';
   const pos = displayPos(row, rec);
   const statLine = isHockey ? statLineFor(rec) : null;
+  if (!isHockey) {
+    return (
+      <div className="kh-share-row" style={{
+        display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+        background: expired ? t.dangerBg : t.cardBg,
+        border: `1px solid ${expired ? t.dangerBorder : t.border}`,
+        borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
+        boxSizing: 'border-box',
+        opacity: dim ? 0.75 : 1,
+      }}>
+        <span style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {row.player}
+          {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, marginLeft: 6, fontWeight: 500 }}>{pos}</span>}
+        </span>
+        <ContractText row={row} league={league} isDark={isDark} />
+        <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} maxWidth={150} />
+      </div>
+    );
+  }
   return (
     <div className="kh-share-row" style={{
       display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
@@ -309,6 +331,10 @@ const STATUS_W = 116;
 
 function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dimEligible, groupKeepers, defaultSortKey }) {
   const t = makeTheme(isDark);
+  // Stats-less leagues (no directory sport) get this same table with cats=[]
+  // — no stat columns, no headshots, single-line player cells. The hockey
+  // branches below key off the sport, not off per-row directory hits.
+  const isHockey = league.sport === 'hockey';
   const [sort, setSort] = React.useState({ key: defaultSortKey, dir: 'desc' });
 
   const scrollRef = React.useRef(null);
@@ -404,7 +430,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   let renderedSoFar = 0;
   return (
     <div style={{ marginBottom: tokens.spaceLg }}>
-      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>{title}</div>
+      {title && <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>{title}</div>}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden', position: 'relative' }}>
         {!stretchMode && <div aria-hidden style={edgeFade('left', canLeft)} />}
         {!stretchMode && <div aria-hidden style={edgeFade('right', canRight)} />}
@@ -472,19 +498,28 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                     return (
                       <tr key={`${row.teamId}-${row.player}`} className="kh-share-tr" style={{ verticalAlign: 'middle' }}>
                         <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
-                            <SharedHeadshot rec={rec} isDark={isDark} size={30} />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {row.player}
-                              </div>
-                              <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
-                                {[pos, rec?.team].filter(Boolean).join(' · ') || '—'}
+                          {isHockey ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
+                              <SharedHeadshot rec={rec} isDark={isDark} size={30} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {row.player}
+                                </div>
+                                <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
+                                  {[pos, rec?.team].filter(Boolean).join(' · ') || '—'}
+                                </div>
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0, opacity: dim }}>
+                              <span style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {row.player}
+                              </span>
+                              {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, flexShrink: 0 }}>{pos}</span>}
+                            </div>
+                          )}
                         </td>
-                        {rec ? (
+                        {nStats === 0 ? null : rec ? (
                           cats.map(cat => (
                             <td key={cat.key} style={{ padding: '9px 10px', textAlign: 'right', ...tokens.typeStatMeta, fontSize: '11px', color: sort.key === cat.key ? t.textPrimary : t.textBody, borderBottom: rowBorder, whiteSpace: 'nowrap', opacity: dim }}>
                               {formatStat(cat, rec)}
@@ -711,8 +746,10 @@ function SharedLeaguePage({ league, isDark }) {
     ? allRows.some(r => r.kind === 'expired' && r.teamId === filterTeam.id)
     : false;
 
-  const useTable = isDesktop && isHockey;
-  const listMax = isDesktop && !useTable ? 720 : undefined;
+  // Desktop always gets the table treatment — hockey with stat groups,
+  // stats-less leagues a compact name/price/status table (no stat columns,
+  // no skater/goalie split). Mobile cards are for mobile widths only.
+  const useTable = isDesktop;
 
   const body = (
     <>
@@ -726,17 +763,33 @@ function SharedLeaguePage({ league, isDark }) {
           isDark={isDark}
         />
       )}
-      {filter === 'keepable' && !locked && !anyKeepers && <EmptyStateBanner isDark={isDark} />}
+      {/* Mascot speech is for WAITING surfaces only — it renders solely when
+          there is nothing else to show. A populated list with zero declared
+          keepers gets a one-line quiet notice instead. */}
+      {filter === 'keepable' && !locked && !anyKeepers && (
+        sortedRows.length === 0
+          ? <EmptyStateBanner isDark={isDark} />
+          : (
+            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginBottom: tokens.spaceSm }}>
+              No keepers declared yet — everyone below is still eligible.
+            </div>
+          )
+      )}
 
       {sortedRows.length === 0 ? (
         <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceLg}px 0`, textAlign: 'center' }}>
           Nothing here yet.
         </div>
       ) : useTable ? (
-        <StatTables rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
-          hideTeam={!!filterTeam} dimEligible={false} groupKeepers={!!filterTeam && !locked} />
+        isHockey ? (
+          <StatTables rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
+            hideTeam={!!filterTeam} dimEligible={false} groupKeepers={!!filterTeam && !locked} />
+        ) : (
+          <StatTable rows={sortedRows} cats={[]} league={league} playerMap={playerMap} isDark={isDark}
+            hideTeam={!!filterTeam} dimEligible={false} groupKeepers={!!filterTeam && !locked} />
+        )
       ) : (
-        <div style={{ maxWidth: listMax, margin: listMax ? '0 auto' : undefined }}>
+        <div>
           {filterTeam && !locked ? (
             <>
               <RowList rows={sortedRows.filter(r => r.kind === 'keeper')} league={league} playerMap={playerMap} isDark={isDark} hideTeam />
