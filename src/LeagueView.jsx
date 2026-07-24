@@ -9,6 +9,8 @@ import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
+import { PlayerAutocomplete, posForRoster } from './PlayerAutocomplete.jsx';
+import { normalizeName } from './lib/players.js';
 import { startNewSeason } from './lib/season.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
@@ -897,8 +899,34 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const navigate = useNavigate();
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
+  // Minimal post-import roster editing (the Last Draft page's edit patterns):
+  // one team's list expanded at a time — per-player remove ×, plus a
+  // PlayerAutocomplete-backed add for corrections. This is how a bad paste
+  // row (e.g. Yahoo's "--empty--" placeholder) gets deleted after the fact.
+  const [editingRosterTeam, setEditingRosterTeam] = React.useState(null); // teamId
+  const [addValue, setAddValue] = React.useState('');
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
+
+  function setRoster(teamId, roster) {
+    onUpdateLeague({
+      ...league,
+      teams: (league.teams || []).map(tm => tm.id === teamId ? { ...tm, roster } : tm),
+    });
+  }
+  function removeRosterPlayer(tm, idx) {
+    setRoster(tm.id, tm.roster.filter((_, i) => i !== idx));
+  }
+  function addRosterPlayer(tm, name, rec) {
+    const clean = (name || '').trim();
+    if (!clean) return;
+    const names = new Set(tm.roster.map(p => normalizeName(p.player)));
+    if (names.has(normalizeName(clean))) return;
+    // Position from the directory pick when there is one; typed names (the
+    // only path for non-NHL sports) save name-only, same as the import.
+    setRoster(tm.id, [...tm.roster, rec?.pos ? { player: clean, pos: posForRoster(rec.pos) } : { player: clean }]);
+    setAddValue('');
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -945,23 +973,60 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
             </Button>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0, alignItems: 'start' }}>
           {(league.teams || []).map((tm, i, arr) => {
             const hasRoster = tm.roster && tm.roster.length > 0;
+            const isEditing = editingRosterTeam === tm.id && hasRoster;
             const rowBorder = i < arr.length - 2 ? `1px solid ${t.dividerFaint}` : 'none';
             return (
-              <div key={tm.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px', borderBottom: rowBorder, borderRight: i % 2 === 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? t.success : t.border, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>{tm.name}</div>
-                  <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
-                    {hasRoster ? `${tm.roster.length} players · as of ${tm.rosterAsOfDate || '—'}` : 'No roster on file'}
+              <div key={tm.id} style={{ borderBottom: rowBorder, borderRight: i % 2 === 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? t.success : t.border, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>{tm.name}</div>
+                    <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
+                      {hasRoster ? `${tm.roster.length} players · as of ${tm.rosterAsOfDate || '—'}` : 'No roster on file'}
+                    </div>
                   </div>
+                  {hasRoster && (
+                    <button onClick={() => { setEditingRosterTeam(isEditing ? null : tm.id); setAddValue(''); }}
+                      style={{ background: 'none', border: `1px solid ${isEditing ? accentColor : t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: isEditing ? accentColor : t.textSecondary, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {isEditing ? 'Done' : 'Edit'}
+                    </button>
+                  )}
+                  <button onClick={() => setShowRosterImport(tm.id)}
+                    style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: hasRoster ? t.textSecondary : accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {hasRoster ? 'Re-import' : 'Import'}
+                  </button>
                 </div>
-                <button onClick={() => setShowRosterImport(tm.id)}
-                  style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: hasRoster ? t.textSecondary : accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
-                  {hasRoster ? 'Re-import' : 'Import'}
-                </button>
+                {isEditing && (
+                  <div style={{ padding: '2px 20px 12px 36px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {tm.roster.map((p, pi) => (
+                      <div key={`${p.player}-${pi}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '4px 8px' }}>
+                        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '0 4px', minWidth: 22, textAlign: 'center', flexShrink: 0 }}>{p.pos || '—'}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.player}</span>
+                        <button onClick={() => removeRosterPlayer(tm, pi)} aria-label={`Remove ${p.player}`} title="Remove player"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, lineHeight: 1, padding: 2, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit', flexShrink: 0 }}>
+                          <X size={12} strokeWidth={2} />
+                        </button>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'stretch', marginTop: 2 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <PlayerAutocomplete
+                          value={addValue}
+                          onChange={(name, picked) => { if (picked) addRosterPlayer(tm, name, picked); else setAddValue(name); }}
+                          sport={league.sport} isDark={isDark} placeholder="Add player…"
+                          league={league}
+                          disabledNames={new Set(tm.roster.map(p => normalizeName(p.player)))}
+                          inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 8px', fontSize: 12, color: t.textPrimary, outline: 'none', fontFamily: 'inherit' }}
+                        />
+                      </div>
+                      <Button variant="secondary" size="sm" isDark={isDark} disabled={!addValue.trim()}
+                        onClick={() => addRosterPlayer(tm, addValue, null)}>Add</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

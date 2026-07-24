@@ -62,6 +62,7 @@ export function buildSharedRows(league) {
         final: isSnake && (k.contractYear || 0) >= len,
         cost: k.keptFor,
         draftedCost: priorByName.get(normalizeName(k.player))?.keptFor ?? null,
+        round: priorByName.get(normalizeName(k.player))?.acquisitionRound ?? null,
       });
     }
   }
@@ -74,6 +75,7 @@ export function buildSharedRows(league) {
         teamId: team.id, teamName: team.name,
         year: e.nextYear, len: e.length, final: !!e.final, cost: e.nextCost,
         draftedCost: e.wasCost ?? null,
+        round: e.acquisitionRound ?? null,
       });
     }
     for (const e of pool.rosteredNoContract) {
@@ -81,6 +83,7 @@ export function buildSharedRows(league) {
         kind: 'rostered', player: e.player, pos: e.pos,
         teamId: team.id, teamName: team.name,
         year: 1, len: defaultLen, final: !!e.final, cost: e.nextCost,
+        round: e.acquisitionRound ?? null,
       });
     }
     if (isSnake) {
@@ -145,19 +148,28 @@ export function formatStat(cat, rec) {
   return String(v);
 }
 
-// Default list order: last-season points desc (hockey), no-stats players
-// last alphabetical; goalies rank by wins since they carry no points. Other
-// sports have no stat data — alphabetical by team then name.
-export function sortRowsDefault(rows, playerMap, isHockey) {
+// Default list order: last-season points desc for hockey (goalies rank by
+// wins; no-stats players last, alphabetical). Stats-less leagues sort on the
+// VALUE axis instead — keep cost desc on auction (matching the Last Draft
+// page's value sorting), draft round asc on snake where rounds exist —
+// alphabetical only as tiebreak/final fallback.
+export function sortRowsDefault(rows, playerMap, league) {
   const sorted = [...rows];
-  if (!isHockey || !playerMap) {
-    return sorted.sort((a, b) =>
-      (a.teamName || '').localeCompare(b.teamName || '') || a.player.localeCompare(b.player));
+  const isHockey = league?.sport === 'hockey';
+  if (isHockey && playerMap) {
+    const score = (row) => {
+      const rec = playerMap.get(normalizeName(row.player));
+      if (!rec) return -1;
+      return rec.kind === 'goalie' ? (rec.w ?? 0) : (rec.p ?? 0);
+    };
+    return sorted.sort((a, b) => (score(b) - score(a)) || a.player.localeCompare(b.player));
   }
-  const score = (row) => {
-    const rec = playerMap.get(normalizeName(row.player));
-    if (!rec) return -1;
-    return rec.kind === 'goalie' ? (rec.w ?? 0) : (rec.p ?? 0);
-  };
-  return sorted.sort((a, b) => (score(b) - score(a)) || a.player.localeCompare(b.player));
+  if (league?.draftType === 'auction') {
+    return sorted.sort((a, b) => ((b.cost ?? -1) - (a.cost ?? -1)) || a.player.localeCompare(b.player));
+  }
+  return sorted.sort((a, b) => {
+    const ra = a.round ?? Infinity;
+    const rb = b.round ?? Infinity;
+    return (ra - rb) || a.player.localeCompare(b.player);
+  });
 }

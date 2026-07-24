@@ -2,99 +2,18 @@ import React from 'react';
 import { Camera, Loader, Check } from 'lucide-react';
 import { makeTheme, tokens } from '../components.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
+import { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText } from '../lib/rosterParse.js';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import '../claudeStub.js';
 
 // Per-Team Roster Import
-// - Paste mode: parses Yahoo's roster HTML/text where player names appear twice consecutively
-//   below a position code. Tolerant of stat rows, totals, IR sections, etc.
+// - Paste mode: lib/rosterParse.js (Yahoo roster text; names appear twice
+//   below a lineup-slot code; placeholder rows like "--empty--" are skipped).
 // - Screenshot mode: uploads image(s) and asks claude-haiku to extract a JSON list of names.
 //
-// The paste/OCR step extracts player NAMES only. Yahoo's leftmost column is a
-// LINEUP SLOT (BN, IR+, Util…), not a position — a benched player is not
-// position "BN" — so slot labels are used purely as parsing anchors and then
-// discarded. Positions come from the NHL player directory (loadPlayers +
-// normalizeName, the same matching machinery buildStatusIndex uses); names
-// with no directory match are stored with no position and flagged in the
+// The paste/OCR step extracts player NAMES only — positions come from the NHL
+// directory match; unmatched names store no pos and are flagged in the
 // preview so spelling can be fixed before saving.
-
-const ROSTER_POSITIONS = new Set([
-  // Hockey
-  'C', 'LW', 'RW', 'D', 'G', 'Util',
-  // Basketball
-  'PG', 'SG', 'SF', 'PF', 'F',
-  // Football
-  'QB', 'WR', 'RB', 'TE', 'W/R/T', 'W/T', 'Q/W/R/T', 'K', 'DEF', 'D/ST',
-  // Baseball
-  '1B', '2B', '3B', 'SS', 'OF', 'SP', 'RP', 'P',
-  // Bench / IR (common across sports)
-  'BN', 'IR', 'IR+', 'IL', 'IL+', 'NA',
-]);
-
-// Strip trailing junk Yahoo appends to player-name cells when you select the page text:
-//   "No new player Notes", "NA No new player Notes", "New Player Note", "Player Note",
-//   plus 1-2 char status flags (O, Q, IR, GTD, NA, K) and leftover whitespace.
-function cleanPlayerName(raw) {
-  if (!raw) return '';
-  let s = raw;
-  // Strip the long note-action phrases first (any case)
-  s = s.replace(/(?:no\s+new\s+player\s+notes?|new\s+player\s+note|player\s+note)\s*$/i, '');
-  // Strip trailing status flags after the name (NA, O, Q, IR, GTD, DTD, K).
-  // The flag must be whitespace-separated — with `\s*` this used to chop the
-  // last letter off any name ending in a flag character (Hellebuyck → K,
-  // Tkachuk → K, Marchenko → O), which then never matched the directory.
-  s = s.replace(/\s+(NA|GTD|DTD|IR|IL|K|O|Q|P)\s*$/i, (m, flag, off) => off >= 4 ? '' : m);
-  // Collapse whitespace
-  s = s.replace(/\s+/g, ' ').trim();
-  return s;
-}
-
-// Parser: walks lines looking for a position code, then the next non-empty line as the player name.
-// Validates by checking the following line contains a " - " (Yahoo's team-position string, e.g. "SJ - C").
-// Skips "(Empty)" slot placeholders and the various header / summary rows.
-function parseYahooRosterText(text) {
-  const lines = text.split(/\r?\n/).map(l => l.trim());
-  const out = [];
-  const headerWords = /^(totals|action|opp|pos|rank|fantasy|offense|goaltend|forwards|defensemen|pre-season|starting lineup|legends|the fine print|note:|projections|goaltender appearances)/i;
-
-  function nonEmptyAfter(i) {
-    for (let j = i + 1; j < lines.length; j++) {
-      if (lines[j]) return { idx: j, value: lines[j] };
-    }
-    return null;
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (!ROSTER_POSITIONS.has(line)) continue;
-    // Found a position line. Next non-empty line should be the player name (with junk).
-    const next = nonEmptyAfter(i);
-    if (!next) continue;
-    if (/^\(empty\)/i.test(next.value)) { i = next.idx; continue; }
-    if (headerWords.test(next.value)) continue;
-    // The line after that should be a team-position string like "SJ - C" — use as soft validation.
-    const after = nonEmptyAfter(next.idx);
-    const looksValid = after && / - /.test(after.value);
-    const player = cleanPlayerName(next.value);
-    if (!player || player.length < 2) continue;
-    // If two consecutive lines both equal a position code (rare table-header case), skip.
-    if (ROSTER_POSITIONS.has(player)) continue;
-    // The slot label (`line`) is deliberately dropped — it anchors the parse
-    // but is a lineup slot, not a position.
-    out.push({ player, _ok: !!looksValid });
-    i = next.idx; // advance past the name line
-  }
-
-  // Dedupe by player name (keep first)
-  const seen = new Set();
-  return out.filter(p => {
-    const k = p.player.toLowerCase();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  }).map(({ _ok, ...rest }) => rest);
-}
 
 // Convert a File to base64 string (no data URL prefix)
 function fileToBase64(file) {
@@ -139,8 +58,18 @@ Do not include team totals or summary rows.`;
   return arr.map(p => ({ player: String(p.player || '').trim() })).filter(p => p.player);
 }
 
+// Paste samples per sport — the format explainer should show rows shaped like
+// the league's own Yahoo page, not hockey examples for everyone.
+const ROSTER_SAMPLES = {
+  hockey: "Pos\tForwards/Defensemen\tAction\tOpp\t...\nC\nNico Hischier\nNico Hischier\nW, 3-2 vs EDM\n...\nBN\nJohn Tavares\nJohn Tavares\n...",
+  basketball: "Pos\tPlayers\tAction\tOpp\t...\nPG\nJalen Brunson\nJalen Brunson\nW, 112-104 vs BOS\n...\nBN\nEvan Mobley\nEvan Mobley\n...",
+  football: "Pos\tOffense\tAction\tOpp\t...\nQB\nJosh Allen\nJosh Allen\nW, 31-24 vs MIA\n...\nBN\nBijan Robinson\nBijan Robinson\n...",
+  baseball: "Pos\tBatters\tAction\tOpp\t...\n1B\nFreddie Freeman\nFreddie Freeman\nW, 5-3 vs SD\n...\nBN\nBobby Witt Jr.\nBobby Witt Jr.\n...",
+};
+
 function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImport, onClose }) {
   const t = makeTheme(isDark);
+  const rosterSample = ROSTER_SAMPLES[league.sport] || ROSTER_SAMPLES.hockey;
   const todayStr = () => new Date().toISOString().slice(0, 10);
 
   const [teamId, setTeamId] = React.useState(initialTeamId || league.teams[0]?.id);
@@ -358,7 +287,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
                 On Yahoo, open the team's roster page (use the URL date trick if needed), select the whole page, copy, and paste here. The parser keys on the duplicated player-name pattern Yahoo uses, so stats columns are ignored automatically.
               </div>
               <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
-                placeholder={"Pos\tForwards/Defensemen\tAction\tOpp\t...\nC\nNico Hischier\nNico Hischier\nW, 3-2 vs EDM\n...\nC\nJohn Tavares\nJohn Tavares\n..."}
+                placeholder={rosterSample}
                 style={{
                   width: '100%', minHeight: 220, background: t.sectionBg, border: `1px solid ${t.border}`,
                   borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',

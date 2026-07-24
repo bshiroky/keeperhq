@@ -1,6 +1,6 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader } from 'lucide-react';
+import { Loader, Search } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import {
@@ -377,6 +377,9 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   // Players with stats sort by the active column; no-stats players always sit
   // last, alphabetical. Team-filter mode partitions keepers above eligible.
   function orderRows(list) {
+    // Stats-less leagues have no sortable stat columns — keep the page-level
+    // value sort (cost desc / round asc) instead of re-sorting alphabetical.
+    if (!isHockey) return list.map(row => ({ row, rec: playerMap?.get(normalizeName(row.player)) }));
     const withRec = list.map(row => ({ row, rec: playerMap?.get(normalizeName(row.player)) }));
     const has = withRec.filter(x => x.rec);
     const not = withRec.filter(x => !x.rec).sort((a, b) => a.row.player.localeCompare(b.row.player));
@@ -689,6 +692,10 @@ function SharedLeaguePage({ league, isDark }) {
   const teams = league.teams || [];
 
   const [filter, setFilter] = React.useState('keepable');
+  // Player search — filters the current view's rows as you type, using the
+  // same normalized matching the commissioner Eligible Pool search uses
+  // (trade-talk use case: "what would it cost to get X?").
+  const [search, setSearch] = React.useState('');
   const teamFilterId = filter.startsWith('team:') ? filter.slice(5) : null;
   const filterTeam = teamFilterId ? teams.find(tm => tm.id === teamFilterId) : null;
 
@@ -724,10 +731,14 @@ function SharedLeaguePage({ league, isDark }) {
   } else {
     rows = locked ? allRows.filter(r => r.kind === 'keeper') : allRows.filter(r => r.kind !== 'expired');
   }
+  if (search.trim()) {
+    const q = normalizeName(search);
+    rows = rows.filter(r => normalizeName(r.player).includes(q));
+  }
   const sortedRows = React.useMemo(
-    () => sortRowsDefault(rows, playerMap, isHockey),
+    () => sortRowsDefault(rows, playerMap, league),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allRows, filter, locked, playerMap, isHockey]
+    [allRows, filter, locked, search, playerMap, league]
   );
 
   const chips = [
@@ -766,7 +777,7 @@ function SharedLeaguePage({ league, isDark }) {
       {/* Mascot speech is for WAITING surfaces only — it renders solely when
           there is nothing else to show. A populated list with zero declared
           keepers gets a one-line quiet notice instead. */}
-      {filter === 'keepable' && !locked && !anyKeepers && (
+      {filter === 'keepable' && !locked && !anyKeepers && !search.trim() && (
         sortedRows.length === 0
           ? <EmptyStateBanner isDark={isDark} />
           : (
@@ -778,7 +789,7 @@ function SharedLeaguePage({ league, isDark }) {
 
       {sortedRows.length === 0 ? (
         <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceLg}px 0`, textAlign: 'center' }}>
-          Nothing here yet.
+          {search.trim() ? `No players match “${search.trim()}”.` : 'Nothing here yet.'}
         </div>
       ) : useTable ? (
         isHockey ? (
@@ -795,7 +806,7 @@ function SharedLeaguePage({ league, isDark }) {
               <RowList rows={sortedRows.filter(r => r.kind === 'keeper')} league={league} playerMap={playerMap} isDark={isDark} hideTeam />
               {sortedRows.some(r => r.kind !== 'keeper') && (
                 <>
-                  <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: `${tokens.spaceSm}px 4px 6px` }}>
+                  <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: '10px 4px 4px' }}>
                     Eligible, not protected
                   </div>
                   <RowList rows={sortedRows.filter(r => r.kind !== 'keeper')} league={league} playerMap={playerMap} isDark={isDark} hideTeam dimEligible />
@@ -900,6 +911,12 @@ function SharedLeaguePage({ league, isDark }) {
                 active={filter === chip.id} isDark={isDark}
                 onClick={() => setFilter(chip.id)} />
             ))}
+          </div>
+          <div style={{ position: 'relative', marginTop: tokens.spaceXs, maxWidth: 340 }}>
+            <Search size={14} strokeWidth={2} color={t.textMuted} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players…"
+              aria-label="Search players"
+              style={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill, padding: '7px 12px 7px 31px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit', outline: 'none' }} />
           </div>
         </div>
         {body}

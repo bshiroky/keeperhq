@@ -15,6 +15,29 @@ import { parseDraftResults } from '../lib/draftParse.js';
 // league and hands a per-team summary to onComplete; the host decides how to
 // present the result (the page shows a transient success banner over the
 // now-populated table; the dormant modal wrapper shows a result step).
+// Example draft rows per sport — the paste hint and placeholder should show
+// rows shaped like the league's own Yahoo page, keyed off league.sport.
+// [player, proTeam, positions, cost]; cost renders only for auction leagues.
+const DRAFT_SAMPLE_ROWS = {
+  hockey: [['Connor Bedard', 'CHI', 'C', 30], ['Quinn Hughes', 'VAN', 'D', 22], ['Igor Shesterkin', 'NYR', 'G', 18]],
+  basketball: [['Cooper Flagg', 'DAL', 'PG,SG,SF', 30], ['Reed Sheppard', 'HOU', 'PG,SG', 9], ['Tari Eason', 'HOU', 'SG,SF,PF', 9]],
+  football: [['Bijan Robinson', 'Atl', 'RB', 55], ['Josh Allen', 'Buf', 'QB', 38], ['Travis Kelce', 'KC', 'TE', 22]],
+  baseball: [['Bobby Witt Jr.', 'KC', 'SS', 40], ['Freddie Freeman', 'LAD', '1B', 28], ['Tarik Skubal', 'Det', 'SP', 24]],
+};
+
+function draftSampleRow(sport, isSnake) {
+  const [name, pro, pos, cost] = (DRAFT_SAMPLE_ROWS[sport] || DRAFT_SAMPLE_ROWS.hockey)[0];
+  return `1. ${name} (${pro} - ${pos})${isSnake ? '' : ` $${cost}`}`;
+}
+
+function draftPlaceholder(sport, isSnake) {
+  const rows = DRAFT_SAMPLE_ROWS[sport] || DRAFT_SAMPLE_ROWS.hockey;
+  const row = (r, i) => `${i + 1}.\t(${(i + 1) * 11})\t${r[0]} (${r[1]} - ${r[2]})${isSnake ? '' : `\t$${r[3]}`}`;
+  const blockA = [`Anthony!!!`, ...(isSnake ? [] : ['Budget  $200']), row(rows[0], 0), row(rows[1], 1), '...', ...(isSnake ? [] : ['Unused $60'])];
+  const blockB = [`Keanu Reaves`, ...(isSnake ? [] : ['Budget $200']), `1. (2) ${rows[2][0]} (${rows[2][1]} - ${rows[2][2]})${isSnake ? '' : ` $${rows[2][3]}`}`, '...'];
+  return [...blockA, '', ...blockB].join('\n');
+}
+
 function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, onCancel }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
@@ -115,13 +138,13 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
       {!preview && (
         <>
           <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-            Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows of <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>N. Player (TEAM - POS){isSnake ? '' : ' $cost'}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
+            Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>{draftSampleRow(league.sport, isSnake)}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
           </div>
           {error && (
             <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>{error}</div>
           )}
           <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
-            placeholder={"Anthony!!!\nBudget  $200\n1.\t(22)\tCooper Flagg (DAL - PG,SG,SF)\t$30\n2.\t(31)\tReed Sheppard (HOU - PG,SG)\t$9\n...\nUnused $60\n\nKeanu Reaves\nBudget $200\n1. (2) Tari Eason (HOU - SG,SF,PF) $9\n..."}
+            placeholder={draftPlaceholder(league.sport, isSnake)}
             style={{
               width: '100%', minHeight: 260, background: t.sectionBg, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',
