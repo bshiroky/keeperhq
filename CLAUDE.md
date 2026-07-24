@@ -404,6 +404,23 @@ features have shipped through their own branches (all merged):
   resort under the cursor mid-edit. The auction pool's drafted list
   sorts by keep cost desc the same way.
 
+- **Shared-page polish for stats-less leagues (this branch's PR):**
+  three fixes from a real basketball league viewed via public link.
+  (1) **Stats-less rows have their own compact layout** — non-hockey
+  mobile rows are a single balanced line (name+pos left, price/status
+  inline right, tighter padding, ~46px vs the hockey two-liner's
+  ~60px) instead of the hockey card minus its headshot/stat-line
+  content. (2) **Mascot speech gated to the true empty state** — the
+  "No keepers declared yet" mascot chip renders only when there are
+  no rows at all; a populated list with zero keepers gets a one-line
+  quiet notice (no mascot — speech is for waiting surfaces, and a
+  populated page isn't one). (3) **Desktop shows a real table for
+  stats-less leagues** — `useTable` is now viewport-only; non-hockey
+  leagues render the same `StatTable` with `cats=[]`
+  (Player/Contract/Status, no stat columns, no skater/goalie split,
+  no headshots, single-line cells) instead of mobile cards stretched
+  wide. Hockey rows/table verified unchanged (regression-asserted).
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1179,9 +1196,15 @@ copy of a component drifts away from the original.
   filter rail (Keepable/All players · Under contract · Expired
   (snake, only when expired players exist) · team chips; default
   relabels to "Final keepers" post-lock), mobile card rows
-  (headshot/silhouette + name + stat line + stacked contract text +
-  status pill), and a desktop (≥1024px, hockey-only) stat table per
-  skater/goalie group — sortable stat headers, Player pinned left,
+  (**two deliberate layouts, not one minus content**: hockey =
+  headshot + two-line card with stat line + stacked contract/status;
+  stats-less leagues (no directory sport) = a COMPACT single-line row,
+  name+pos left, price/status inline right, tighter padding — no
+  reserved headshot/stat space), and a **desktop (≥1024px, all
+  sports) table** — hockey gets the stat table per skater/goalie
+  group, stats-less leagues the same `StatTable` with `cats=[]`
+  (Player/Contract/Status only, no headshots, single-line player
+  cells, no title eyebrow) — sortable stat headers, Player pinned left,
   Contract/Status pinned right, stat columns scroll-snapping between
   them on native horizontal scroll with **edge-fade gradients** at the
   sticky boundaries as the scroll affordance (scroll-position-driven,
@@ -1203,8 +1226,11 @@ copy of a component drifts away from the original.
   sticky cell). Same strings on mobile rows.
   Print: filter rail hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
-  empty state (no keepers declared anywhere) is the page's one
-  mascot-*speech* surface.
+  mascot empty state is the page's one mascot-*speech* surface and
+  renders ONLY when there is nothing else to show (no rows at all);
+  a populated list with zero declared keepers gets a one-line quiet
+  notice instead ("No keepers declared yet — everyone below is still
+  eligible.") — mascot speech = waiting surfaces only.
 - `src/lib/sharedLeague.js` — data layer for the shared page:
   `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
   with no session), `buildSharedRows(league)` (one deduped row per
