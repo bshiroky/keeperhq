@@ -432,13 +432,15 @@ features have shipped through their own branches (all merged):
   lines; `isRosterPlaceholder`), and saved rosters gained minimal
   editing via a shared **`RosterEditor`** (`RosterImportTab.jsx`):
   per-player remove × and a `PlayerAutocomplete`-backed add (directory
-  picks carry the position; typed adds save name-only). It renders in
-  TWO places, one component: the Import page's roster rows ("Edit
-  roster", a SINGLE-OPEN accordion — collapsed by default, opening a
-  team collapses any other, so 12 teams × 13+ players never render at
-  once) and the Eligible Pool's "My roster" tab ("Edit roster" link →
-  editor in the pool body with a "Done editing" return) — the escape
-  hatch lives where bad rows actually get noticed. (3) **Shared-page
+  picks carry the position; typed adds save name-only). Its one entry
+  point is the Import page's per-team **"Edit roster" → a MODAL**
+  (`RosterEditorModal`; page→modal per the overlay-direction rule) —
+  team rows stay one line each, nothing expands inline. Earlier forms
+  (an inline accordion; an Eligible Pool "Edit roster" entry) were
+  tried and REVERTED — the accordion left a huge empty grid cell
+  beside the expanded roster, and the pool editor hijacked the
+  keeper-picking flow (the pool's job is selection, not roster
+  repair). See Open item #24 for the eventual real home. (3) **Shared-page
   value sort for stats-less leagues** — `sortRowsDefault` takes the
   league now: auction sorts keep-cost desc, stats-less snake sorts
   round asc (rows carry `round` from `acquisitionRound` via
@@ -1566,10 +1568,10 @@ copy of a component drifts away from the original.
   whitespace before the flag (`\s+`) — with `\s*` it truncated names
   ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
 - `src/tabs/RosterImportTab.jsx` — the roster-import modal (paste via
-  lib/rosterParse + `window.claude.complete` screenshot OCR) and the
-  shared **`RosterEditor`** (saved-roster corrections: remove × + add
-  via autocomplete; rendered by the Import page's single-open
-  accordion AND the Eligible Pool's "My roster" tab — one component,
+  lib/rosterParse + `window.claude.complete` screenshot OCR) plus the
+  shared **`RosterEditor`** and its **`RosterEditorModal`** wrapper
+  (saved-roster corrections: remove × + add via autocomplete; opened
+  from the Import page's per-team "Edit roster" — one component,
   never forked). Paste samples are sport-aware (`ROSTER_SAMPLES`,
   keyed off league.sport). Positions come from the NHL directory match
   (matched rows store `pos` like `LW` via the L/R→LW/RW map, unmatched
@@ -1921,6 +1923,13 @@ buttons, no member login until (B)'s trigger is hit.
       stat-columns model (`STAT_CATEGORIES` /
       `league.statCategories`) applies as-is (rushing/receiving/
       passing yards, TDs, INTs, etc.).
+
+24. **FUTURE — dedicated Rosters page.** A full page owning roster
+    data + roster import (mirroring the Last Draft page's
+    data-has-a-home pattern), dissolving the Import page into two
+    proper homes (rosters / draft). Do as a deliberate IA pass, not
+    piecemeal — the interim state is the Import page's roster section
+    with its per-team Edit-roster modal.
 
 ## Cleanup pending
 

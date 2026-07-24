@@ -61,9 +61,9 @@ Do not include team totals or summary rows.`;
 // ── Shared roster editor ─────────────────────────────────────────────────────
 // Minimal post-import corrections for one team's saved roster: per-player
 // remove × + a PlayerAutocomplete-backed add (directory picks carry the
-// position; typed adds save name-only). ONE component, rendered by both the
-// Import page's per-team accordion and the Eligible Pool's "My roster" tab —
-// don't fork it.
+// position; typed adds save name-only). ONE component — currently rendered
+// only inside RosterEditorModal (the Import page's per-team "Edit roster");
+// don't fork it if a second surface ever needs it.
 function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const [addValue, setAddValue] = React.useState('');
@@ -111,6 +111,40 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
         </div>
         <Button variant="secondary" size="sm" isDark={isDark} disabled={!addValue.trim()}
           onClick={() => add(addValue, null)}>Add</Button>
+      </div>
+    </div>
+  );
+}
+
+// The Import page's roster-corrections surface: the shared RosterEditor in a
+// modal over the page (page→modal, per the overlay-direction rule) — team
+// rows stay one line each, no inline expansion. Edits write through live;
+// Done just closes.
+function RosterEditorModal({ league, team, isDark, accentColor, onUpdateLeague, onClose }) {
+  const t = makeTheme(isDark);
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 12,
+        width: '100%', maxWidth: 480, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
+      }}>
+        <div style={{ padding: '16px 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary }}>{team.name}</div>
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
+              Edit roster · {(team.roster || []).length} player{(team.roster || []).length === 1 ? '' : 's'} — remove bad import rows or add missing players.
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 20, lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+        <div style={{ padding: '14px 22px', overflowY: 'auto', flex: 1 }}>
+          <RosterEditor league={league} team={team} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />
+        </div>
+        <div style={{ padding: '12px 22px', borderTop: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
+          <Button variant="primary" size="md" accent={accentColor} isDark={isDark} onClick={onClose}>Done</Button>
+        </div>
       </div>
     </div>
   );
@@ -492,4 +526,4 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 
 Object.assign(window, { RosterImportModal, parseYahooRosterText });
 
-export { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText, fileToBase64, extractRosterFromImage, RosterImportModal, RosterEditor };
+export { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText, fileToBase64, extractRosterFromImage, RosterImportModal, RosterEditor, RosterEditorModal };

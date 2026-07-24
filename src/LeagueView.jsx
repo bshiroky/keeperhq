@@ -8,7 +8,7 @@ import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
-import { RosterImportModal, RosterEditor } from './tabs/RosterImportTab.jsx';
+import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
@@ -897,11 +897,10 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
   const navigate = useNavigate();
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
-  // Post-import roster corrections: the shared RosterEditor (one component
-  // with the Eligible Pool's entry point — see RosterImportTab.jsx), one team
-  // at a time in a SINGLE-OPEN accordion — collapsed by default, expanding a
-  // team collapses any other open one, so 12 teams × 13+ players never
-  // render at once.
+  // Post-import roster corrections: "Edit roster" opens the shared
+  // RosterEditor in a MODAL over this page (page→modal per the
+  // overlay-direction rule) — team rows stay one line each, nothing expands
+  // inline.
   const [editingRosterTeam, setEditingRosterTeam] = React.useState(null); // teamId
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
@@ -951,43 +950,42 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
             </Button>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
           {(league.teams || []).map((tm, i, arr) => {
             const hasRoster = tm.roster && tm.roster.length > 0;
-            const isEditing = editingRosterTeam === tm.id && hasRoster;
             const rowBorder = i < arr.length - 2 ? `1px solid ${t.dividerFaint}` : 'none';
             return (
-              <div key={tm.id} style={{ borderBottom: rowBorder, borderRight: i % 2 === 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? t.success : t.border, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>{tm.name}</div>
-                    <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
-                      {hasRoster ? `${tm.roster.length} players · as of ${tm.rosterAsOfDate || '—'}` : 'No roster on file'}
-                    </div>
+              <div key={tm.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 20px', borderBottom: rowBorder, borderRight: i % 2 === 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasRoster ? t.success : t.border, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary }}>{tm.name}</div>
+                  <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
+                    {hasRoster ? `${tm.roster.length} players · as of ${tm.rosterAsOfDate || '—'}` : 'No roster on file'}
                   </div>
-                  {hasRoster && (
-                    <button onClick={() => setEditingRosterTeam(isEditing ? null : tm.id)}
-                      style={{ background: 'none', border: `1px solid ${isEditing ? accentColor : t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: isEditing ? accentColor : t.textSecondary, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-                      {isEditing ? 'Done' : 'Edit roster'}
-                    </button>
-                  )}
-                  <button onClick={() => setShowRosterImport(tm.id)}
-                    style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: hasRoster ? t.textSecondary : accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
-                    {hasRoster ? 'Re-import' : 'Import'}
-                  </button>
                 </div>
-                {isEditing && (
-                  <div style={{ padding: '2px 20px 12px 36px' }}>
-                    <RosterEditor league={league} team={tm} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />
-                  </div>
+                {hasRoster && (
+                  <button onClick={() => setEditingRosterTeam(tm.id)}
+                    style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                    Edit roster
+                  </button>
                 )}
+                <button onClick={() => setShowRosterImport(tm.id)}
+                  style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 5, padding: '3px 8px', fontSize: 10, fontWeight: 700, color: hasRoster ? t.textSecondary : accentColor, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {hasRoster ? 'Re-import' : 'Import'}
+                </button>
               </div>
             );
           })}
         </div>
       </div>
 
+      {editingRosterTeam && (() => {
+        const tm = (league.teams || []).find(x => x.id === editingRosterTeam);
+        return tm ? (
+          <RosterEditorModal league={league} team={tm} isDark={isDark} accentColor={accentColor}
+            onUpdateLeague={onUpdateLeague} onClose={() => setEditingRosterTeam(null)} />
+        ) : null;
+      })()}
       {showRosterImport && <RosterImportModal
         league={league}
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}
