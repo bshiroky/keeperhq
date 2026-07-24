@@ -1,13 +1,13 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
+import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, History, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
-import { DraftImportModal } from './tabs/ImportTab.jsx';
+import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
 import { supabase } from './lib/supabase.js';
@@ -891,13 +891,16 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
 // ── Import panel — rosters & last-year's-draft upload (the Import door) ───────
 function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
   const t = makeTheme(isDark);
-  const [showImport, setShowImport] = React.useState(false);
+  const navigate = useNavigate();
   const [showRosterImport, setShowRosterImport] = React.useState(null); // teamId or 'new'
   const rostersLoaded = (league.teams || []).filter(tm => tm.roster && tm.roster.length > 0).length;
   const totalTeams = league.teamCount || (league.teams || []).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* The draft import LIVES on the Last Draft page now (paste→map→confirm
+          as page steps, no modal over this sheet) — this card is just the
+          pointer there. Navigating closes the sheet (the route changes). */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1 }}>
@@ -907,9 +910,11 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
             {league.draftType === 'auction'
               ? "Attaches each player's drafted price — this is how keeper costs are calculated."
               : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing contracts.'}
+            {' '}Runs on the Last Draft page, where the imported draft lives.
           </div>
         </div>
-        <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowImport(true)} style={{ flexShrink: 0 }}>Paste Draft</Button>
+        <Button variant="primary" size="sm" accent={accentColor} isDark={isDark}
+          onClick={() => navigate(`/league/${league.id}/draft`, { state: { startImport: true } })} style={{ flexShrink: 0 }}>Paste Draft</Button>
       </div>
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
@@ -953,7 +958,6 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         </div>
       </div>
 
-      {showImport && <DraftImportModal league={league} accentColor={accentColor} isDark={isDark} onImport={onUpdateLeague} onClose={() => setShowImport(false)} />}
       {showRosterImport && <RosterImportModal
         league={league}
         initialTeamId={showRosterImport === 'new' ? undefined : showRosterImport}
@@ -1196,6 +1200,10 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   // only) is a full-page takeover, enforced by the route gate.
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
+    // Last Draft — the imported prior-year draft's home (full page, both
+    // draft types). "Last" keeps it distinct from Picks (upcoming-draft
+    // pick ownership).
+    { id: 'draft',    label: 'Last Draft', Icon: History },
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
     // Picks + Lottery are snake-only (round-based draft picks don't exist in
     // an auction; the route gate mirrors this) and both open as FULL PAGES,
@@ -1241,9 +1249,11 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   // full page exactly as on the Keepers home, with the current door active.
   // No "Back" button — any door/tab navigates directly. Sheets (Import /
   // Pool / Settings) still overlay the Keepers home.
-  const fullPage = (activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
-    ? activeTab
-    : null;
+  const fullPage = activeTab === 'draft'
+    ? 'draft'
+    : ((activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
+      ? activeTab
+      : null);
 
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '0 24px 80px' }}>
@@ -1312,6 +1322,8 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
       ) : fullPage === 'picks' ? (
         <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+      ) : fullPage === 'draft' ? (
+        <LastDraftPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
       ) : view === 'overview' ? (
         <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
       ) : (

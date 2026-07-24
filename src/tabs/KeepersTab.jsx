@@ -8,6 +8,34 @@ import { getDraftRounds } from '../lib/draftPicks.js';
 
 // Keepers Tab — full management with inline add/edit/remove
 
+// ── Acquisition editor row ───────────────────────────────────────────────────
+// Quiet bookkeeping fields (round / method / rookie) — foundation for the
+// pick-cost keeper archetype; no rules read these yet. Shared by the live
+// Set-keepers panel and this modal so the two edit surfaces can't drift; both
+// hide it behind a "Show acquisition details" toggle.
+function AcquisitionRow({ entry, league, isDark, accentColor, onChange }) {
+  const t = makeTheme(isDark);
+  const acq = acquisitionOf(entry);
+  const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
+  const acqSelStyle = { background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 6px', color: t.textSecondary, fontSize: '11px', fontFamily: 'inherit', cursor: 'pointer' };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '10px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Acquisition</span>
+      <select value={acq.acquisitionMethod} onChange={e => onChange('acquisitionMethod', e.target.value)} style={acqSelStyle} aria-label="Acquisition method">
+        {ACQUISITION_METHODS.map(m => <option key={m} value={m}>{ACQUISITION_LABEL[m]}</option>)}
+      </select>
+      <select value={acq.acquisitionRound ?? ''} onChange={e => onChange('acquisitionRound', e.target.value === '' ? null : parseInt(e.target.value))} style={acqSelStyle} aria-label="Acquisition round">
+        <option value="">Rd —</option>
+        {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
+      </select>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '11px', fontWeight: 600, color: t.textMuted, cursor: 'pointer' }}>
+        <input type="checkbox" checked={acq.rookieAtAcquisition} onChange={e => onChange('rookieAtAcquisition', e.target.checked)} style={{ margin: 0, accentColor }} />
+        Rookie when acquired
+      </label>
+    </div>
+  );
+}
+
 function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, allTeams, autoAddOnOpen }) {
   const t = makeTheme(isDark);
   const [keepers, setKeepers] = React.useState(() => {
@@ -222,30 +250,15 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                 <button onClick={() => removeKeeper(i)} style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: '#e85252', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
 
-              {/* Acquisition row — quiet bookkeeping fields (foundation for the
-                  pick-cost keeper archetype; no rules read these yet), shown
-                  only when the modal-level toggle is on. */}
-              {showAcq && (() => {
-                const acq = acquisitionOf(k);
-                const maxRound = Math.max(getDraftRounds(league), acq.acquisitionRound || 0);
-                const acqSelStyle = { background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: 6, padding: '4px 6px', color: t.textSecondary, fontSize: '11px', fontFamily: 'inherit', cursor: 'pointer' };
-                return (
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '10px', color: t.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Acquisition</span>
-                    <select value={acq.acquisitionMethod} onChange={e => updateKeeper(i, 'acquisitionMethod', e.target.value)} style={acqSelStyle} aria-label="Acquisition method">
-                      {ACQUISITION_METHODS.map(m => <option key={m} value={m}>{ACQUISITION_LABEL[m]}</option>)}
-                    </select>
-                    <select value={acq.acquisitionRound ?? ''} onChange={e => updateKeeper(i, 'acquisitionRound', e.target.value === '' ? null : parseInt(e.target.value))} style={acqSelStyle} aria-label="Acquisition round">
-                      <option value="">Rd —</option>
-                      {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
-                    </select>
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '11px', fontWeight: 600, color: t.textMuted, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={acq.rookieAtAcquisition} onChange={e => updateKeeper(i, 'rookieAtAcquisition', e.target.checked)} style={{ margin: 0, accentColor }} />
-                      Rookie when acquired
-                    </label>
-                  </div>
-                );
-              })()}
+              {/* Acquisition row — shown only when the modal-level toggle is on
+                  (same shared row + toggle pattern as the live Set-keepers
+                  panel). */}
+              {showAcq && (
+                <div style={{ marginTop: 8 }}>
+                  <AcquisitionRow entry={k} league={league} isDark={isDark} accentColor={accentColor}
+                    onChange={(field, value) => updateKeeper(i, field, value)} />
+                </div>
+              )}
 
               {/* Trade indicator badge (when traded but not editing) */}
               {k.tradedTo && tradingIdx !== i && (
@@ -482,4 +495,4 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
 
 Object.assign(window, { KeepersTab, KeeperEditModal });
 
-export { KeeperEditModal, KeepersTab };
+export { AcquisitionRow, KeeperEditModal, KeepersTab };

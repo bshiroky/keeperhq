@@ -47,6 +47,10 @@ export function buildSharedRows(league) {
   };
 
   for (const team of teams) {
+    // Drafted price (auction): the prior-year record's keptFor — what the
+    // player went for at last year's draft (or last year's keep price). Quiet
+    // secondary info next to "Keep for $X" on the shared page.
+    const priorByName = new Map((team.priorKeepers || []).map(p => [normalizeName(p.player), p]));
     for (const k of team.keepers || []) {
       // A traded keeper displays under the team that owns them now.
       const owner = (k.tradedTo && teamById.get(k.tradedTo)) || team;
@@ -57,6 +61,7 @@ export function buildSharedRows(league) {
         year: k.contractYear || 1, len,
         final: isSnake && (k.contractYear || 0) >= len,
         cost: k.keptFor,
+        draftedCost: priorByName.get(normalizeName(k.player))?.keptFor ?? null,
       });
     }
   }
@@ -68,6 +73,7 @@ export function buildSharedRows(league) {
         kind: 'contract', player: e.player, pos: e.pos,
         teamId: team.id, teamName: team.name,
         year: e.nextYear, len: e.length, final: !!e.final, cost: e.nextCost,
+        draftedCost: e.wasCost ?? null,
       });
     }
     for (const e of pool.rosteredNoContract) {

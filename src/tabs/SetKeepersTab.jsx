@@ -4,6 +4,7 @@ import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '.
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
+import { AcquisitionRow } from './KeepersTab.jsx';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -104,7 +105,7 @@ function TradeButton({ isDark }) {
 
 // One keeper slot in the left panel. Filled = editable value + trade/remove;
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
-function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap }) {
+function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, showAcq }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
 
@@ -133,45 +134,53 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
     padding: '5px 6px', color: t.textPrimary, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer',
   };
 
-  // Acquisition metadata (round/method/rookie) is deliberately NOT shown
-  // here — it's dormant foundation data no current archetype consumes.
-  // Editing lives behind the "Show acquisition details" toggle in
-  // KeeperEditModal; capture at import time is unaffected.
+  // Acquisition metadata (round/method/rookie) is dormant foundation data no
+  // current archetype consumes, so it's hidden by default — the panel-level
+  // "Show acquisition details" toggle (showAcq) reveals an edit row per
+  // filled slot. Capture at import time is unaffected either way.
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, width: '100%', boxSizing: 'border-box',
+      width: '100%', boxSizing: 'border-box',
       background: expiring ? t.dangerBg : t.sectionBg,
       border: `1px solid ${expiring ? t.dangerBorder : t.border}`,
       borderRadius: tokens.radiusMd, padding: '8px 10px',
     }}>
-      <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{index + 1}</span>
-      <Headshot name={keeper.player} map={playerMap} size={28} isDark={isDark} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ ...tokens.typeBody, fontWeight: 700, color: expiring ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keeper.player}</div>
-        {expiring && <div style={{ ...tokens.typePillEmphatic, color: t.danger, marginTop: 1 }}>Final yr · back to draft after this season</div>}
-      </div>
-      {isSnake ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <select value={keeper.contractYear} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Contract year">
-            {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
-          </select>
-          <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
-          <select value={keeper.contractLength} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Contract length">
-            {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{index + 1}</span>
+        <Headshot name={keeper.player} map={playerMap} size={28} isDark={isDark} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...tokens.typeBody, fontWeight: 700, color: expiring ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keeper.player}</div>
+          {expiring && <div style={{ ...tokens.typePillEmphatic, color: t.danger, marginTop: 1 }}>Final yr · back to draft after this season</div>}
         </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-          <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
-          <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
-            style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+        {isSnake ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <select value={keeper.contractYear} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Contract year">
+              {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
+            </select>
+            <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
+            <select value={keeper.contractLength} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Contract length">
+              {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+            <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
+            <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
+              style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+          </div>
+        )}
+        <TradeButton isDark={isDark} />
+        <button onClick={onRemove} aria-label="Remove keeper"
+          style={{ background: t.dangerBg, border: 'none', borderRadius: tokens.radiusSm, padding: '6px 8px', cursor: 'pointer', color: t.danger, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit' }}>
+          <X size={14} strokeWidth={2} />
+        </button>
+      </div>
+      {showAcq && (
+        <div style={{ marginTop: 7, paddingLeft: 30 }}>
+          <AcquisitionRow entry={keeper} league={league} isDark={isDark} accentColor={accentColor}
+            onChange={(field, value) => onUpdate({ [field]: value })} />
         </div>
       )}
-      <TradeButton isDark={isDark} />
-      <button onClick={onRemove} aria-label="Remove keeper"
-        style={{ background: t.dangerBg, border: 'none', borderRadius: tokens.radiusSm, padding: '6px 8px', cursor: 'pointer', color: t.danger, lineHeight: 1, flexShrink: 0, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit' }}>
-        <X size={14} strokeWidth={2} />
-      </button>
     </div>
   );
 }
@@ -340,6 +349,10 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   const isFull = keepers.length >= slots;
   const [manualValue, setManualValue] = React.useState('');
   const [poolOpen, setPoolOpen] = React.useState(false);
+  // Dormant acquisition metadata stays hidden by default — this panel-level
+  // toggle (relocated from the unreachable KeeperEditModal) reveals the edit
+  // row on every filled slot at once.
+  const [showAcq, setShowAcq] = React.useState(false);
   const playerMap = usePlayerMap(league.sport);
 
   // The eligible pool is inline (right column) on desktop, so there's no overlay
@@ -461,9 +474,19 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
                   onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
-                  onBrowse={openPool} playerMap={playerMap} />
+                  onBrowse={openPool} playerMap={playerMap} showAcq={showAcq} />
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
+
+              {keepers.length > 0 && (
+                <div>
+                  <button onClick={() => setShowAcq(v => !v)}
+                    title="Round / method / rookie bookkeeping — used by pick-based keeper rules (not active in this league yet)"
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: 600, color: t.textMuted, textDecoration: 'underline' }}>
+                    {showAcq ? 'Hide acquisition details' : 'Show acquisition details'}
+                  </button>
+                </div>
+              )}
 
               {/* + Add manually. Selecting an autocomplete suggestion adds
                   immediately; the Add button commits a typed name, which is the

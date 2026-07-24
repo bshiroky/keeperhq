@@ -226,8 +226,9 @@ function NewLeagueRoute({ leagues, isDark, session, onCreate }) {
 
 // 'players' is intentionally absent — the standalone NHL directory was folded
 // into the Set-keepers Eligible Pool ('League' sub-tab), so /players redirects
-// to overview. 'import' is the new rosters/draft-upload panel.
-const VALID_TABS = ['overview', 'import', 'payouts', 'picks', 'lottery', 'settings'];
+// to overview. 'import' is the rosters/draft-upload panel; 'draft' is the
+// Last Draft full page (the imported prior-year draft + its on-page import).
+const VALID_TABS = ['overview', 'import', 'draft', 'payouts', 'picks', 'lottery', 'settings'];
 
 function LeagueRoute({ leagues, isDark, onUpdateLeague, onDeleteLeague }) {
   const { leagueId, tab } = useParams();
