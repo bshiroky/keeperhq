@@ -10,9 +10,10 @@ import { getDraftRounds } from '../lib/draftPicks.js';
 
 // ── Acquisition editor row ───────────────────────────────────────────────────
 // Quiet bookkeeping fields (round / method / rookie) — foundation for the
-// pick-cost keeper archetype; no rules read these yet. Shared by the live
-// Set-keepers panel and this modal so the two edit surfaces can't drift; both
-// hide it behind a "Show acquisition details" toggle.
+// pick-cost keeper archetype; no rules read these yet. Currently UNWIRED by
+// design: no surface renders it (the reveal toggles were removed as
+// unexplainable bloat) — it returns when pick-cost leagues surface these
+// fields by default. Kept in the tree so that wiring is a one-line import.
 function AcquisitionRow({ entry, league, isDark, accentColor, onChange }) {
   const t = makeTheme(isDark);
   const acq = acquisitionOf(entry);
@@ -52,11 +53,6 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
   });
   const [tradingIdx, setTradingIdx] = React.useState(null);
   const [tradeForm, setTradeForm] = React.useState({ toTeamId: '', note: '' });
-  // Acquisition metadata (round/method/rookie) is dormant foundation data —
-  // no current league archetype consumes it, so it's hidden by default and
-  // revealed only by this modal-level toggle (for commissioners pre-filling
-  // ahead of the pick-cost archetype). Imports keep stamping it silently.
-  const [showAcq, setShowAcq] = React.useState(false);
 
   function addKeeper() {
     if (keepers.length >= league.keeperSlots) return;
@@ -250,16 +246,6 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                 <button onClick={() => removeKeeper(i)} style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 6, padding: '8px 10px', cursor: 'pointer', color: '#e85252', fontSize: 16, lineHeight: 1, flexShrink: 0 }}>×</button>
               </div>
 
-              {/* Acquisition row — shown only when the modal-level toggle is on
-                  (same shared row + toggle pattern as the live Set-keepers
-                  panel). */}
-              {showAcq && (
-                <div style={{ marginTop: 8 }}>
-                  <AcquisitionRow entry={k} league={league} isDark={isDark} accentColor={accentColor}
-                    onChange={(field, value) => updateKeeper(i, field, value)} />
-                </div>
-              )}
-
               {/* Trade indicator badge (when traded but not editing) */}
               {k.tradedTo && tradingIdx !== i && (
                 <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(217,119,87,0.08)', border: '1px solid rgba(217,119,87,0.3)', borderRadius: 6, fontSize: 12, color: t.textSecondary, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -312,16 +298,6 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
             >
               + Add Keeper
             </button>
-          )}
-
-          {keepers.length > 0 && (
-            <div>
-              <button onClick={() => setShowAcq(v => !v)}
-                title="Round / method / rookie bookkeeping — used by pick-based keeper rules (not active in this league yet)"
-                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: 600, color: t.textMuted, textDecoration: 'underline' }}>
-                {showAcq ? 'Hide acquisition details' : 'Show acquisition details'}
-              </button>
-            </div>
           )}
         </div>
 

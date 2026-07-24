@@ -295,14 +295,18 @@ features have shipped through their own branches (all merged):
   record a trade".
 
   **Acquisition-visibility rule:** acquisition metadata
-  (round/method/rookie) is dormant foundation data — no shipped
-  archetype consumes it, so no surface displays it by default. It's
-  reachable via "Show acquisition details" toggles — on the **live
-  Set-keepers keeper panel** (relocated there by the Last Draft PR;
-  the dormant KeeperEditModal keeps its own) — plus the snake Rd
-  select on the Last Draft page. When the pick-cost
-  keeper archetype ships, its leagues surface these fields by default
-  (per-league gating on the archetype config, not a global reveal).
+  (round/method/rookie) is dormant-by-design — no shipped archetype
+  consumes it, so **no surface displays or edits it at all** (the
+  "Show acquisition details" toggles that briefly existed on the
+  Set-keepers panel and KeeperEditModal were removed as unexplainable
+  bloat). Imports keep stamping the fields silently, the metadata
+  rides pools/rollovers untouched, and the Last Draft page's snake
+  `Rd` select still writes `acquisitionRound` (as the draft-record
+  round, which is self-explanatory there). The shared `AcquisitionRow`
+  editor stays in `KeepersTab.jsx`, exported but UNWIRED — it returns
+  when the pick-cost archetype ships and its leagues surface these
+  fields by default (per-league gating on the archetype config, not a
+  global reveal).
 
 - **Last Draft page + import-flow flattening (this branch's PR):** the
   imported prior-year draft finally has a HOME — a **"Last Draft"
@@ -331,10 +335,10 @@ features have shipped through their own branches (all merged):
   (flow + result step) for the dormant `SeasonSetupWizard` path.
   Adjacent fixes: (a) the **"Show acquisition details" toggle moved to
   the live Set-keepers keeper panel** (PR #34 had put it in
-  `KeeperEditModal`, which isn't reachable in live UI) — same
-  hidden-by-default behavior, panel-level toggle under the slots, an
-  `AcquisitionRow` (extracted to `KeepersTab.jsx`, shared with the
-  modal so the two edit surfaces can't drift) per filled slot;
+  `KeeperEditModal`, which isn't reachable in live UI) — later
+  REMOVED entirely in the pre-merge round (see the
+  acquisition-visibility rule); the shared `AcquisitionRow` extracted
+  here survives unwired in `KeepersTab.jsx`;
   (b) **shared page, auction:** rows show a quiet `Drafted $X`
   secondary line under `Keep for $X` (threaded as `draftedCost`
   through `buildSharedRows` — prior record's `keptFor` for keepers,
@@ -1240,11 +1244,10 @@ copy of a component drifts away from the original.
   'manual' / rookie false; **no migration needed for old data**), and
   `acquisitionSummary` (readable short form, e.g. "draft R3 · rookie").
   Foundation for the pick-cost keeper archetype; nothing computes rules
-  from these fields yet, and **no surface displays them by default** —
-  see the acquisition-visibility rule (toggles on the live Set-keepers
-  panel + the dormant KeeperEditModal, both rendering the shared
-  `AcquisitionRow` from `KeepersTab.jsx`; imports keep stamping the
-  fields silently).
+  from these fields yet, and **no surface displays or edits them** —
+  see the acquisition-visibility rule (all reveal toggles removed; the
+  shared `AcquisitionRow` editor sits unwired in `KeepersTab.jsx`;
+  imports keep stamping the fields silently).
 - `src/lib/draftPicks.js` — draft-pick ownership helpers over the
   SPARSE `league.draftPicks` model (see the pick-ownership PR bullet):
   `getDraftRounds` / `defaultDraftRounds`, `pickOwnerId`,

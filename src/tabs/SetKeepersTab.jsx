@@ -4,7 +4,6 @@ import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '.
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
-import { AcquisitionRow } from './KeepersTab.jsx';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -105,7 +104,7 @@ function TradeButton({ isDark }) {
 
 // One keeper slot in the left panel. Filled = editable value + trade/remove;
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
-function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, showAcq, draftedCost }) {
+function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, draftedCost }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
 
@@ -135,9 +134,9 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
   };
 
   // Acquisition metadata (round/method/rookie) is dormant foundation data no
-  // current archetype consumes, so it's hidden by default — the panel-level
-  // "Show acquisition details" toggle (showAcq) reveals an edit row per
-  // filled slot. Capture at import time is unaffected either way.
+  // current archetype consumes — deliberately NOT displayed or editable here
+  // (unexplainable bloat until the pick-cost archetype surfaces it by
+  // default). Imports keep stamping the fields silently.
   return (
     <div style={{
       width: '100%', boxSizing: 'border-box',
@@ -181,12 +180,6 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
           <X size={14} strokeWidth={2} />
         </button>
       </div>
-      {showAcq && (
-        <div style={{ marginTop: 7, paddingLeft: 30 }}>
-          <AcquisitionRow entry={keeper} league={league} isDark={isDark} accentColor={accentColor}
-            onChange={(field, value) => onUpdate({ [field]: value })} />
-        </div>
-      )}
     </div>
   );
 }
@@ -378,10 +371,6 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   const isFull = keepers.length >= slots;
   const [manualValue, setManualValue] = React.useState('');
   const [poolOpen, setPoolOpen] = React.useState(false);
-  // Dormant acquisition metadata stays hidden by default — this panel-level
-  // toggle (relocated from the unreachable KeeperEditModal) reveals the edit
-  // row on every filled slot at once.
-  const [showAcq, setShowAcq] = React.useState(false);
   const playerMap = usePlayerMap(league.sport);
 
   // The eligible pool is inline (right column) on desktop, so there's no overlay
@@ -512,20 +501,11 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
                   onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
-                  onBrowse={openPool} playerMap={playerMap} showAcq={showAcq}
+                  onBrowse={openPool} playerMap={playerMap}
                   draftedCost={keepers[i] && draftedCostByName ? draftedCostByName.get(normalizeName(keepers[i].player)) ?? null : null} />
               ))}
               {slots === 0 && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '12px 0' }}>No keeper slots configured. Set Keeper Slots in Settings.</div>}
 
-              {keepers.length > 0 && (
-                <div>
-                  <button onClick={() => setShowAcq(v => !v)}
-                    title="Round / method / rookie bookkeeping — used by pick-based keeper rules (not active in this league yet)"
-                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: '11px', fontWeight: 600, color: t.textMuted, textDecoration: 'underline' }}>
-                    {showAcq ? 'Hide acquisition details' : 'Show acquisition details'}
-                  </button>
-                </div>
-              )}
 
               {/* + Add manually. Selecting an autocomplete suggestion adds
                   immediately; the Add button commits a typed name, which is the
