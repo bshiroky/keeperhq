@@ -1,29 +1,73 @@
 import React from 'react';
-import { Check } from 'lucide-react';
+import { Check, Repeat, Gavel, Square, Ticket, DollarSign, Infinity as InfinityIcon, CalendarClock, ArrowUp, ArrowDown } from 'lucide-react';
 import { SPORT_CONFIG, tokens, makeTheme, TradingCard, CARD_STYLES, Input, Select, NumberInput, Button } from './components.jsx';
-import { SampleKeeperCell } from './tabs/keeper-grid-variants.jsx';
+import { COST_SLOT, COST_PICKS, COST_AUCTION, TERM_NONE, TERM_FIXED, keeperArchetypeOf } from './lib/keeperRules.js';
 
-// Create New League — 4-step wizard (Basics / League Format / Teams / Review).
-// Three-column card: left rail · form · live TradingCard preview. Writes a
-// league in the src/data.js shape to localStorage (via onCreate) and routes
-// into it. Per the build scope: no keeper round-cost UI, and the commissioner
-// is auto-assigned to team #1 (commissionerTeamId) with no reassignment UI.
+// Create New League.
+//
+// Five FIXED rail phases — Basics · League type · Keeper rules · Teams ·
+// Review — identical on every path. The rail never grows, shrinks or reorders
+// based on answers; sub-screens share their phase's rail row and keep it
+// highlighted. There is deliberately no "Step N of M" anywhere: the screen
+// count varies by cost model, so a counter would be a moving target.
+//
+// The keeper rules are two INDEPENDENT dimensions asked one question per
+// screen — what keeping costs (a slot / a pick / dollars) and whether the keep
+// has a term. The old three-way archetype fork could not express "auction
+// dollars with three-year terms"; this can.
+//
+// Out of scope for this arc and unchanged: StepBasics, SportPicker, StepTeams.
 
-const STEPS = ['Basics', 'League Format', 'Teams', 'Review'];
-const STEP_TITLES = ['The basics', 'League format', 'Teams', 'Review & create'];
+const PHASES = ['Basics', 'League type', 'Keeper rules', 'Teams', 'Review'];
+const PHASE_TITLES = {
+  basics: 'The basics',
+  format: 'How does your draft run?',
+  count: 'How many keepers can each team have?',
+  cost: 'What does keeping a player cost?',
+  picksWhich: 'Which pick does a keeper cost you?',
+  picksDials: 'How does that cost change?',
+  auction: 'How do keeper prices move?',
+  term: 'Do keepers have term?',
+  teams: 'Teams',
+  review: 'Review & create',
+};
 
-// Picker / preview animation rules. kh-bob + kh-bob-slow keyframes live in the
-// shared CARD_STYLES (also rendered here), so these selectors can reference them.
+// Mobile breakpoint for the wizard — matches where the three-column card
+// collapses to a single column.
+const MOBILE_Q = '(max-width: 760px)';
+
+// Description-block reserves (spec §2). Each is the tallest body at that
+// breakpoint PLUS the control slot, so the block never changes height as a
+// keyboard user arrows through the group. Raise a reserve if copy grows;
+// never trim it to the shortest state. The control slot is reserved
+// UNCONDITIONALLY — states revealing no control render an empty slot — because
+// a min-height alone pads short states but still lets a tall one push past.
 const WIZARD_STYLES = `
   .kh-fighter-card { transition: background 0.2s, border-color 0.2s, box-shadow 0.25s, transform 0.2s; }
   .kh-fighter-card--unselected:hover { background: rgba(0,0,0,0.025); transform: translateY(-1px); }
   .kh-fighter-card--selected .kh-fighter-char { animation: kh-bob 1.4s ease-in-out infinite; }
-`;
 
-// Sample keepers shown inside the draft-type tiles (same shape the Overview
-// grid feeds SampleKeeperCell).
-const SAMPLE_AUCTION = { player: 'Connor McDavid', keptFor: 58 };
-const SAMPLE_SNAKE   = { player: 'Connor McDavid', contractYear: 2, contractLength: 3 };
+  .kh-wz-desc--format, .kh-wz-desc--cost { min-height: 104px; }
+  .kh-wz-desc--term { min-height: 148px; }
+  .kh-wz-slot { min-height: 34px; display: flex; align-items: center; }
+
+  /* Between-group gap, visibly larger than the label-to-control gap — that
+     contrast is what separates the decisions. */
+  .kh-wz-groups { display: flex; flex-direction: column; gap: 30px; }
+
+  .kh-wz-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr) 320px; align-items: start; }
+  .kh-wz-mobile-only { display: none; }
+
+  @media (max-width: 760px) {
+    .kh-wz-desc--format, .kh-wz-desc--cost { min-height: 112px; }
+    .kh-wz-desc--term { min-height: 164px; }
+    .kh-wz-slot { min-height: 44px; }
+    .kh-wz-groups { gap: 24px; }
+    .kh-wz-grid { grid-template-columns: minmax(0, 1fr); }
+    .kh-wz-rail, .kh-wz-preview { display: none; }
+    .kh-wz-mobile-only { display: block; }
+  }
+`;
 
 const CROSS_YEAR = sport => sport === 'hockey' || sport === 'basketball' || sport === '';
 
@@ -48,32 +92,104 @@ function uniqueId(base, existing) {
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+function useMediaQuery(query) {
+  const [matches, setMatches] = React.useState(() =>
+    typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia(query);
+    const on = e => setMatches(e.matches);
+    setMatches(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return matches;
+}
+
 // ── Wizard state ───────────────────────────────────────────────────────────
+// Every cost model's values live side by side and are NEVER cleared when the
+// cost model changes. Switching to picks and back to auction returns you to
+// the numbers you typed. (The saved league still writes only the active
+// model's rule block — see buildLeague.)
 function makeInitial() {
   return {
     step: 0,
     name: '',
     sport: '',
     season: seasonOptions('')[0],
-    draftType: '',
-    keeperSlots: 5,
+
+    draftType: 'snake',            // ASKED on League type; never derived
+
+    keeperSlots: 4,
+    minKeepers: 0,
+    mustFillSlots: false,
+
+    keeperCostModel: COST_PICKS,   // default per spec §4
+
+    pickSubModel: 'draftedRound',
+    pickEscalation: 1,
+    pickCollision: 'earlier',
+
     auctionInflation: 5,
-    budget: 200,
-    contractYears: 3,
+    undraftedStartCost: 5,
+    budget: 200,                   // not asked; carried at its existing default
+
+    termModel: TERM_NONE,
+    termYears: 3,
+
+    // The preview pill holds each half back until its screen is answered.
+    costAnswered: false,
+    termAnswered: false,
+
     teamCount: 10,
     teamNames: Array.from({ length: 10 }, (_, i) => `Team ${i + 1}`),
   };
 }
 
+// The screen list is derived from the answers. Slot-only skips specifics
+// entirely; auction gets one specifics screen; draft picks splits its
+// specifics across two (3a which pick, 3b the dials).
+function screensOf(s) {
+  const list = [
+    { id: 'basics', phase: 0 },
+    { id: 'format', phase: 1 },
+    { id: 'count', phase: 2 },
+    { id: 'cost', phase: 2 },
+  ];
+  if (s.keeperCostModel === COST_PICKS) {
+    list.push({ id: 'picksWhich', phase: 2 }, { id: 'picksDials', phase: 2 });
+  } else if (s.keeperCostModel === COST_AUCTION) {
+    list.push({ id: 'auction', phase: 2 });
+  }
+  list.push({ id: 'term', phase: 2 }, { id: 'teams', phase: 3 }, { id: 'review', phase: 4 });
+  return list;
+}
+
 function reducer(s, a) {
   switch (a.type) {
-    case 'set':    return { ...s, ...a.patch };
-    case 'goto':   return { ...s, step: a.step };
-    case 'next':   return { ...s, step: Math.min(3, s.step + 1) };
-    case 'back':   return { ...s, step: Math.max(0, s.step - 1) };
-    case 'sport':  return { ...s, sport: a.sport, season: seasonOptions(a.sport)[0] };
-    // Switching draft type discards the other mode's values (no cross-mode carry).
-    case 'draftType': return { ...s, draftType: a.draftType, auctionInflation: 5, budget: 200, contractYears: 3 };
+    case 'set': return { ...s, ...a.patch };
+    case 'goto': return { ...s, step: clamp(a.step, 0, screensOf(s).length - 1) };
+    case 'next': {
+      const screens = screensOf(s);
+      const cur = screens[s.step];
+      // Answering is what reveals each half of the preview pill.
+      const patch = {};
+      if (cur?.id === 'cost') patch.costAnswered = true;
+      if (cur?.id === 'term') patch.termAnswered = true;
+      return { ...s, ...patch, step: Math.min(screens.length - 1, s.step + 1) };
+    }
+    case 'back': return { ...s, step: Math.max(0, s.step - 1) };
+    case 'sport': return { ...s, sport: a.sport, season: seasonOptions(a.sport)[0] };
+    // Cost-model switches PRESERVE every other model's values. Nothing is
+    // cleared: there is no version history here, so a rule change must never
+    // be the reason a number becomes unrecoverable.
+    case 'costModel': return { ...s, keeperCostModel: a.value };
+    case 'keeperSlots': {
+      const max = clamp(a.value, 1, 10);
+      return { ...s, keeperSlots: max, minKeepers: s.mustFillSlots ? max : Math.min(s.minKeepers, max) };
+    }
+    case 'mustFillSlots':
+      return { ...s, mustFillSlots: a.value, minKeepers: a.value ? s.keeperSlots : 0 };
     case 'teamCount': {
       const n = a.count;
       const names = s.teamNames.slice(0, n);
@@ -89,16 +205,14 @@ function reducer(s, a) {
   }
 }
 
-function stepValid(s, step) {
-  if (step === 0) return s.name.trim().length > 0 && s.sport !== '';
-  if (step === 1) return s.draftType !== '';
-  if (step === 2) return s.teamNames.slice(0, s.teamCount).every(n => n.trim().length > 0);
+// Every screen is pre-filled, so only the two free-text screens can be invalid.
+function screenValid(s, id) {
+  if (id === 'basics') return s.name.trim().length > 0 && s.sport !== '';
+  if (id === 'teams') return s.teamNames.slice(0, s.teamCount).every(n => n.trim().length > 0);
   return true;
 }
 
 // ── Output shapes ────────────────────────────────────────────────────────
-// Saved league mirrors the src/data.js shape (auctionRules / contractYears /
-// slug id) so the rest of the app reads it correctly, plus commissionerTeamId.
 function buildLeague(s, existing) {
   const teams = s.teamNames.slice(0, s.teamCount).map((nm, i) => ({
     id: `t${i + 1}`,
@@ -108,49 +222,103 @@ function buildLeague(s, existing) {
     keepers: [],
     ...(i === 0 ? { isCommissioner: true } : {}),
   }));
-  const base = {
+
+  const termed = s.termModel === TERM_FIXED;
+  const termYears = termed ? s.termYears : null;
+
+  const league = {
     id: uniqueId(slugify(s.name || ''), existing),
     name: (s.name || '').trim() || 'Untitled League',
     sport: s.sport,
-    draftType: s.draftType,
     season: s.season,
     teamCount: s.teamCount,
+
+    // Draft FORMAT — asked directly, never inferred from the keeper rules.
+    draftType: s.draftType,
+
     keeperSlots: s.keeperSlots,
-    minKeepers: 0,
+    minKeepers: s.mustFillSlots ? s.keeperSlots : s.minKeepers,
+    mustFillSlots: s.mustFillSlots,
+    // Legacy mirror of mustFillSlots — the keeper grid's "X/Y required"
+    // warning still reads this key.
+    contractsRequired: s.mustFillSlots,
+
+    keeperCostModel: s.keeperCostModel,
+
+    termModel: s.termModel,
+    termYears,
+    termMinYears: null,   // RESERVED — "owners choose, within limits" not shipped
+    termMaxYears: null,   // RESERVED
+
+    // Never asked; written disabled so the rules engine has a shape to read.
+    // Surfaced in the Review callout and Settings-editable later.
+    rookieRules: { enabled: false, extraYears: 1, escalationPerYear: 0, freeFirstYear: false },
+
+    // Legacy writes that keep existing surfaces working. keeperTimeCap is now
+    // just a mirror of the term — there is no separate consecutive-years
+    // ceiling, because an expiring term sends the player back to the draft.
+    contractYears: termYears,
+    keeperTimeCap: termYears,
+    // Derived only where a legacy archetype unambiguously exists. Slot + no
+    // term has none, so it is null rather than forced onto a wrong value.
+    keeperArchetype: keeperArchetypeOf(s.keeperCostModel, s.termModel),
+
     buyIn: 0,
     totalPool: 0,
     commishFee: 0,
     status: 'pre-draft',
     draftDate: null,
     playoffTeams: 6,
+    bottomLotteryTeams: 4,
     payouts: { standings: [], other: [] },
     payoutNote: '',
     commissionerTeamId: teams[0].id,
     createdAt: new Date().toISOString(),
     teams,
   };
-  if (s.draftType === 'snake') {
-    return { ...base, contractYears: s.contractYears, bottomLotteryTeams: 4, contractsRequired: false };
+
+  // Only the selected cost model's rule block is written at creation. A brand
+  // new league has no prior values to preserve, and an unused auctionRules
+  // block on a slot league would be a misleading legacy signal (it is exactly
+  // what the read shim treats as "this is an auction league" for pre-wizard
+  // rows). Preservation applies from here on — see Settings' saveRules.
+  if (s.keeperCostModel === COST_AUCTION) {
+    league.auctionRules = {
+      costIncreasePerYear: s.auctionInflation,
+      undraftedStartCost: s.undraftedStartCost,
+      budget: s.budget,
+      minBid: 1,
+    };
   }
-  return {
-    ...base,
-    auctionRules: { costIncreasePerYear: s.auctionInflation, budget: s.budget, undraftedStartCost: 5, minBid: 1 },
-  };
+  if (s.keeperCostModel === COST_PICKS) {
+    league.pickRules = {
+      subModel: s.pickSubModel,
+      escalationPerYear: s.pickEscalation,
+      // Never asked — the pick-cost engine needs a round for undrafted
+      // players and the answer is the last round in essentially every league.
+      waiverRound: 'last',
+      // Collisions can't happen when slots are assigned in order.
+      ...(s.pickSubModel === 'topSlots' ? {} : { collision: s.pickCollision }),
+    };
+  }
+  return league;
 }
 
-// Lighter object for the live TradingCard preview — keeps auctionRules /
-// contractYears so the card's ruleMod produces the right meta pill.
+// Lighter object for the live TradingCard preview. `keeperRulesAnswered` holds
+// each half of the rule pill back until its screen has been answered.
 function buildPreview(s) {
   return {
     id: 'preview',
     name: s.name,
     sport: s.sport,
-    draftType: s.draftType,
     season: s.season,
+    draftType: s.draftType,
     teamCount: s.teamCount,
     keeperSlots: s.keeperSlots,
-    contractYears: s.draftType === 'snake' ? s.contractYears : undefined,
-    auctionRules: s.draftType === 'auction' ? { costIncreasePerYear: s.auctionInflation } : undefined,
+    keeperCostModel: s.keeperCostModel,
+    termModel: s.termModel,
+    termYears: s.termModel === TERM_FIXED ? s.termYears : null,
+    keeperRulesAnswered: { cost: s.costAnswered, term: s.termAnswered },
     buyIn: 0,
     totalPool: 0,
     teams: [],
@@ -165,7 +333,204 @@ function FieldHelp({ children, t }) {
   return <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs }}>{children}</div>;
 }
 
-// ── Sport picker (choose-your-fighter) ─────────────────────────────────────
+// The screen title IS the question — no eyebrow above it, no section label
+// repeating it beneath. A subtitle only where it earns its place.
+function ScreenIntro({ subtitle, t }) {
+  if (!subtitle) return null;
+  return <div style={{ ...tokens.typeBody, color: t.textSecondary, marginBottom: tokens.spaceLg, maxWidth: 520, lineHeight: 1.5 }}>{subtitle}</div>;
+}
+
+// ── Option strip (the one new primitive) ──────────────────────────────────
+// A compact horizontal strip of pills — label + small glyph — with one
+// selected by default and selection shown by fill color. Real radiogroup
+// semantics with a roving tabindex, so arrow keys move the selection; that is
+// exactly the interaction the reserved description height exists to protect.
+function OptionStrip({ label, options, value, onChange, accent, isDark }) {
+  const t = makeTheme(isDark);
+  const refs = React.useRef([]);
+  const idx = Math.max(0, options.findIndex(o => o.value === value));
+
+  function onKeyDown(e) {
+    let next = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % options.length;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + options.length) % options.length;
+    if (e.key === 'Home') next = 0;
+    if (e.key === 'End') next = options.length - 1;
+    if (next == null) return;
+    e.preventDefault();
+    onChange(options[next].value);
+    refs.current[next]?.focus();
+  }
+
+  return (
+    <div role="radiogroup" aria-label={label} onKeyDown={onKeyDown}
+      style={{ display: 'flex', flexWrap: 'wrap', gap: tokens.spaceXs }}>
+      {options.map((o, i) => {
+        const sel = o.value === value;
+        const Icon = o.Icon;
+        return (
+          <button key={o.value} type="button" role="radio" aria-checked={sel}
+            ref={el => { refs.current[i] = el; }}
+            tabIndex={i === idx ? 0 : -1}
+            onClick={() => onChange(o.value)}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: tokens.spaceXs,
+              minHeight: 44, padding: `0 ${tokens.spaceMd}px`,
+              borderRadius: tokens.radiusPill, cursor: 'pointer', fontFamily: 'inherit',
+              border: `1px solid ${sel ? accent : t.border}`,
+              background: sel ? accent : (isDark ? '#1c2130' : '#fff'),
+              color: sel ? '#fff' : t.textSecondary,
+              ...tokens.typeBody, fontWeight: sel ? 700 : 500,
+              transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            }}>
+            {Icon && <Icon size={15} strokeWidth={2} aria-hidden="true" />}
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The single description block that sits below a strip at a fixed position.
+// It swaps content on selection change and never changes height: `variant`
+// picks the reserve, and the control slot is always rendered even when the
+// selected state reveals no control.
+function OptionDescription({ variant, title, body, control }) {
+  return (
+    <div className={`kh-wz-desc kh-wz-desc--${variant}`} aria-live="polite"
+      style={{ marginTop: tokens.spaceMd, maxWidth: 520 }}>
+      <OptionDescriptionBody title={title} body={body} control={control} />
+    </div>
+  );
+}
+
+function OptionDescriptionBody({ title, body, control }) {
+  const t = makeTheme(useIsDark());
+  return (
+    <>
+      <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary }}>{title}</div>
+      <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs, lineHeight: 1.5 }}>{body}</div>
+      <div className="kh-wz-slot" style={{ marginTop: tokens.spaceSm }}>{control || null}</div>
+    </>
+  );
+}
+
+// Small context so the description body can theme itself without every screen
+// threading isDark through two more layers.
+const DarkContext = React.createContext(false);
+function useIsDark() { return React.useContext(DarkContext); }
+
+// ── CostPath — what a keep costs over successive years ────────────────────
+function CostPath({ s, isDark }) {
+  const t = makeTheme(isDark);
+  const termed = s.termModel === TERM_FIXED;
+  let beats = [];
+  let note = null;
+
+  if (s.keeperCostModel === COST_AUCTION) {
+    const base = 58;
+    const bump = Number(s.auctionInflation) || 0;
+    // Four beats: year-over-year compounding is what commissioners misjudge,
+    // and three hides it.
+    beats = [
+      `Drafted $${base}`,
+      `Keep for $${base + bump}`,
+      `Then $${base + bump * 2}`,
+      `Then $${base + bump * 3}`,
+    ];
+    note = termed
+      ? 'His term ends before the price runs away.'
+      : `…by year four he costs $${bump * 3} over draft price, and it keeps climbing.`;
+  } else if (s.keeperCostModel === COST_PICKS) {
+    const step = Number(s.pickEscalation) || 0;
+    const start = s.pickSubModel === 'topSlots' ? 1 : 3;
+    const seq = [start];
+    for (let i = 0; i < 2; i++) seq.push(Math.max(1, seq[seq.length - 1] - step));
+    beats = seq.map(r => `Round ${r}`);
+    note = step > 0 ? 'He can’t get pricier than round 1.' : 'A flat cost — the round never moves.';
+  } else if (termed) {
+    const n = Number(s.termYears) || 3;
+    beats = [...Array.from({ length: Math.min(n, 3) }, (_, i) => `Yr ${i + 1} of ${n}`), 'Back to draft'];
+  } else {
+    // A no-term league shows the cost repeating flat — a countdown would be a
+    // lie when nothing counts down.
+    beats = ['1 slot', '1 slot', '1 slot', 'and on'];
+  }
+
+  return (
+    <div>
+      <FieldLabel t={t}>What it costs you</FieldLabel>
+      <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, flexWrap: 'wrap', marginTop: tokens.space2xs }}>
+        {beats.map((b, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <span aria-hidden="true" style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>→</span>}
+            <span style={{
+              ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary,
+              background: t.sectionBg, border: `1px solid ${t.border}`,
+              borderRadius: tokens.radiusSm, padding: '4px 9px', whiteSpace: 'nowrap',
+            }}>{b}</span>
+          </React.Fragment>
+        ))}
+      </div>
+      {note && <FieldHelp t={t}>{note}</FieldHelp>}
+    </div>
+  );
+}
+
+// ── Round grid (screen 3a) ────────────────────────────────────────────────
+// A compressed R1–R3 grid plus a "⋯ R4, R5 …" cue, stacked under the copy.
+function RoundGrid({ highlight, accent, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div aria-hidden="true" style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: tokens.spaceSm }}>
+      {[1, 2, 3].map(r => {
+        const on = highlight.includes(r);
+        return (
+          <div key={r} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ ...tokens.typeStatMeta, color: t.textMuted, width: 20, flexShrink: 0 }}>R{r}</span>
+            {Array.from({ length: 6 }, (_, c) => (
+              <span key={c} style={{
+                width: 16, height: 8, borderRadius: 2,
+                background: on && c === 0 ? accent : t.sectionBg,
+                border: `1px solid ${on && c === 0 ? accent : t.border}`,
+              }} />
+            ))}
+          </div>
+        );
+      })}
+      <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 2 }}>⋯ R4, R5 …</div>
+    </div>
+  );
+}
+
+function PickCard({ title, body, highlight, accent, active, onSelect, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <button type="button" role="radio" aria-checked={active} onClick={onSelect} style={{
+      flex: 1, minWidth: 210, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+      border: `${active ? 2 : 1}px solid ${active ? accent : t.border}`,
+      background: active ? `${accent}0e` : (isDark ? '#1c2130' : '#fff'),
+      borderRadius: tokens.radiusLg, padding: tokens.spaceMd,
+      display: 'flex', flexDirection: 'column', gap: tokens.space2xs,
+      transition: 'border-color 0.15s, background 0.15s',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceXs }}>
+        <span style={{ ...tokens.typeBody, fontWeight: 700, color: active ? accent : t.textPrimary }}>{title}</span>
+        <span aria-hidden="true" style={{
+          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `2px solid ${active ? accent : t.border}`,
+          background: active ? accent : 'transparent', color: '#fff',
+        }}>{active && <Check size={11} strokeWidth={2.5} />}</span>
+      </div>
+      <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, lineHeight: 1.5 }}>{body}</div>
+      <RoundGrid highlight={highlight} accent={accent} isDark={isDark} />
+    </button>
+  );
+}
+
+// ── Sport picker (choose-your-fighter) — OUT OF SCOPE, unchanged ──────────
 function SportPicker({ value, onChange, isDark }) {
   const t = makeTheme(isDark);
   return (
@@ -216,48 +581,7 @@ function SportPicker({ value, onChange, isDark }) {
   );
 }
 
-// ── Draft-type tile (roomy RadioCard) ──────────────────────────────────────
-function DraftTypeCard({ title, tagline, sample, isSnake, accent, active, onSelect, isDark }) {
-  const t = makeTheme(isDark);
-  return (
-    <button type="button" onClick={onSelect} style={{
-      position: 'relative', flex: 1, textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
-      border: `${active ? 2 : 1}px solid ${active ? accent : t.border}`,
-      background: active ? `${accent}0e` : (isDark ? '#1c2130' : '#fff'),
-      borderRadius: tokens.radiusLg, padding: tokens.spaceLg,
-      display: 'flex', flexDirection: 'column', gap: tokens.spaceSm,
-      boxShadow: active ? `0 4px 14px ${accent}22` : 'none',
-      transition: 'border-color 0.15s, background 0.15s, box-shadow 0.2s',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceXs }}>
-        <span style={{ ...tokens.typeHeadingCard, fontSize: 19, color: active ? accent : t.textPrimary }}>{title}</span>
-        <span aria-hidden="true" style={{
-          width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: `2px solid ${active ? accent : t.border}`,
-          background: active ? accent : 'transparent',
-          color: '#fff',
-        }}>{active && <Check size={11} strokeWidth={2.5} />}</span>
-      </div>
-      <div style={{ ...tokens.typeBody, fontWeight: 500, color: t.textBody, lineHeight: 1.4 }}>{tagline}</div>
-      <div style={{ ...tokens.typeLabelEyebrow, fontSize: 9.5, color: t.textMuted, marginTop: tokens.space2xs }}>Sample keeper</div>
-      <div style={{ width: 180 }}>
-        <SampleKeeperCell slot={sample} isSnake={isSnake} isDark={isDark} gridAccent={accent} />
-      </div>
-    </button>
-  );
-}
-
-function SectionDivider({ label, t }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceSm, margin: `${tokens.spaceXl}px 0 ${tokens.spaceMd}px 0` }}>
-      <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary, flexShrink: 0 }}>{label}</span>
-      <span style={{ flex: 1, borderTop: `1px dashed ${t.border}` }} />
-    </div>
-  );
-}
-
-// ── Step 1: Basics ──────────────────────────────────────────────────────────
+// ── Basics — OUT OF SCOPE, unchanged ──────────────────────────────────────
 function StepBasics({ s, dispatch, isDark }) {
   const t = makeTheme(isDark);
   return (
@@ -275,81 +599,193 @@ function StepBasics({ s, dispatch, isDark }) {
   );
 }
 
-// ── Step 2: League Format ─────────────────────────────────────────────────
-function StepFormat({ s, dispatch, isDark }) {
+// ── League type — draft format ────────────────────────────────────────────
+const FORMAT_OPTIONS = [
+  { value: 'snake', label: 'Snake', Icon: Repeat },
+  { value: 'auction', label: 'Auction', Icon: Gavel },
+];
+const FORMAT_COPY = {
+  snake: { title: 'Picks go round by round', body: 'Draft order snakes back and forth each round.' },
+  auction: { title: 'Everyone bids on every player', body: 'Each team spends from a budget instead of drafting in order.' },
+};
+
+function ScreenFormat({ s, dispatch, isDark, accent }) {
   const t = makeTheme(isDark);
-  const isSnake = s.draftType === 'snake';
+  const copy = FORMAT_COPY[s.draftType] || FORMAT_COPY.snake;
   return (
     <div>
-      <FieldLabel t={t}>Draft type</FieldLabel>
-      <FieldHelp t={t}>How your draft works. Branches the keeper rules below.</FieldHelp>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: tokens.spaceLg, marginTop: tokens.spaceSm }}>
-        <DraftTypeCard title="Auction" isSnake={false} sample={SAMPLE_AUCTION}
-          tagline="Keepers cost dollars from your budget."
-          accent={tokens.warning} active={s.draftType === 'auction'}
-          onSelect={() => dispatch({ type: 'draftType', draftType: 'auction' })} isDark={isDark} />
-        <DraftTypeCard title="Snake" isSnake={true} sample={SAMPLE_SNAKE}
-          tagline="Keepers serve a fixed contract length."
-          accent={tokens.info} active={s.draftType === 'snake'}
-          onSelect={() => dispatch({ type: 'draftType', draftType: 'snake' })} isDark={isDark} />
-      </div>
-
-      {s.draftType && (
-        <>
-          <SectionDivider label="Keeper rules" t={t} />
-          <div style={{ display: 'flex', gap: tokens.spaceMd, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-            <div>
-              <FieldLabel t={t}>Keeper slots</FieldLabel>
-              <FieldHelp t={t}>Per team.</FieldHelp>
-              <div style={{ marginTop: tokens.spaceXs }}>
-                <NumberInput size="sm" width={96} isDark={isDark} min={1} max={10} step={1}
-                  value={s.keeperSlots}
-                  onChange={e => dispatch({ type: 'set', patch: { keeperSlots: e.target.value === '' ? '' : Number(e.target.value) } })}
-                  onBlur={e => dispatch({ type: 'set', patch: { keeperSlots: clamp(Number(e.target.value) || 1, 1, 10) } })} />
-              </div>
-            </div>
-
-            {isSnake ? (
-              <div>
-                <FieldLabel t={t}>Contract length</FieldLabel>
-                <FieldHelp t={t}>Years before a keeper expires.</FieldHelp>
-                <div style={{ marginTop: tokens.spaceXs }}>
-                  <Select value={s.contractYears} onChange={v => dispatch({ type: 'set', patch: { contractYears: Number(v) } })}
-                    options={[2, 3, 4, 5]} suffix="years" width={120} isDark={isDark} />
-                </div>
-              </div>
-            ) : (
-              <>
-                <div>
-                  <FieldLabel t={t}>Annual increase</FieldLabel>
-                  <FieldHelp t={t}>Cost each year held.</FieldHelp>
-                  <div style={{ marginTop: tokens.spaceXs }}>
-                    <NumberInput size="sm" prefix="+$" width={120} isDark={isDark} min={0} max={50} step={1}
-                      value={s.auctionInflation}
-                      onChange={e => dispatch({ type: 'set', patch: { auctionInflation: e.target.value === '' ? '' : Number(e.target.value) } })}
-                      onBlur={e => dispatch({ type: 'set', patch: { auctionInflation: clamp(Number(e.target.value) || 0, 0, 50) } })} />
-                  </div>
-                </div>
-                <div>
-                  <FieldLabel t={t}>Auction budget</FieldLabel>
-                  <FieldHelp t={t}>Per team, total cap.</FieldHelp>
-                  <div style={{ marginTop: tokens.spaceXs }}>
-                    <NumberInput size="sm" prefix="$" width={128} isDark={isDark} min={50} max={1000} step={5}
-                      value={s.budget}
-                      onChange={e => dispatch({ type: 'set', patch: { budget: e.target.value === '' ? '' : Number(e.target.value) } })}
-                      onBlur={e => dispatch({ type: 'set', patch: { budget: clamp(Number(e.target.value) || 50, 50, 1000) } })} />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
+      <ScreenIntro t={t} subtitle="This sets how the draft itself runs — it doesn’t decide what keeping costs." />
+      <OptionStrip label="Draft format" options={FORMAT_OPTIONS} value={s.draftType} accent={accent} isDark={isDark}
+        onChange={v => dispatch({ type: 'set', patch: { draftType: v } })} />
+      <OptionDescription variant="format" title={copy.title} body={copy.body} />
     </div>
   );
 }
 
-// ── Step 3: Teams ──────────────────────────────────────────────────────────
+// ── Keeper rules · 1 — count ──────────────────────────────────────────────
+function ScreenCount({ s, dispatch, isDark }) {
+  const t = makeTheme(isDark);
+  const maxOpts = Array.from({ length: 10 }, (_, i) => i + 1);
+  const minOpts = Array.from({ length: s.keeperSlots + 1 }, (_, i) => i);
+  return (
+    <div>
+      <ScreenIntro t={t} subtitle="Everything here has a sensible default — change what matters to your league and skip the rest." />
+      <div className="kh-wz-groups">
+        <div style={{ display: 'flex', gap: tokens.spaceXl, flexWrap: 'wrap' }}>
+          <div>
+            <FieldLabel t={t}>Most</FieldLabel>
+            <Select value={s.keeperSlots} onChange={v => dispatch({ type: 'keeperSlots', value: Number(v) })}
+              options={maxOpts} suffix="keepers" width={150} isDark={isDark} />
+          </div>
+          <div>
+            <FieldLabel t={t}>Fewest</FieldLabel>
+            <Select value={s.minKeepers} onChange={v => dispatch({ type: 'set', patch: { minKeepers: Number(v) } })}
+              options={minOpts} suffix="keepers" width={150} isDark={isDark} disabled={s.mustFillSlots} />
+          </div>
+        </div>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: tokens.spaceXs, cursor: 'pointer', ...tokens.typeBody, color: t.textBody }}>
+          <input type="checkbox" checked={s.mustFillSlots}
+            onChange={e => dispatch({ type: 'mustFillSlots', value: e.target.checked })}
+            style={{ width: 16, height: 16, accentColor: tokens.info, cursor: 'pointer' }} />
+          Every team must fill all {s.keeperSlots} slots
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// ── Keeper rules · 2 — what keeping costs ─────────────────────────────────
+const COST_OPTIONS = [
+  { value: COST_SLOT, label: 'A keeper slot only', Icon: Square },
+  { value: COST_PICKS, label: 'A draft pick', Icon: Ticket },
+  { value: COST_AUCTION, label: 'Auction dollars', Icon: DollarSign },
+];
+const COST_COPY = {
+  [COST_SLOT]: { title: 'The slot is the whole cost', body: 'No pick changes hands and no price follows him around.' },
+  [COST_PICKS]: { title: 'Keeping costs you a draft pick', body: 'Every keeper eats one of your picks in the next draft.' },
+  [COST_AUCTION]: { title: 'Keeping costs what he was paid for', body: 'His auction price travels with him, usually climbing each year.' },
+};
+
+function ScreenCost({ s, dispatch, isDark, accent }) {
+  const t = makeTheme(isDark);
+  const copy = COST_COPY[s.keeperCostModel];
+  return (
+    <div>
+      <ScreenIntro t={t} subtitle="This sets whether the rest talks in dollars or rounds." />
+      <OptionStrip label="What keeping costs" options={COST_OPTIONS} value={s.keeperCostModel} accent={accent} isDark={isDark}
+        onChange={v => dispatch({ type: 'costModel', value: v })} />
+      <OptionDescription variant="cost" title={copy.title} body={copy.body} />
+    </div>
+  );
+}
+
+// ── Keeper rules · 3a — which pick ────────────────────────────────────────
+function ScreenPicksWhich({ s, dispatch, isDark, accent }) {
+  return (
+    <div role="radiogroup" aria-label="Which pick a keeper costs"
+      style={{ display: 'flex', gap: tokens.spaceMd, flexWrap: 'wrap', maxWidth: 560 }}>
+      <PickCard title="The round he was drafted in"
+        body="A guy you took in round 3 costs your round-3 pick to keep."
+        highlight={[3]} accent={accent} isDark={isDark}
+        active={s.pickSubModel === 'draftedRound'}
+        onSelect={() => dispatch({ type: 'set', patch: { pickSubModel: 'draftedRound' } })} />
+      <PickCard title="Your top picks, in order"
+        body="First keeper costs round 1, second costs round 2."
+        highlight={[1, 2]} accent={accent} isDark={isDark}
+        active={s.pickSubModel === 'topSlots'}
+        onSelect={() => dispatch({ type: 'set', patch: { pickSubModel: 'topSlots' } })} />
+    </div>
+  );
+}
+
+// ── Keeper rules · 3b — the dials ─────────────────────────────────────────
+const COLLISION_OPTIONS = [
+  { value: 'earlier', label: 'Move one earlier', Icon: ArrowUp },
+  { value: 'later', label: 'Move one later', Icon: ArrowDown },
+];
+
+function ScreenPicksDials({ s, dispatch, isDark, accent }) {
+  const t = makeTheme(isDark);
+  return (
+    <div className="kh-wz-groups">
+      <div>
+        <FieldLabel t={t}>Climbs each year</FieldLabel>
+        <Select value={s.pickEscalation} onChange={v => dispatch({ type: 'set', patch: { pickEscalation: Number(v) } })}
+          options={[0, 1, 2, 3]} suffix="rounds / yr" width={180} isDark={isDark} />
+      </div>
+      {/* Hidden entirely on the top-picks sub-model, where slots are assigned
+          in order and cannot collide. This is the one place a sub-label is
+          warranted — it's a distinct decision, not a labelled field. */}
+      {s.pickSubModel !== 'topSlots' && (
+        <div>
+          <FieldLabel t={t}>If two keepers land on the same round</FieldLabel>
+          <OptionStrip label="Same-round tie-breaker" options={COLLISION_OPTIONS} value={s.pickCollision}
+            accent={accent} isDark={isDark}
+            onChange={v => dispatch({ type: 'set', patch: { pickCollision: v } })} />
+        </div>
+      )}
+      <CostPath s={s} isDark={isDark} />
+    </div>
+  );
+}
+
+// ── Keeper rules · 3 — auction specifics ──────────────────────────────────
+function ScreenAuction({ s, dispatch, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div className="kh-wz-groups">
+      <div style={{ display: 'flex', gap: tokens.spaceXl, flexWrap: 'wrap' }}>
+        <div>
+          <FieldLabel t={t}>Yearly increase</FieldLabel>
+          <NumberInput size="sm" prefix="+$" suffix="/ yr" width={150} isDark={isDark} min={0} max={50} step={1}
+            value={s.auctionInflation}
+            onChange={e => dispatch({ type: 'set', patch: { auctionInflation: e.target.value === '' ? '' : Number(e.target.value) } })}
+            onBlur={e => dispatch({ type: 'set', patch: { auctionInflation: clamp(Number(e.target.value) || 0, 0, 50) } })} />
+        </div>
+        <div>
+          <FieldLabel t={t}>Undrafted players cost</FieldLabel>
+          <NumberInput size="sm" prefix="$" width={130} isDark={isDark} min={0} max={200} step={1}
+            value={s.undraftedStartCost}
+            onChange={e => dispatch({ type: 'set', patch: { undraftedStartCost: e.target.value === '' ? '' : Number(e.target.value) } })}
+            onBlur={e => dispatch({ type: 'set', patch: { undraftedStartCost: clamp(Number(e.target.value) || 0, 0, 200) } })} />
+        </div>
+      </div>
+      <CostPath s={s} isDark={isDark} />
+    </div>
+  );
+}
+
+// ── Keeper rules · 4 — term ───────────────────────────────────────────────
+const TERM_OPTIONS = [
+  { value: TERM_NONE, label: 'No term', Icon: InfinityIcon },
+  { value: TERM_FIXED, label: 'Fixed term', Icon: CalendarClock },
+];
+const NO_TERM_BODY = {
+  [COST_AUCTION]: 'A keeper stays yours until his price prices him out.',
+  [COST_PICKS]: 'A keeper stays yours until the pick gets too pricey.',
+  [COST_SLOT]: 'A keeper stays yours until you let him go.',
+};
+
+function ScreenTerm({ s, dispatch, isDark, accent }) {
+  const fixed = s.termModel === TERM_FIXED;
+  return (
+    <div>
+      <OptionStrip label="Keeper term" options={TERM_OPTIONS} value={s.termModel} accent={accent} isDark={isDark}
+        onChange={v => dispatch({ type: 'set', patch: { termModel: v } })} />
+      <OptionDescription
+        variant="term"
+        title={fixed ? 'Every keep runs the same length' : 'No term'}
+        body={fixed ? 'When the term is up, he goes back into the draft.' : NO_TERM_BODY[s.keeperCostModel]}
+        control={fixed ? (
+          <Select value={s.termYears} onChange={v => dispatch({ type: 'set', patch: { termYears: Number(v) } })}
+            options={[2, 3, 4, 5]} suffix="years" width={140} isDark={isDark} />
+        ) : null}
+      />
+    </div>
+  );
+}
+
+// ── Teams — OUT OF SCOPE, unchanged ───────────────────────────────────────
 function StepTeams({ s, dispatch, isDark }) {
   const t = makeTheme(isDark);
   const counts = [];
@@ -417,7 +853,7 @@ function StepTeams({ s, dispatch, isDark }) {
   );
 }
 
-// ── Step 4: Review ───────────────────────────────────────────────────────
+// ── Review ────────────────────────────────────────────────────────────────
 function ReviewRow({ label, value, t, last }) {
   return (
     <div style={{
@@ -430,13 +866,13 @@ function ReviewRow({ label, value, t, last }) {
   );
 }
 
-function ReviewSection({ title, accent, onEdit, editLabel, t, isDark, children }) {
+function ReviewSection({ title, accent, onEdit, t, isDark, children }) {
   return (
     <div style={{ background: isDark ? '#1c2130' : '#fff', border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: tokens.spaceMd }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceXs }}>
         <span style={{ ...tokens.typeLabelEyebrow, color: accent }}>{title}</span>
         <button type="button" onClick={onEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 700, color: accent }}>
-          {editLabel} →
+          Edit →
         </button>
       </div>
       {children}
@@ -444,81 +880,127 @@ function ReviewSection({ title, accent, onEdit, editLabel, t, isDark, children }
   );
 }
 
-function StepReview({ s, dispatch, isDark, accent }) {
+const COST_REVIEW_LABEL = {
+  [COST_SLOT]: 'A keeper slot only',
+  [COST_PICKS]: 'A draft pick',
+  [COST_AUCTION]: 'Auction dollars',
+};
+
+function StepReview({ s, dispatch, isDark, accent, gotoPhase }) {
   const t = makeTheme(isDark);
-  const isSnake = s.draftType === 'snake';
   const names = s.teamNames.slice(0, s.teamCount);
   const teamsLine = names.length <= 4
     ? names.join(', ')
     : <>{names.slice(0, 4).join(', ')}<span style={{ color: t.textMuted }}>{` …and ${names.length - 4} more`}</span></>;
+  const termed = s.termModel === TERM_FIXED;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceSm, maxWidth: 560 }}>
-      <div style={{ ...tokens.typeBody, color: t.textSecondary, marginTop: -tokens.spaceSm, marginBottom: tokens.spaceMd }}>
+      <div style={{ ...tokens.typeBody, color: t.textSecondary, marginBottom: tokens.spaceMd }}>
         Last look before we cut the card. Click <span style={{ color: accent, fontWeight: 700 }}>Edit</span> on any section to jump back.
       </div>
 
-      <ReviewSection title="Basics" accent={accent} editLabel="Edit step 1" onEdit={() => dispatch({ type: 'goto', step: 0 })} t={t} isDark={isDark}>
+      <ReviewSection title="Basics" accent={accent} onEdit={() => gotoPhase(0)} t={t} isDark={isDark}>
         <ReviewRow t={t} label="Name" value={s.name.trim() || 'Untitled League'} />
         <ReviewRow t={t} label="Sport" value={SPORT_CONFIG[s.sport]?.label || '—'} last />
       </ReviewSection>
 
-      <ReviewSection title="League format" accent={accent} editLabel="Edit step 2" onEdit={() => dispatch({ type: 'goto', step: 1 })} t={t} isDark={isDark}>
-        <ReviewRow t={t} label="Draft type" value={isSnake ? 'Snake' : 'Auction'} />
-        {isSnake ? (
-          <ReviewRow t={t} label="Contract length" value={`${s.contractYears} years`} />
-        ) : (
-          <>
-            <ReviewRow t={t} label="Budget per team" value={`$${s.budget}`} />
-            <ReviewRow t={t} label="Annual increase" value={`+$${s.auctionInflation} per year held`} />
-          </>
-        )}
-        <ReviewRow t={t} label="Keeper slots" value={`${s.keeperSlots} players`} last />
+      <ReviewSection title="League type" accent={accent} onEdit={() => gotoPhase(1)} t={t} isDark={isDark}>
+        <ReviewRow t={t} label="Draft format" value={s.draftType === 'auction' ? 'Auction' : 'Snake'} last />
       </ReviewSection>
 
-      <ReviewSection title="Teams" accent={accent} editLabel="Edit step 3" onEdit={() => dispatch({ type: 'goto', step: 2 })} t={t} isDark={isDark}>
+      <ReviewSection title="Keeper rules" accent={accent} onEdit={() => gotoPhase(2)} t={t} isDark={isDark}>
+        <ReviewRow t={t} label="How many" value={
+          s.mustFillSlots
+            ? `Exactly ${s.keeperSlots} per team`
+            : `${s.minKeepers}–${s.keeperSlots} per team`} />
+        <ReviewRow t={t} label="Keeping costs" value={COST_REVIEW_LABEL[s.keeperCostModel]} />
+        {s.keeperCostModel === COST_PICKS && (
+          <>
+            <ReviewRow t={t} label="Which pick" value={s.pickSubModel === 'topSlots' ? 'Your top picks, in order' : 'The round he was drafted in'} />
+            <ReviewRow t={t} label="Climbs each year" value={`${s.pickEscalation} round${s.pickEscalation === 1 ? '' : 's'} / yr`} />
+            {s.pickSubModel !== 'topSlots' && (
+              <ReviewRow t={t} label="Same-round tie-break" value={s.pickCollision === 'later' ? 'Move one later' : 'Move one earlier'} />
+            )}
+          </>
+        )}
+        {s.keeperCostModel === COST_AUCTION && (
+          <>
+            <ReviewRow t={t} label="Yearly increase" value={`+$${s.auctionInflation} / yr`} />
+            <ReviewRow t={t} label="Undrafted players cost" value={`$${s.undraftedStartCost}`} />
+          </>
+        )}
+        <ReviewRow t={t} label="Term" value={termed ? `${s.termYears} years` : 'No term'} last />
+      </ReviewSection>
+
+      <ReviewSection title="Teams" accent={accent} onEdit={() => gotoPhase(3)} t={t} isDark={isDark}>
         <ReviewRow t={t} label="Count" value={`${s.teamCount} teams`} />
         <div style={{ ...tokens.typeBody, fontWeight: 500, color: t.textPrimary, lineHeight: 1.6, paddingTop: tokens.spaceXs }}>{teamsLine}</div>
       </ReviewSection>
 
+      {/* The two never-asked settings. This is the ONLY signal a commissioner
+          with a rookie rule gets before the league exists, so it is a full
+          callout rather than fine print. */}
       <div style={{
-        background: t.warningBg, border: `1px solid ${tokens.warning}4d`, borderRadius: tokens.radiusMd,
-        padding: tokens.spaceMd, display: 'flex', alignItems: 'flex-start', gap: tokens.spaceSm,
+        background: t.infoBg, border: `1px solid ${tokens.info}4d`, borderRadius: tokens.radiusMd,
+        padding: tokens.spaceMd, marginTop: tokens.spaceXs,
       }}>
-        <img src="/mascot-empty.png" alt="" height={36} style={{ height: 36, width: 'auto', imageRendering: 'pixelated', flexShrink: 0 }} />
+        <div style={{ ...tokens.typeBody, fontWeight: 700, color: tokens.info, marginBottom: tokens.space2xs }}>
+          We set two things for you.
+        </div>
         <div style={{ ...tokens.typeBodyMeta, color: t.textBody, lineHeight: 1.5 }}>
-          <span style={{ fontWeight: 700, color: tokens.warning }}>Next up — </span>
-          once your league is created, set up buy-ins, payouts and player invites from the league overview.
+          Waiver pickups cost your last-round pick, and rookies get no special treatment.
+          Both are changeable in Settings.
         </div>
       </div>
     </div>
   );
 }
 
-// ── Left rail ──────────────────────────────────────────────────────────────
-function LeftRail({ step, accent, onGoto, isDark }) {
+// Renders the screen for an id. Split out of the shell so the screen list and
+// the renderer can't drift, and so tests can render every screen directly.
+function WizardScreen({ id, s, dispatch, isDark, accent, gotoPhase }) {
+  switch (id) {
+    case 'basics': return <StepBasics s={s} dispatch={dispatch} isDark={isDark} />;
+    case 'format': return <ScreenFormat s={s} dispatch={dispatch} isDark={isDark} accent={accent} />;
+    case 'count': return <ScreenCount s={s} dispatch={dispatch} isDark={isDark} />;
+    case 'cost': return <ScreenCost s={s} dispatch={dispatch} isDark={isDark} accent={accent} />;
+    case 'picksWhich': return <ScreenPicksWhich s={s} dispatch={dispatch} isDark={isDark} accent={accent} />;
+    case 'picksDials': return <ScreenPicksDials s={s} dispatch={dispatch} isDark={isDark} accent={accent} />;
+    case 'auction': return <ScreenAuction s={s} dispatch={dispatch} isDark={isDark} />;
+    case 'term': return <ScreenTerm s={s} dispatch={dispatch} isDark={isDark} accent={accent} />;
+    case 'teams': return <StepTeams s={s} dispatch={dispatch} isDark={isDark} />;
+    case 'review': return <StepReview s={s} dispatch={dispatch} isDark={isDark} accent={accent} gotoPhase={gotoPhase} />;
+    default: return null;
+  }
+}
+
+// ── Left rail — five FIXED phases on every path ───────────────────────────
+function PhaseRail({ phase, maxPhase, accent, onGoto, isDark }) {
   const t = makeTheme(isDark);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
-      {STEPS.map((label, i) => {
-        const active = i === step;
-        const done = i < step;
-        const clickable = i <= step;
+      {PHASES.map((label, i) => {
+        const active = i === phase;
+        const done = i < maxPhase;
+        const clickable = i <= maxPhase;
         return (
-          <button key={label} type="button" disabled={!clickable} onClick={() => clickable && onGoto(i)} style={{
-            display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-            background: active ? `${accent}14` : 'transparent',
-            border: active ? `1px solid ${accent}55` : '1px solid transparent',
-            borderRadius: tokens.radiusMd, padding: '8px 10px',
-            cursor: clickable ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', width: '100%',
-          }}>
+          <button key={label} type="button" disabled={!clickable} onClick={() => clickable && onGoto(i)}
+            aria-current={active ? 'step' : undefined}
+            style={{
+              display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+              background: active ? `${accent}14` : 'transparent',
+              border: active ? `1px solid ${accent}55` : '1px solid transparent',
+              borderRadius: tokens.radiusMd, padding: '8px 10px',
+              cursor: clickable ? 'pointer' : 'default', fontFamily: 'inherit', textAlign: 'left', width: '100%',
+            }}>
             <span style={{
               width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 11, fontWeight: 800,
               background: done ? tokens.success : active ? accent : (isDark ? '#1c2130' : '#fff'),
               color: done ? '#0f2018' : active ? '#fff' : t.textMuted,
-              border: done ? 'none' : active ? 'none' : `1px solid ${t.border}`,
+              border: done || active ? 'none' : `1px solid ${t.border}`,
             }}>{done ? <Check size={12} strokeWidth={2.5} /> : i + 1}</span>
             <span style={{ ...tokens.typeBody, fontWeight: active ? 700 : 500, color: active ? t.textPrimary : t.textSecondary }}>
               {label}
@@ -530,14 +1012,93 @@ function LeftRail({ step, accent, onGoto, isDark }) {
   );
 }
 
+// Mobile: a 5-segment progress bar plus the phase label alone — no counter.
+function MobileProgress({ phase, isDark, accent }) {
+  const t = makeTheme(isDark);
+  return (
+    <div className="kh-wz-mobile-only" style={{ marginBottom: tokens.spaceMd }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {PHASES.map((label, i) => (
+          <span key={label} style={{
+            flex: 1, height: 4, borderRadius: tokens.radiusPill,
+            background: i <= phase ? accent : t.progressBg,
+          }} />
+        ))}
+      </div>
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginTop: tokens.spaceXs }}>{PHASES[phase]}</div>
+    </div>
+  );
+}
+
+// Mobile: the 320px preview column collapses to a sticky footer summary bar
+// that expands the full card upward as a bottom sheet. State persists across
+// screens.
+function MobilePreviewBar({ preview, isDark, ruleLine }) {
+  const t = makeTheme(isDark);
+  const [open, setOpen] = React.useState(false);
+  const sport = SPORT_CONFIG[preview.sport];
+  return (
+    <div className="kh-wz-mobile-only" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 900 }}>
+      {open && (
+        <div style={{
+          background: t.cardBg, borderTop: `1px solid ${t.border}`,
+          padding: tokens.spaceMd, maxHeight: '60vh', overflowY: 'auto',
+          boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
+        }}>
+          <TradingCard league={preview} isDark={isDark} state="building" />
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+        style={{
+          width: '100%', minHeight: 44, boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', gap: tokens.spaceXs,
+          background: t.cardBg, border: 'none', borderTop: `1px solid ${t.border}`,
+          padding: `0 ${tokens.spaceMd}px`, cursor: 'pointer', fontFamily: 'inherit',
+          boxShadow: open ? 'none' : '0 -4px 16px rgba(0,0,0,0.12)',
+        }}>
+        {sport && <img src={sport.logo} alt="" height={32} style={{ height: 32, width: 'auto', imageRendering: 'pixelated', flexShrink: 0 }} />}
+        <span style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>
+          {preview.name || 'New league'}
+        </span>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {ruleLine}
+        </span>
+        <span style={{ ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, flexShrink: 0 }}>
+          Card {open ? '▾' : '▴'}
+        </span>
+      </button>
+    </div>
+  );
+}
+
 // ── Wizard shell ───────────────────────────────────────────────────────────
 function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
   const t = makeTheme(isDark);
   const [s, dispatch] = React.useReducer(reducer, undefined, makeInitial);
   const accent = SPORT_CONFIG[s.sport]?.color || tokens.info;
-  const canContinue = stepValid(s, s.step);
-  const isReview = s.step === 3;
+  const isMobile = useMediaQuery(MOBILE_Q);
+
+  const screens = screensOf(s);
+  const step = Math.min(s.step, screens.length - 1);
+  const current = screens[step];
+  const phase = current.phase;
+  const maxPhase = Math.max(...screens.slice(0, step + 1).map(sc => sc.phase));
+  const canContinue = screenValid(s, current.id);
+  const isReview = current.id === 'review';
   const preview = React.useMemo(() => buildPreview(s), [s]);
+
+  // Jumping via the rail lands on the phase's FIRST screen.
+  function gotoPhase(p) {
+    const target = screens.findIndex(sc => sc.phase === p);
+    if (target >= 0) dispatch({ type: 'goto', step: target });
+  }
+
+  // The same composed string the card's rule pill shows.
+  const ruleLine = [
+    s.costAnswered ? COST_REVIEW_LABEL[s.keeperCostModel] : null,
+    s.termAnswered ? (s.termModel === TERM_FIXED ? `${s.termYears}-yr terms` : 'no term') : null,
+    `${s.keeperSlots} keepers`,
+  ].filter(Boolean).join(' · ');
 
   function handleCreate() {
     onCreate(buildLeague(s, existingLeagues));
@@ -546,69 +1107,68 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
   const colMuted = isDark ? 'rgba(255,255,255,0.03)' : '#fafbfc';
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: tokens.space2xl }}>
-      <style>{CARD_STYLES}</style>
-      <style>{WIZARD_STYLES}</style>
+    <DarkContext.Provider value={isDark}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: tokens.space2xl, paddingBottom: isMobile ? 80 : tokens.space2xl }}>
+        <style>{CARD_STYLES}</style>
+        <style>{WIZARD_STYLES}</style>
 
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceLg, flexWrap: 'wrap' }}>
-        <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create new league</h1>
-        <button type="button" onClick={onCancel} style={{ ...tokens.typeBodyMeta, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-          Cancel
-        </button>
-      </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceMd, marginBottom: tokens.spaceLg, flexWrap: 'wrap' }}>
+          <h1 style={{ ...tokens.typeHeadingPage, color: t.textPrimary, margin: 0 }}>Create new league</h1>
+          <button type="button" onClick={onCancel} style={{ ...tokens.typeBodyMeta, color: t.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+            Cancel
+          </button>
+        </div>
 
-      {/* Card */}
-      <div style={{
-        background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
-        overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
-      }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr) 320px', alignItems: 'start' }}>
-          {/* Rail */}
-          <div style={{ background: colMuted, borderRight: `1px solid ${t.divider}`, padding: `${tokens.spaceXl}px ${tokens.spaceSm}px` }}>
-            <LeftRail step={s.step} accent={accent} onGoto={i => dispatch({ type: 'goto', step: i })} isDark={isDark} />
-          </div>
+        <div style={{
+          background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
+          overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+        }}>
+          <div className="kh-wz-grid">
+            <div className="kh-wz-rail" style={{ background: colMuted, borderRight: `1px solid ${t.divider}`, padding: `${tokens.spaceXl}px ${tokens.spaceSm}px` }}>
+              <PhaseRail phase={phase} maxPhase={maxPhase} accent={accent} onGoto={gotoPhase} isDark={isDark} />
+            </div>
 
-          {/* Form column */}
-          <div style={{ minWidth: 0, padding: `${tokens.spaceXl}px ${tokens.space2xl}px` }}>
-            <div style={{ ...tokens.typeLabelEyebrow, color: accent }}>Step {s.step + 1} of 4</div>
-            <h2 style={{ ...tokens.typeHeadingCard, fontSize: 20, color: t.textPrimary, margin: `${tokens.space2xs}px 0 ${tokens.spaceLg}px` }}>
-              {STEP_TITLES[s.step]}
-            </h2>
+            <div style={{ minWidth: 0, padding: `${tokens.spaceXl}px ${tokens.space2xl}px` }}>
+              <MobileProgress phase={phase} isDark={isDark} accent={accent} />
 
-            {s.step === 0 && <StepBasics s={s} dispatch={dispatch} isDark={isDark} />}
-            {s.step === 1 && <StepFormat s={s} dispatch={dispatch} isDark={isDark} />}
-            {s.step === 2 && <StepTeams s={s} dispatch={dispatch} isDark={isDark} />}
-            {s.step === 3 && <StepReview s={s} dispatch={dispatch} isDark={isDark} accent={accent} />}
+              {/* The screen title IS the question. No "Step N of M" anywhere. */}
+              <h2 style={{ ...tokens.typeHeadingCard, fontSize: 20, color: t.textPrimary, margin: `0 0 ${tokens.spaceMd}px`, lineHeight: 1.3 }}>
+                {PHASE_TITLES[current.id]}
+              </h2>
 
-            {/* Footer — not pinned; sits below the last field */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: tokens.spaceSm, marginTop: tokens.space2xl }}>
-              <Button variant="secondary" size="md" isDark={isDark} onClick={() => dispatch({ type: 'back' })} disabled={s.step === 0}>
-                Back
-              </Button>
-              {isReview ? (
-                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={handleCreate}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    Create league <Check size={16} strokeWidth={2} />
-                  </span>
+              <WizardScreen id={current.id} s={s} dispatch={dispatch} isDark={isDark} accent={accent} gotoPhase={gotoPhase} />
+
+              {/* Extra height comes out of the whitespace below the last group,
+                  never by pushing the primary button down. */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: tokens.spaceSm, marginTop: tokens.spaceXl }}>
+                <Button variant="secondary" size="md" isDark={isDark} onClick={() => dispatch({ type: 'back' })} disabled={step === 0}>
+                  Back
                 </Button>
-              ) : (
-                <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}>
-                  Continue
-                </Button>
-              )}
+                {isReview ? (
+                  <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={handleCreate}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      Create league <Check size={16} strokeWidth={2} />
+                    </span>
+                  </Button>
+                ) : (
+                  <Button variant="primary" size="md" accent={accent} isDark={isDark} onClick={() => canContinue && dispatch({ type: 'next' })} disabled={!canContinue}>
+                    Continue
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="kh-wz-preview" style={{ background: colMuted, borderLeft: `1px solid ${t.divider}`, padding: tokens.spaceXl }}>
+              <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceSm }}>Live preview</div>
+              <TradingCard league={preview} isDark={isDark} state={isReview ? 'ready' : 'building'} />
             </div>
           </div>
-
-          {/* Live preview column */}
-          <div style={{ background: colMuted, borderLeft: `1px solid ${t.divider}`, padding: tokens.spaceXl }}>
-            <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceSm }}>Live preview</div>
-            <TradingCard league={preview} isDark={isDark} state={isReview ? 'ready' : 'building'} />
-          </div>
         </div>
+
+        {isMobile && <MobilePreviewBar preview={preview} isDark={isDark} ruleLine={ruleLine} />}
       </div>
-    </div>
+    </DarkContext.Provider>
   );
 }
 
-export { CreateLeagueWizard, buildLeague };
+export { CreateLeagueWizard, buildLeague, screensOf, reducer, makeInitial, WizardScreen, PHASES, PHASE_TITLES, DarkContext };

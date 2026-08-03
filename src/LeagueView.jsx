@@ -10,6 +10,7 @@ import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { startNewSeason } from './lib/season.js';
+import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
 
@@ -738,80 +739,163 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
   }
 
   // ── Keeper Rules card (also surfaces league-level identity at the top) ─────
-  const isSnake = league.draftType === 'snake';
-  const isAuction = league.draftType === 'auction';
+  // Cost and term are independent dimensions; the card reads both through the
+  // shim so legacy leagues (contractYears / auctionRules only) render the same
+  // rows as wizard-built ones without a data migration.
+  const costModel = keeperCostModelOf(league);
+  const term = termOf(league);
+  const termed = term.model === TERM_FIXED;
   const ar = league.auctionRules || {};
+  const pr = league.pickRules || {};
 
-  // Sport and Draft Type are foundational decisions set at league creation and
-  // can't be edited mid-league — keeper records would be invalidated. Teams is
-  // a structural property that's also locked.
-  const leagueIdentityRows = [
+  // The cost model is the one rule that can't be changed once keepers exist:
+  // dollar prices and pick rounds have no honest conversion between them, so
+  // switching would strand recorded values. Locked rather than warned.
+  const costLocked = hasKeeperData(league);
+  const COST_OPTIONS = [
+    { value: COST_SLOT, label: 'A keeper slot only' },
+    { value: COST_PICKS, label: 'A draft pick' },
+    { value: COST_AUCTION, label: 'Auction dollars' },
+  ];
+  const DRAFT_FORMAT_OPTIONS = [
+    { value: 'snake', label: 'Snake' },
+    { value: 'auction', label: 'Auction' },
+  ];
+  const draftFormatHelp = 'How the draft itself runs. Safe to change any time — it sets vocabulary and how the Last Draft page reads an import. It owns no keeper data.';
+  const costHelp = costLocked
+    ? 'Locked — this league has keepers recorded. Switching the cost model would leave those values with no meaning (dollars can\u2019t convert to rounds), and there is no way to recover them. Clear the recorded keepers first if you truly need to change it.'
+    : 'What keeping a player costs. Can be changed until the first keepers are recorded.';
+
+  const identityRows = (control) => [
     { label: 'Sport', value: sport.label, locked: true },
-    { label: 'Draft Type', value: DRAFT_LABEL[league.draftType] || league.draftType, locked: true },
+    control
+      ? { label: 'Draft Format', help: draftFormatHelp, control }
+      : { label: 'Draft Format', value: DRAFT_LABEL[draftFormatOf(league)], help: draftFormatHelp },
     { label: 'Teams', value: league.teamCount || league.teams.length, locked: true },
   ];
 
   const rulesView = [
-    ...leagueIdentityRows,
+    ...identityRows(null),
     { label: 'Season', value: league.season },
-    { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0–' : ''}${league.keeperSlots} per team` },
+    { label: 'Keeper Slots', value: `${league.minKeepers === 0 ? '0\u2013' : ''}${league.keeperSlots} per team` },
     { label: 'Min Keepers Required', value: league.minKeepers || 0, help: 'Minimum number of keepers each team must declare. 0 = optional.' },
-    ...(isSnake ? [
-      { label: 'Contract Length', value: `${league.contractYears} years`, help: 'How many years a keeper can be held before returning to the draft pool.' },
-      { label: 'Contracts Required', value: league.contractsRequired ? 'All slots must be filled' : 'Optional', help: 'Whether teams must fill every keeper slot.' },
-      { label: 'Contracts on Trade', value: (league.contractsFollowTrade ?? true) ? 'Travel with the player' : 'Renewable by new owner', help: 'When a contract holder is traded, does the contract travel with the player or can the new owner renegotiate?' },
-    ] : []),
-    ...(isAuction ? [
-      { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}`, help: "How much a keeper's salary increases each year you keep them." },
+    { label: 'Keeper Cost', value: COST_LABEL[costModel], help: costHelp, ...(costLocked ? { locked: true } : {}) },
+    { label: 'Keeper Term', value: termed ? `${term.years} years` : 'No term', help: 'How long a keep lasts before the player returns to the draft.' },
+    ...(costModel === COST_AUCTION ? [
+      { label: 'Cost Increase per Year', value: `+$${ar.costIncreasePerYear || 0}`, help: "How much a keeper's price increases each year you keep them." },
       { label: 'Undrafted Player Cost', value: `$${ar.undraftedStartCost || 0} first year`, help: "First-year cost for keeping a player who wasn't drafted last season." },
+    ] : []),
+    ...(costModel === COST_PICKS ? [
+      { label: 'Which Pick', value: pr.subModel === 'topSlots' ? 'Your top picks, in order' : 'The round he was drafted in', help: 'Which of your picks a keeper consumes.' },
+      { label: 'Climbs Each Year', value: `${pr.escalationPerYear ?? 1} round${(pr.escalationPerYear ?? 1) === 1 ? '' : 's'} / yr`, help: 'How much earlier the pick gets for each year kept. 0 = flat.' },
+      ...(pr.subModel !== 'topSlots' ? [
+        { label: 'Same-Round Tie-Break', value: pr.collision === 'later' ? 'Move one later' : 'Move one earlier', help: 'What happens when two keepers land on the same round.' },
+      ] : []),
+      { label: 'Waiver Pickups Cost', value: pr.waiverRound === 'last' || !pr.waiverRound ? 'Your last-round pick' : `Round ${pr.waiverRound}`, help: 'The round charged for keeping a player who was never drafted.' },
+    ] : []),
+    { label: 'All Slots Must Be Filled', value: league.contractsRequired ? 'Yes' : 'Optional', help: 'Whether teams must fill every keeper slot.' },
+    ...(termed ? [
+      { label: 'Terms on Trade', value: (league.contractsFollowTrade ?? true) ? 'Travel with the player' : 'Renewable by new owner', help: 'When a keeper under term is traded, does the term travel with the player or can the new owner renegotiate?' },
     ] : []),
   ];
   const rulesDraftInitial = {
     season: league.season || '',
     keeperSlots: league.keeperSlots || 0,
     minKeepers: league.minKeepers || 0,
-    contractYears: league.contractYears || 3,
+    draftType: draftFormatOf(league),
+    keeperCostModel: costModel,
+    termModel: term.model,
+    termYears: term.years || 3,
     contractsRequired: !!league.contractsRequired,
     contractsFollowTrade: league.contractsFollowTrade ?? true,
     costIncreasePerYear: ar.costIncreasePerYear || 0,
     undraftedStartCost: ar.undraftedStartCost || 0,
+    pickSubModel: pr.subModel || 'draftedRound',
+    pickEscalation: pr.escalationPerYear ?? 1,
+    pickCollision: pr.collision || 'earlier',
   };
   function rulesEdit(draft, setDraft) {
     const set = (k, v) => setDraft({ ...draft, [k]: v });
+    const editCost = draft.keeperCostModel;
     return [
-      ...leagueIdentityRows,
+      ...identityRows(
+        <SelectField value={draft.draftType} onChange={v => set('draftType', v)} t={t} isDark={isDark} options={DRAFT_FORMAT_OPTIONS} />
+      ),
       { label: 'Season', control: <TextField value={draft.season} onChange={v => set('season', v)} t={t} isDark={isDark} /> },
       { label: 'Keeper Slots', control: <TextField type="number" value={draft.keeperSlots} onChange={v => set('keeperSlots', v)} t={t} isDark={isDark} /> },
       { label: 'Min Keepers Required', help: 'Minimum number of keepers each team must declare. 0 = optional.', control: <TextField type="number" value={draft.minKeepers} onChange={v => set('minKeepers', v)} t={t} isDark={isDark} /> },
-      ...(isSnake ? [
-        { label: 'Contract Length (years)', help: 'How many years a keeper can be held before returning to the draft pool.', control: <TextField type="number" value={draft.contractYears} onChange={v => set('contractYears', v)} t={t} isDark={isDark} /> },
-        { label: 'Contracts Required', help: 'Whether teams must fill every keeper slot.', control: <ToggleField value={draft.contractsRequired} onChange={v => set('contractsRequired', v)} t={t} isDark={isDark} /> },
-        { label: 'Contracts on Trade', help: 'Travel with the player, or renewable by the new owner?', control: <SelectField value={draft.contractsFollowTrade ? 'follow' : 'renewable'} onChange={v => set('contractsFollowTrade', v === 'follow')} t={t} isDark={isDark}
-            options={[{value:'follow',label:'Travel with player'},{value:'renewable',label:'Renewable by new owner'}]} /> },
+      costLocked
+        ? { label: 'Keeper Cost', value: COST_LABEL[costModel], help: costHelp, locked: true }
+        : { label: 'Keeper Cost', help: costHelp, control: <SelectField value={draft.keeperCostModel} onChange={v => set('keeperCostModel', v)} t={t} isDark={isDark} options={COST_OPTIONS} /> },
+      { label: 'Keeper Term', help: 'How long a keep lasts before the player returns to the draft.', control: <SelectField value={draft.termModel} onChange={v => set('termModel', v)} t={t} isDark={isDark}
+          options={[{ value: TERM_NONE, label: 'No term' }, { value: TERM_FIXED, label: 'Fixed term' }]} /> },
+      ...(draft.termModel === TERM_FIXED ? [
+        { label: 'Term Length (years)', help: 'When the term is up, he goes back into the draft.', control: <TextField type="number" value={draft.termYears} onChange={v => set('termYears', v)} t={t} isDark={isDark} /> },
       ] : []),
-      ...(isAuction ? [
-        { label: 'Cost Increase per Year ($)', help: "How much a keeper's salary increases each year you keep them.", control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
+      ...(editCost === COST_AUCTION ? [
+        { label: 'Cost Increase per Year ($)', help: "How much a keeper's price increases each year you keep them.", control: <TextField type="number" value={draft.costIncreasePerYear} onChange={v => set('costIncreasePerYear', v)} t={t} isDark={isDark} /> },
         { label: 'Undrafted Player Cost ($)', help: "First-year cost for keeping a player who wasn't drafted last season.", control: <TextField type="number" value={draft.undraftedStartCost} onChange={v => set('undraftedStartCost', v)} t={t} isDark={isDark} /> },
+      ] : []),
+      ...(editCost === COST_PICKS ? [
+        { label: 'Which Pick', help: 'Which of your picks a keeper consumes.', control: <SelectField value={draft.pickSubModel} onChange={v => set('pickSubModel', v)} t={t} isDark={isDark}
+            options={[{ value: 'draftedRound', label: 'The round he was drafted in' }, { value: 'topSlots', label: 'Your top picks, in order' }]} /> },
+        { label: 'Climbs Each Year (rounds)', help: 'How much earlier the pick gets for each year kept. 0 = flat.', control: <TextField type="number" value={draft.pickEscalation} onChange={v => set('pickEscalation', v)} t={t} isDark={isDark} /> },
+        ...(draft.pickSubModel !== 'topSlots' ? [
+          { label: 'Same-Round Tie-Break', help: 'What happens when two keepers land on the same round.', control: <SelectField value={draft.pickCollision} onChange={v => set('pickCollision', v)} t={t} isDark={isDark}
+              options={[{ value: 'earlier', label: 'Move one earlier' }, { value: 'later', label: 'Move one later' }]} /> },
+        ] : []),
+      ] : []),
+      { label: 'All Slots Must Be Filled', help: 'Whether teams must fill every keeper slot.', control: <ToggleField value={draft.contractsRequired} onChange={v => set('contractsRequired', v)} t={t} isDark={isDark} /> },
+      ...(draft.termModel === TERM_FIXED ? [
+        { label: 'Terms on Trade', help: 'Travel with the player, or renewable by the new owner?', control: <SelectField value={draft.contractsFollowTrade ? 'follow' : 'renewable'} onChange={v => set('contractsFollowTrade', v === 'follow')} t={t} isDark={isDark}
+            options={[{value:'follow',label:'Travel with player'},{value:'renewable',label:'Renewable by new owner'}]} /> },
       ] : []),
     ];
   }
   function saveRules(draft) {
+    // A locked cost model is never taken from the draft — the row renders as a
+    // static value, so `draft.keeperCostModel` is only authoritative when the
+    // control was actually editable.
+    const nextCost = costLocked ? costModel : draft.keeperCostModel;
+    const nextTermModel = draft.termModel === TERM_FIXED ? TERM_FIXED : TERM_NONE;
+    const nextTermYears = nextTermModel === TERM_FIXED ? (Number(draft.termYears) || 3) : null;
     const next = {
       ...league,
       season: draft.season,
       keeperSlots: draft.keeperSlots,
       minKeepers: draft.minKeepers,
+      draftType: draft.draftType,
+      keeperCostModel: nextCost,
+      termModel: nextTermModel,
+      termYears: nextTermYears,
+      // Legacy mirrors, kept in step so surfaces that still read them agree
+      // with the resolved term.
+      contractYears: nextTermYears,
+      keeperTimeCap: nextTermYears,
+      keeperArchetype: keeperArchetypeOf(nextCost, nextTermModel),
+      contractsRequired: draft.contractsRequired,
+      mustFillSlots: draft.contractsRequired,
+      contractsFollowTrade: draft.contractsFollowTrade,
     };
-    if (isSnake) {
-      next.contractYears = draft.contractYears;
-      next.contractsRequired = draft.contractsRequired;
-      next.contractsFollowTrade = draft.contractsFollowTrade;
-    }
-    if (isAuction) {
+    // Preserve, don't delete: write the block for the ACTIVE cost model and
+    // leave any other cost model's block exactly as it was. There is no
+    // version history in this app, so a rule change must never be the reason
+    // a commissioner's numbers become unrecoverable — the inactive blocks are
+    // simply never read (see keeperRules.js).
+    if (nextCost === COST_AUCTION) {
       next.auctionRules = {
         ...ar,
         costIncreasePerYear: draft.costIncreasePerYear,
         undraftedStartCost: draft.undraftedStartCost,
+      };
+    }
+    if (nextCost === COST_PICKS) {
+      next.pickRules = {
+        ...pr,
+        subModel: draft.pickSubModel,
+        escalationPerYear: Number(draft.pickEscalation) || 0,
+        waiverRound: pr.waiverRound || 'last',
+        ...(draft.pickSubModel === 'topSlots' ? {} : { collision: draft.pickCollision }),
       };
     }
     onUpdateLeague(next);
@@ -922,9 +1006,9 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Last year's draft</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
-            {league.draftType === 'auction'
+            {keeperCostModelOf(league) === COST_AUCTION
               ? "Attaches each player's drafted price — this is how keeper costs are calculated."
-              : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing contracts.'}
+              : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing terms.'}
             {' '}View, edit, and paste it on the Last Draft page.
           </div>
         </div>
@@ -998,16 +1082,17 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
 function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel }) {
   const t = makeTheme(isDark);
   // Count what would happen
-  const carriedCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(k => {
-    if (league.draftType !== 'snake') return true;
-    const length = k.contractLength || league.contractYears || 3;
-    return (k.contractYear || 0) + 1 <= length;
-  }).length, 0);
-  const expiredCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(k => {
-    if (league.draftType !== 'snake') return false;
-    const length = k.contractLength || league.contractYears || 3;
+  // Mirrors advanceKeeper: a keep only expires where a fixed term exists,
+  // whatever the cost model or draft format.
+  const rollTerm = termOf(league);
+  const rollTermed = rollTerm.model === TERM_FIXED;
+  const runsOut = (k) => {
+    if (!rollTermed) return false;
+    const length = k.contractLength || rollTerm.years || 3;
     return (k.contractYear || 0) + 1 > length;
-  }).length, 0);
+  };
+  const carriedCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(k => !runsOut(k)).length, 0);
+  const expiredCount = (league.teams || []).reduce((sum, tm) => sum + (tm.keepers || []).filter(runsOut).length, 0);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
@@ -1017,8 +1102,8 @@ function RolloverConfirmModal({ league, accentColor, isDark, onConfirm, onCancel
           This will roll <strong>{league.name}</strong> from <strong>{league.season}</strong> into the next season.
         </p>
         <ul style={{ margin: '14px 0 0', paddingLeft: 18, fontSize: 13, color: t.textBody, lineHeight: 1.7 }}>
-          <li><strong>{carriedCount}</strong> keeper contract{carriedCount === 1 ? '' : 's'} will carry forward to next-season history with their year advanced.</li>
-          {league.draftType === 'snake' && <li><strong>{expiredCount}</strong> contract{expiredCount === 1 ? ' has' : 's have'} expired and will return to the draft pool.</li>}
+          <li><strong>{carriedCount}</strong> keeper{carriedCount === 1 ? '' : 's'} will carry forward to next-season history{rollTermed ? ' with their term year advanced' : ''}.</li>
+          {rollTermed && <li><strong>{expiredCount}</strong> term{expiredCount === 1 ? ' has' : 's have'} run out and will return to the draft pool.</li>}
           <li>Every team's keeper submissions and paid-status will reset.</li>
           <li>The league status returns to <em>pre-draft</em> and the draft date is cleared.</li>
         </ul>

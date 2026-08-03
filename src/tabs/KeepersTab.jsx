@@ -5,6 +5,7 @@ import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
 import { ACQUISITION_METHODS, ACQUISITION_LABEL, acquisitionOf } from '../lib/acquisition.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
+import { termOf, hasTerm, isAuctionCost, TERM_FIXED } from '../lib/keeperRules.js';
 
 // Keepers Tab — full management with inline add/edit/remove
 
@@ -37,17 +38,23 @@ function AcquisitionRow({ entry, league, isDark, accentColor, onChange }) {
   );
 }
 
+// An empty keeper row carries only the fields the league's rules actually
+// use — dollars for an auction cost, years for a term, both when both apply.
+function blankKeeper(league) {
+  const k = { player: '', ...acquisitionOf(null) };
+  if (isAuctionCost(league)) { k.keptFor = 1; k.yearsKept = 1; }
+  const term = termOf(league);
+  if (term.model === TERM_FIXED) { k.contractYear = 1; k.contractLength = term.years || 3; k.expiresAfter = ''; }
+  return k;
+}
+
 function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, allTeams, autoAddOnOpen }) {
   const t = makeTheme(isDark);
   const [keepers, setKeepers] = React.useState(() => {
     const initial = JSON.parse(JSON.stringify(team.keepers || []));
     // If asked to auto-add and there's room, append an empty slot so user goes straight to the form
     if (autoAddOnOpen && initial.length < league.keeperSlots) {
-      if (league.draftType === 'snake') {
-        initial.push({ player: '', contractYear: 1, contractLength: 3, expiresAfter: '', ...acquisitionOf(null) });
-      } else {
-        initial.push({ player: '', keptFor: 1, yearsKept: 1, ...acquisitionOf(null) });
-      }
+      initial.push(blankKeeper(league));
     }
     return initial;
   });
@@ -56,11 +63,7 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
 
   function addKeeper() {
     if (keepers.length >= league.keeperSlots) return;
-    if (league.draftType === 'snake') {
-      setKeepers([...keepers, { player: '', contractYear: 1, contractLength: 3, expiresAfter: '', ...acquisitionOf(null) }]);
-    } else {
-      setKeepers([...keepers, { player: '', keptFor: 1, yearsKept: 1, ...acquisitionOf(null) }]);
-    }
+    setKeepers([...keepers, blankKeeper(league)]);
   }
 
   function removeKeeper(i) {
@@ -70,8 +73,8 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
   function updateKeeper(i, field, value) {
     const updated = [...keepers];
     updated[i] = { ...updated[i], [field]: value };
-    // Auto-calc expiresAfter for snake
-    if (league.draftType === 'snake') {
+    // Auto-calc expiresAfter — only meaningful where a term exists
+    if (hasTerm(league)) {
       const yr = parseInt(updated[i].contractYear) || 1;
       const len = parseInt(updated[i].contractLength) || 3;
       const remaining = len - yr;
@@ -190,7 +193,7 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                     }}
                   />
                 </div>
-                {league.draftType === 'snake' && (() => {
+                {hasTerm(league) && (() => {
                   const len = parseInt(k.contractLength) || 3;
                   // Y can be 1..length (Y=length is the last year of contract — still keepable, but flagged as expiring).
                   // Y > length = past contract end = blocked entirely (handled by the rollover filter).
@@ -220,7 +223,7 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                   </div>
                   );
                 })()}
-                {league.draftType === 'auction' && (
+                {isAuctionCost(league) && (
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <label style={{ fontSize: '10px', color: t.textMuted, fontWeight: 600 }}>KEPT FOR</label>
@@ -351,7 +354,7 @@ function KeepersTab({ league, accentColor, isDark, onUpdateLeague }) {
     if (onUpdateLeague) onUpdateLeague({ ...league, teams: newTeams });
   }
 
-  if (league.draftType === 'snake') {
+  if (hasTerm(league)) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {editingTeam && (

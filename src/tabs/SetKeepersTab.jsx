@@ -4,6 +4,7 @@ import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '.
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
+import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -13,26 +14,25 @@ import { acquisitionOf } from '../lib/acquisition.js';
 //
 // The trade (⇄) affordance is intentionally inert for v1 — see TradeButton.
 
-// Build a keeper record from a pool/directory entry, in the shape today's data
-// model uses (snake: contractYear/contractLength; auction: keptFor/yearsKept).
+// Build a keeper record from a pool/directory entry. Cost and term are
+// independent, so the record carries whichever fields the league's rules call
+// for and can carry both: an auction league with a term stamps keptFor AND
+// contractYear. A slot/pick cost with no term needs neither.
 function makeKeeper(entry, league) {
   // Acquisition metadata rides along from the pool entry (which carried it
   // from the prior-keeper / roster record); absent fields normalize to the
   // defaults (round null, method 'manual', rookie false).
-  if (league.draftType === 'snake') {
-    return {
-      player: entry.player,
-      contractYear: entry.nextYear || 1,
-      contractLength: entry.length || league.contractYears || 3,
-      ...acquisitionOf(entry),
-    };
+  const keeper = { player: entry.player, ...acquisitionOf(entry) };
+  if (isAuctionCost(league)) {
+    keeper.keptFor = entry.nextCost != null ? entry.nextCost : (league.auctionRules?.undraftedStartCost || 5);
+    keeper.yearsKept = entry.yearsKept || 1;
   }
-  return {
-    player: entry.player,
-    keptFor: entry.nextCost != null ? entry.nextCost : (league.auctionRules?.undraftedStartCost || 5),
-    yearsKept: entry.yearsKept || 1,
-    ...acquisitionOf(entry),
-  };
+  const term = termOf(league);
+  if (term.model === TERM_FIXED) {
+    keeper.contractYear = entry.nextYear || 1;
+    keeper.contractLength = entry.length || term.years || 3;
+  }
+  return keeper;
 }
 
 // Per-team eligible pool, split into the three groups the handoff calls for:
@@ -41,15 +41,22 @@ function makeKeeper(entry, league) {
 //   rosteredNoContract — roster players with no prior contract → fresh Y1 deal
 //   expired           — contracts that ran out → blocked, back to the draft
 function buildTeamPool(league, team) {
-  const isSnake = league.draftType === 'snake';
-  const len = league.contractYears || 3;
+  // Two independent dimensions: a term decides whether entries carry contract
+  // years, an auction cost model decides whether they carry dollars. Both can
+  // be true at once, so these are separate flags rather than one either/or.
+  const term = termOf(league);
+  const termed = term.model === TERM_FIXED;
+  const dollars = isAuctionCost(league);
+  const len = term.years || league.contractYears || 3;
   const bump = league.auctionRules?.costIncreasePerYear || 5;
   const base = league.auctionRules?.undraftedStartCost || 5;
   const priors = team?.priorKeepers || [];
   const roster = team?.roster || [];
   const priorByName = new Map(priors.map(p => [normalizeName(p.player), p]));
 
-  const isExpired = (p) => !!(p.expired || (isSnake && (p.contractYear || 0) + 1 > (p.contractLength || len)));
+  // Expiry belongs to the term, not the draft format — a term-less league
+  // never expires anyone, and an auction league with a term does.
+  const isExpired = (p) => !!(p.expired || (termed && (p.contractYear || 0) + 1 > (p.contractLength || len)));
 
   // Thread acquisition metadata through pool entries (only fields actually
   // present on the source record) so makeKeeper can stamp it on the keeper.
@@ -68,21 +75,27 @@ function buildTeamPool(league, team) {
       expired.push({ player: p.player, pos: p.pos, kind: 'expired' });
       return;
     }
-    if (isSnake) {
-      const nextYear = (p.contractYear || 0) + 1;
-      const length = p.contractLength || len;
-      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextYear, length, final: nextYear >= length, ...acqCarry(p) });
-    } else {
-      onContract.push({ player: p.player, pos: p.pos, kind: 'contract', nextCost: (p.keptFor != null ? p.keptFor + bump : base), wasCost: p.keptFor, yearsKept: (p.yearsKept || 0) + 1, ...acqCarry(p) });
+    const entry = { player: p.player, pos: p.pos, kind: 'contract', ...acqCarry(p) };
+    if (dollars) {
+      entry.nextCost = p.keptFor != null ? p.keptFor + bump : base;
+      entry.wasCost = p.keptFor;
+      entry.yearsKept = (p.yearsKept || 0) + 1;
     }
+    if (termed) {
+      entry.nextYear = (p.contractYear || 0) + 1;
+      entry.length = p.contractLength || len;
+      entry.final = entry.nextYear >= entry.length;
+    }
+    onContract.push(entry);
   });
 
   const rosteredNoContract = [];
   roster.forEach(r => {
     if (priorByName.has(normalizeName(r.player))) return;
-    rosteredNoContract.push(isSnake
-      ? { player: r.player, pos: r.pos, kind: 'rostered', nextYear: 1, length: len, final: 1 >= len, ...acqCarry(r) }
-      : { player: r.player, pos: r.pos, kind: 'rostered', nextCost: base, yearsKept: 1, ...acqCarry(r) });
+    const entry = { player: r.player, pos: r.pos, kind: 'rostered', ...acqCarry(r) };
+    if (dollars) { entry.nextCost = base; entry.yearsKept = 1; }
+    if (termed) { entry.nextYear = 1; entry.length = len; entry.final = 1 >= len; }
+    rosteredNoContract.push(entry);
   });
 
   return { onContract, rosteredNoContract, expired };
@@ -106,7 +119,9 @@ function TradeButton({ isDark }) {
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
 function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, draftedCost }) {
   const t = makeTheme(isDark);
-  const isSnake = league.draftType === 'snake';
+  const term = termOf(league);
+  const termed = term.model === TERM_FIXED;
+  const dollars = isAuctionCost(league);
 
   if (!keeper) {
     return (
@@ -125,8 +140,8 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
     );
   }
 
-  const expiring = isSnake && keeper.contractYear >= keeper.contractLength;
-  const length = keeper.contractLength || league.contractYears || 3;
+  const expiring = isFinalYear(league, keeper);
+  const length = keeper.contractLength || term.years || 3;
   const yearOpts = Array.from({ length }, (_, i) => i + 1);
   const selStyle = {
     background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm,
@@ -151,17 +166,9 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
           <div style={{ ...tokens.typeBody, fontWeight: 700, color: expiring ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{keeper.player}</div>
           {expiring && <div style={{ ...tokens.typePillEmphatic, color: t.danger, marginTop: 1 }}>Final yr · back to draft after this season</div>}
         </div>
-        {isSnake ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-            <select value={keeper.contractYear} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Contract year">
-              {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
-            </select>
-            <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
-            <select value={keeper.contractLength} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Contract length">
-              {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-          </div>
-        ) : (
+        {/* Cost and term are independent, so both controls can render: an
+            auction league with a term edits the price AND the year. */}
+        {dollars && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             {/* Escalation math in place: last year's price → this year's keep
                 cost (the editable input). Only when the imported draft
@@ -170,8 +177,19 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
               <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>Drafted ${draftedCost} →</span>
             )}
             <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
-            <input type="number" min="1" value={keeper.keptFor} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
+            <input type="number" min="1" value={keeper.keptFor ?? 0} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
               style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+          </div>
+        )}
+        {termed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <select value={keeper.contractYear ?? 1} onChange={e => onUpdate({ contractYear: parseInt(e.target.value) })} style={selStyle} aria-label="Term year">
+              {yearOpts.map(v => <option key={v} value={v}>Y{v}</option>)}
+            </select>
+            <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
+            <select value={keeper.contractLength ?? length} onChange={e => onUpdate({ contractLength: parseInt(e.target.value) })} style={selStyle} aria-label="Term length">
+              {[2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
           </div>
         )}
         <TradeButton isDark={isDark} />
@@ -187,13 +205,16 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
 // A single eligible-pool row: position badge + player + status pill + Keep
 // toggle. Blocked (expired) rows are non-interactive; full/already-elsewhere
 // rows show a disabled Keep.
-function PoolRow({ entry, isDark, accentColor, gridAccent, isSnake, keeping, blocked, disabled, onToggle }) {
+function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, disabled, onToggle }) {
   const t = makeTheme(isDark);
   // Auction value states the ACTION cost ("Keep $88") so it reads as the keep
   // price next to the muted "Drafted $83" status — the +$/yr math is visible
-  // on the row instead of an unexplained number.
-  const valueText = entry.kind === 'expired' ? null
-    : isSnake ? `Y${entry.nextYear}/${entry.length}` : `Keep $${entry.nextCost}`;
+  // on the row instead of an unexplained number. A league with both a dollar
+  // cost and a term shows both halves.
+  const bits = [];
+  if (entry.nextCost != null) bits.push(`Keep $${entry.nextCost}`);
+  if (entry.nextYear != null) bits.push(`Y${entry.nextYear}/${entry.length}`);
+  const valueText = entry.kind === 'expired' ? null : (bits.join(' · ') || 'Keep');
   const valueColor = entry.final ? t.danger : gridAccent;
 
   let btn;
@@ -234,7 +255,8 @@ function GroupHeader({ label, isDark }) {
 
 function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull, onAdd, onRemoveName }) {
   const t = makeTheme(isDark);
-  const isSnake = league.draftType === 'snake';
+  const termed = hasTerm(league);
+  const dollars = isAuctionCost(league);
   const [tab, setTab] = React.useState('roster'); // 'roster' | 'league' | 'expired'
   const [search, setSearch] = React.useState('');
   const [directory, setDirectory] = React.useState(null);
@@ -268,7 +290,7 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
   const tabs = [
     { id: 'roster',  label: 'My roster' },
     { id: 'league',  label: 'League' },
-    ...(isSnake ? [{ id: 'expired', label: 'Expired' }] : []),
+    ...(termed ? [{ id: 'expired', label: 'Expired' }] : []),
   ];
 
   // Build the active tab's rows.
@@ -280,17 +302,17 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     // desc, alphabetical tiebreak.
     const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({
       ...e,
-      statusLabel: isSnake
-        ? (e.final ? 'Final year' : 'On contract')
-        : (e.wasCost != null ? `Drafted $${e.wasCost}` : 'Drafted'),
-      statusColor: isSnake ? (e.final ? t.danger : tokens.info) : t.textMuted,
+      statusLabel: dollars
+        ? (e.wasCost != null ? `Drafted $${e.wasCost}` : 'Drafted')
+        : termed ? (e.final ? 'Final year' : 'On contract') : 'Kept last year',
+      statusColor: !dollars && termed && e.final ? t.danger : (dollars ? t.textMuted : tokens.info),
     }));
     const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({
       ...e,
-      statusLabel: isSnake ? 'No contract' : 'Undrafted',
+      statusLabel: dollars ? 'Undrafted' : termed ? 'No contract' : 'Not kept',
       statusColor: t.textMuted,
     }));
-    if (!isSnake) {
+    if (dollars) {
       onC.sort((a, b) => ((b.nextCost ?? -1) - (a.nextCost ?? -1)) || a.player.localeCompare(b.player));
       ros.sort((a, b) => a.player.localeCompare(b.player));
     }
@@ -299,10 +321,10 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     } else {
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {onC.length > 0 && <GroupHeader label={isSnake ? 'On a contract · eligible' : 'Drafted last year · eligible'} isDark={isDark} />}
-          {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
-          {ros.length > 0 && <GroupHeader label={isSnake ? 'Rostered · no contract' : 'Rostered · undrafted'} isDark={isDark} />}
-          {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}
+          {onC.length > 0 && <GroupHeader label={dollars ? 'Drafted last year · eligible' : termed ? 'On a contract · eligible' : 'Kept last year · eligible'} isDark={isDark} />}
+          {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}
+          {ros.length > 0 && <GroupHeader label={dollars ? 'Rostered · undrafted' : termed ? 'Rostered · no contract' : 'Rostered · not kept'} isDark={isDark} />}
+          {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}
         </div>
       );
     }
@@ -317,18 +339,20 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
         let statusLabel = 'Free agent', statusColor = tokens.success;
         if (e?.status === 'keeper') { statusLabel = `Keeper · ${e.teamName}`; statusColor = t.textMuted; }
         else if (e?.status === 'rostered') { statusLabel = e.teamName; statusColor = t.textMuted; }
-        const base = isSnake ? { kind: 'free', nextYear: 1, length: league.contractYears || 3, final: (league.contractYears || 3) <= 1 } : { kind: 'free', nextCost: league.auctionRules?.undraftedStartCost || 5, yearsKept: 1 };
+        const base = { kind: 'free' };
+        if (dollars) { base.nextCost = league.auctionRules?.undraftedStartCost || 5; base.yearsKept = 1; }
+        if (termed) { const L = termOf(league).years || 3; base.nextYear = 1; base.length = L; base.final = 1 >= L; }
         return { player: p.name, pos: p.pos, statusLabel, statusColor, ...base };
       });
       body = results.length === 0
         ? <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '24px 12px' }}>No players match “{search}”.</div>
-        : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{results.map((e, i) => <PoolRow key={`d-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} {...rowProps(e)} />)}</div>;
+        : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{results.map((e, i) => <PoolRow key={`d-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}</div>;
     }
   } else {
     const exp = teamPool.expired.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: 'Expired', statusColor: t.danger }));
     body = exp.length === 0
       ? <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '24px 12px', display: 'inline-flex', alignItems: 'center', gap: 5, justifyContent: 'center', width: '100%' }}><Check size={13} strokeWidth={2} /> No expired contracts — everyone on file can be kept.</div>
-      : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{exp.map((e, i) => <PoolRow key={`e-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} isSnake={isSnake} keeping={false} blocked />)}</div>;
+      : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{exp.map((e, i) => <PoolRow key={`e-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} keeping={false} blocked />)}</div>;
   }
 
   return (
@@ -362,9 +386,9 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
 function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, selectedTeamId, onSelectTeam }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
-  const isSnake = league.draftType === 'snake';
+  const dollars = isAuctionCost(league);
   const slots = league.keeperSlots || 0;
-  const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
+  const gridAccent = dollars ? tokens.warning : tokens.info;
 
   const team = teams.find(tm => tm.id === selectedTeamId) || teams[0] || null;
   const keepers = team?.keepers || [];
@@ -391,11 +415,11 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   // Auction: last year's drafted price per player (from the imported draft),
   // shown next to the keep-cost input so the +$/yr escalation reads in place.
   const draftedCostByName = React.useMemo(() => {
-    if (isSnake) return null;
+    if (!dollars) return null;
     const m = new Map();
     (team?.priorKeepers || []).forEach(p => { if (p.keptFor != null) m.set(normalizeName(p.player), p.keptFor); });
     return m;
-  }, [team, isSnake]);
+  }, [team, dollars]);
 
   const keepingNames = React.useMemo(() => new Set(keepers.map(k => normalizeName(k.player))), [keepers]);
   const keptAnywhere = React.useMemo(() => {
@@ -537,7 +561,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
           {/* Commissioner tip */}
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5, padding: '0 4px' }}>
-            Tip: import this team's roster {isSnake ? '' : 'and last year’s draft '}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with {isSnake ? 'prior contracts' : 'drafted prices'}.
+            Tip: import this team's roster {dollars ? 'and last year’s draft ' : ''}from the <strong style={{ color: t.textSecondary, fontWeight: 600 }}>Import</strong> door to seed the pool with {dollars ? 'drafted prices' : 'prior keeps'}.
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pencil, ArrowLeftRight } from 'lucide-react';
 import { makeTheme, Tooltip, tokens } from '../components.jsx';
+import { keeperValueText, isFinalYear } from '../lib/keeperRules.js';
 
 // The single keeper-cell renderer shared by the Overview grid (interactive)
 // and the Create-League wizard's Step-2 sample (static). Extracted verbatim
@@ -14,7 +15,7 @@ import { makeTheme, Tooltip, tokens } from '../components.jsx';
 //   children        → the move popover (grid only)
 function SampleKeeperCell({
   slot,
-  isSnake,
+  league,
   isDark,
   gridAccent,
   onReassignClick = null,
@@ -22,8 +23,8 @@ function SampleKeeperCell({
   children = null,
 }) {
   const t = makeTheme(isDark);
-  const expiring = isSnake && slot.contractYear >= slot.contractLength;
-  const valueText = isSnake ? `Y${slot.contractYear}/${slot.contractLength}` : `$${slot.keptFor}`;
+  const expiring = isFinalYear(league, slot);
+  const valueText = keeperValueText(league, slot);
   const valueColor = slot.isOutgoing ? t.textMuted : expiring ? t.danger : gridAccent;
 
   return (
@@ -74,7 +75,7 @@ function SampleKeeperCell({
         </span>
         {expiring && (
           <Tooltip isDark={isDark} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
-            content={`${slot.player} · final year of contract, returns to the draft after this season`}>
+            content={`${slot.player} · final year of his term, returns to the draft after this season`}>
             <span style={{ ...tokens.typePillEmphatic, color: t.danger, lineHeight: 1 }}>
               Final yr
             </span>

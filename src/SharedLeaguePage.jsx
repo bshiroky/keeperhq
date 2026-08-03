@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Loader, Search } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
 import { normalizeName } from './lib/players.js';
+import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
 } from './lib/sharedLeague.js';
@@ -168,7 +169,7 @@ function statLineFor(rec) {
 // final-year in mixed lists. Auction leagues show the keep cost instead.
 function ContractText({ row, league, isDark }) {
   const t = makeTheme(isDark);
-  if (league.draftType === 'auction') {
+  if (isAuctionCost(league)) {
     // "Keep for $X" stays the headline; the drafted price (last year's
     // auction price from the imported draft) rides along as a quiet second
     // line so members see both — same treatment on mobile rows and the
@@ -178,6 +179,12 @@ function ContractText({ row, league, isDark }) {
         <span style={{ ...tokens.typeBody, fontWeight: 800, color: tokens.warning, whiteSpace: 'nowrap' }}>
           Keep for ${row.cost ?? 0}
         </span>
+        {/* With a term as well as a price, the term rides the second line. */}
+        {hasTerm(league) && row.kind !== 'rostered' && (
+          <span style={{ ...tokens.typeStatMeta, color: row.final ? tokens.danger : t.textMuted, whiteSpace: 'nowrap' }}>
+            {row.final ? 'Final yr ' : ''}{`Y${row.year}/${row.len}`}
+          </span>
+        )}
         {row.draftedCost != null && (
           <span style={{ ...tokens.typeStatMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>
             Drafted ${row.draftedCost}
@@ -188,6 +195,11 @@ function ContractText({ row, league, isDark }) {
   }
   if (row.kind === 'rostered') {
     return <span style={{ ...tokens.typePill, color: t.textMuted }}>—</span>;
+  }
+  // No dollar cost and no term: the slot itself is the whole cost, so there
+  // is no per-player number to show.
+  if (!hasTerm(league)) {
+    return <span style={{ ...tokens.typePill, color: t.textMuted }}>{row.kind === 'keeper' ? 'Kept' : '—'}</span>;
   }
   let label = null, color = tokens.info;
   if (row.kind === 'expired') { label = 'Expired'; color = tokens.danger; }
@@ -208,7 +220,7 @@ function ContractText({ row, league, isDark }) {
 // the section eyebrow already labels them.
 function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
   const t = makeTheme(isDark);
-  const auction = league.draftType === 'auction';
+  const auction = isAuctionCost(league);
   const accent = auction
     ? { bg: tokens.warningBg, border: tokens.warningBorder, color: tokens.warning }
     : { bg: tokens.infoBg, border: tokens.infoBorder, color: tokens.info };
@@ -345,7 +357,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   // CONTRACT_W is sized for snake's compact "Y1/3" strings; auction's
   // "Keep for $XX" + "Drafted $XX" pair needs more room or the sticky Status
   // cell paints over the overflow.
-  const contractW = league.draftType === 'auction' ? 132 : CONTRACT_W;
+  const contractW = isAuctionCost(league) ? 132 : CONTRACT_W;
 
   const nStats = cats.length;
   const naturalW = PLAYER_W + nStats * STAT_W + contractW + STATUS_W;
@@ -679,7 +691,7 @@ function FilterChip({ label, active, danger, onClick, isDark }) {
 function SharedLeaguePage({ league, isDark }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
-  const isSnake = league.draftType === 'snake';
+  const termed = hasTerm(league);
   const isHockey = league.sport === 'hockey';
   const playerMap = usePlayerMap(league.sport);
   const isDesktop = useMediaQuery('(min-width: 1024px)');
@@ -687,7 +699,7 @@ function SharedLeaguePage({ league, isDark }) {
   const locked = !!cd?.locked;
 
   const allRows = React.useMemo(() => buildSharedRows(league), [league]);
-  const hasExpired = isSnake && allRows.some(r => r.kind === 'expired');
+  const hasExpired = termed && allRows.some(r => r.kind === 'expired');
   const anyKeepers = allRows.some(r => r.kind === 'keeper');
   const teams = league.teams || [];
 
@@ -742,10 +754,10 @@ function SharedLeaguePage({ league, isDark }) {
   );
 
   const chips = [
-    { id: 'keepable', label: locked ? 'Final keepers' : (isSnake ? 'Keepable' : 'All players') },
+    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'All players') },
     // Auction has no contract concept — the same row set (keepers + players
     // with a prior price) reads as "Drafted last year" there.
-    { id: 'contracts', label: isSnake ? 'Under contract' : 'Drafted last year' },
+    { id: 'contracts', label: isAuctionCost(league) ? 'Drafted last year' : termed ? 'Under contract' : 'Kept last year' },
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
   ];
@@ -822,7 +834,7 @@ function SharedLeaguePage({ league, isDark }) {
       {filter === 'expired' && (
         <ViewFooter isDark={isDark}>These contracts ended this season. The full draft pool is set once keepers lock.</ViewFooter>
       )}
-      {filterTeam && isSnake && teamHasExpired && (
+      {filterTeam && termed && teamHasExpired && (
         <ViewFooter isDark={isDark}>{filterTeam.name}&rsquo;s expired contracts are under the Expired filter.</ViewFooter>
       )}
       {filter === 'keepable' && locked && (
@@ -851,7 +863,7 @@ function SharedLeaguePage({ league, isDark }) {
                 {league.name}
               </div>
               <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
-                {sport.label} · {league.draftType === 'auction' ? 'Auction' : 'Contract Snake'}
+                {sport.label} · {COST_LABEL[keeperCostModelOf(league)]} · {termLabel(termOf(league))}
               </div>
             </div>
           </div>
