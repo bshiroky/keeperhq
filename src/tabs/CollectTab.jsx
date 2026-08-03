@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pencil, Check } from 'lucide-react';
+import { hasTerm } from '../lib/keeperRules.js';
 import { makeTheme, tokens } from '../components.jsx';
 
 // Per-team Keeper Collection View — sidebar of teams + main pane with prior keepers as suggestion chips
@@ -223,7 +224,7 @@ function CollectKeepersView({ league, teams, accentColor, isDark, onUpdateLeague
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 8 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, width: 22 }}>K{i + 1}</span>
                     <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: t.textPrimary }}>{k.player || <em style={{ color: t.textMuted }}>(unnamed)</em>}</span>
-                    {league.draftType === 'snake' && (
+                    {hasTerm(league) && (
                       <span style={{ fontSize: 11, color: t.textMuted }}>Y{k.contractYear} of {k.contractLength}</span>
                     )}
                     <button onClick={() => removeKeeper(i)} style={{ background: 'rgba(232,82,82,0.12)', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', color: '#e85252', fontSize: 14, lineHeight: 1, fontFamily: 'inherit' }}>×</button>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Download, DollarSign, Check } from 'lucide-react';
+import { isAuctionCost } from '../lib/keeperRules.js';
 import { makeTheme, tokens } from '../components.jsx';
 import { DraftImportModal } from './ImportTab.jsx';
 import { RosterImportModal } from './RosterImportTab.jsx';
@@ -208,8 +209,8 @@ function DataSourcesPanel({ league, accentColor, isDark, onUpdateLeague, default
   const contractsLoaded = teams.filter(tm => (tm.priorKeepers || []).length > 0).length;
   const draftLoaded = teams.filter(tm => (tm.priorKeepers || []).some(p => p.keptFor != null)).length;
 
-  const isSnake = league.draftType === 'snake';
-  const isAuction = league.draftType === 'auction';
+  const isSnake = !isAuctionCost(league);
+  const isAuction = isAuctionCost(league);
 
   // Build source list per league type. Prior contracts are NOT in the renew flow —
   // they carry forward automatically from last season's keeper assignments.

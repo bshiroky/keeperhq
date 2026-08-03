@@ -1,5 +1,6 @@
 import React from 'react';
 import { ClipboardList, X } from 'lucide-react';
+import { isAuctionCost } from '../lib/keeperRules.js';
 import { makeTheme, tokens, Button, Headshot, HScrollRow } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
@@ -219,9 +220,9 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '40px 20px', textAlign: 'center' }}>
         <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.textSecondary }}>No draft imported yet</div>
         <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 4, lineHeight: 1.5 }}>
-          {league.draftType === 'auction'
+          {isAuctionCost(league)
             ? "Paste last year's draft results to attach each player's drafted price — this is how keeper costs are calculated."
-            : "Paste last year's draft results to record draft rounds (used by pick-based keeper rules) and carry forward existing contracts."}
+            : "Paste last year's draft results to record draft rounds (used by pick-based keeper rules) and carry forward existing terms."}
         </div>
         <div style={{ marginTop: 14 }}>
           <Button variant="primary" size="md" accent={accentColor} isDark={isDark} onClick={() => setImporting(true)}>
@@ -272,13 +273,13 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
             {totalPlayers} player{totalPlayers === 1 ? '' : 's'} across {teamsWithDraft.length} team{teamsWithDraft.length === 1 ? '' : 's'}
             {unmatchedCount > 0 && <span style={{ color: tokens.danger, fontWeight: 600 }}> · {unmatchedCount} unmatched</span>}
-            {' — '}{league.draftType === 'auction'
+            {' — '}{isAuctionCost(league)
               ? 'drafted prices are what keeper costs are calculated from.'
-              : 'draft rounds feed pick-based keeper rules; contracts carry into the eligible pool.'}
+              : 'draft rounds feed pick-based keeper rules; terms carry into the eligible pool.'}
           </div>
           {/* State the league's actual escalation rule (from config, matching
               buildTeamPool's fallbacks) so the price→cost math is explicit. */}
-          {!isSnake && (
+          {isAuctionCost(league) && (
             <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 3 }}>
               Keeper cost = drafted price + ${league.auctionRules?.costIncreasePerYear || 5}/yr · undrafted players start at ${league.auctionRules?.undraftedStartCost || 5}
             </div>

@@ -11,7 +11,10 @@
     "build": "node scripts/fetch-players-nhl.mjs && vite build",
     "preview": "vite preview",
     "players:nhl": "node scripts/fetch-players-nhl.mjs",
-    "test:parser": "node scripts/test-draft-parser.mjs && node scripts/test-roster-parser.mjs"
+    "test:parser": "node scripts/test-draft-parser.mjs && node scripts/test-roster-parser.mjs",
+    "test:rules": "esbuild src/CreateLeagueWizard.jsx --bundle --format=esm --outfile=.tmp-wizard-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --log-level=error && node scripts/test-keeper-rules.mjs",
+    "test:wizard": "esbuild src/CreateLeagueWizard.jsx --bundle --format=esm --outfile=.tmp-wizard-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --log-level=error && node scripts/smoke-wizard.mjs",
+    "test": "npm run test:parser && npm run test:rules && npm run test:wizard"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

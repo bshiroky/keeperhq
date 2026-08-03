@@ -3,6 +3,8 @@
 //   - SettingsTab "Start New Season" button
 //   - SetupTab keeper review step (advancing prior-season keepers)
 
+import { termOf, isAuctionCost, TERM_FIXED } from './keeperRules.js';
+
 // Bumps the season label by one year.
 //   "2026-27" -> "2027-28"
 //   "2026"    -> "2027"
@@ -22,30 +24,35 @@ export function advanceSeasonLabel(label) {
   return label;
 }
 
-// Given a keeper from last season, returns what their contract looks like
-// in the NEW season — or null if the contract has now expired.
-// Snake leagues: bumps contractYear by 1; drops it if it exceeds contractLength.
-// Auction leagues: bumps yearsKept and keptFor by the league's per-year increase.
+// Given a keeper from last season, returns what he looks like in the NEW
+// season — or null if a fixed term has now run out (back to the draft).
+//
+// Cost and term are independent dimensions, so both adjustments are applied
+// in sequence rather than as an either/or. This used to branch on `draftType`,
+// which conflated the draft FORMAT with the keeper cost model: an auction-cost
+// league with a term never advanced its contract years, because the snake
+// branch was the only one that touched them. `draftType` is draft format only
+// now and takes no part in keeper math.
 export function advanceKeeper(keeper, league) {
-  if (league.draftType === 'snake') {
-    const length = keeper.contractLength || league.contractYears || 3;
-    const newYear = (keeper.contractYear || 0) + 1;
-    if (newYear > length) return null; // expired
-    return {
-      ...keeper,
-      contractYear: newYear,
-      contractLength: length,
-    };
-  }
-  if (league.draftType === 'auction') {
+  const term = termOf(league);
+  let next = { ...keeper, yearsKept: (keeper.yearsKept || 0) + 1 };
+
+  // Cost escalation — auction prices climb per year kept.
+  if (isAuctionCost(league)) {
     const bump = league.auctionRules?.costIncreasePerYear ?? 0;
-    return {
-      ...keeper,
-      keptFor: (keeper.keptFor || 0) + bump,
-      yearsKept: (keeper.yearsKept || 0) + 1,
-    };
+    next.keptFor = (next.keptFor || 0) + bump;
   }
-  return keeper;
+
+  // Term advance — runs for ANY cost model with a fixed term, auction included.
+  if (term.model === TERM_FIXED) {
+    const length = keeper.contractLength || term.years || 3;
+    const newYear = (keeper.contractYear || 0) + 1;
+    if (newYear > length) return null; // term expired
+    next.contractYear = newYear;
+    next.contractLength = length;
+  }
+
+  return next;
 }
 
 // Rolls a league from its current season to the next:
