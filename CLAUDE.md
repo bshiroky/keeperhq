@@ -199,10 +199,14 @@ features have shipped through their own branches (all merged):
   collide) — 4 numbered screens, 5 rendered. The **option strip** is the one
   new primitive: a `role="radiogroup"` pill row (label + glyph, 44px min) over
   a single `aria-live="polite"` description block at a **reserved height**
-  (104/112 format + cost, 148/164 term, desktop/mobile) with the revealed-
-  control slot reserved **unconditionally** (34px/44px) so nothing shifts as a
-  keyboard user arrows the group — load-bearing accessibility, not styling.
-  Between-group gap 30px desktop / 24px mobile. Also: the shared `CostPath`
+  with the revealed-control slot reserved **unconditionally** (34px/44px) so
+  nothing shifts as a keyboard user arrows the group — load-bearing
+  accessibility, not styling. The strip is a **grid, never inline flow**:
+  equal-width columns on one desktop row (so uneven label lengths can't read
+  as ragged and the row can't wrap — it did, with the cost question's three
+  pills breaking across two rows), one full-width option per row on mobile.
+  Reserves are **measured in Chromium, not estimated** — see the reserve
+  table below. Between-group gap 30px desktop / 24px mobile. Also: the shared `CostPath`
   beat strip, a live-preview pill composed as `{cost} · {term} · {N} keepers`
   that never names an archetype (each half held back until its screen is
   answered), a mobile sticky footer summary bar that expands the TradingCard
@@ -907,6 +911,43 @@ local-first app; not worth a migration shim.
   against a $1,200 pool ($250 unallocated).
 - `baseball-placeholder`: `{ standings: [], other: [] }`.
 
+## Create-league wizard — option-strip reserves (MEASURED)
+
+The description block under each option strip holds a fixed height so it never
+shifts as a keyboard user arrows the group. The numbers are **measured in
+Chromium against the running dev server**, never estimated — an earlier
+estimated table caused three rounds of layout bugs.
+
+| Screen | Tallest state (desktop) | Tallest state (mobile) | Reserve desktop | Reserve mobile |
+|---|---|---|---|---|
+| Draft format | 83 | 111 | **104** | **132** |
+| Cost | 83 | 111 | **104** | **132** |
+| Term | 83 | 111 | **104** | **132** |
+
+Derivation: **tallest measured state (which already includes the control
+slot), rounded up to a multiple of 4, plus one body line (20px) of headroom.**
+Desktop 84 + 20 = 104; mobile 112 + 20 = 132.
+
+All three screens currently measure identically, so all three reserves are
+equal — they keep separate CSS classes only so a future copy change can
+diverge per screen. The control slot itself is 34px desktop / 44px mobile and
+is rendered **unconditionally**, including for states that reveal no control;
+that is why the term screen's revealed `Select` does not measure taller than a
+control-less state.
+
+If a copy edit pushes a state past its reserve, **re-measure and raise the
+reserve** — never trim it toward the shortest state. The measuring harness
+drives the real dev server in Chromium (`/opt/pw-browsers/chromium`), sets
+`min-height: 0` on the block, clicks each option and reads the natural height;
+`npm run test:wizard` then asserts the committed values so a silent drift
+fails the suite.
+
+Mobile constraint: at 390×780 every **question** screen reaches its primary
+button without scrolling (tightest is the cost screen at 705px against 736px
+of usable height above the sticky preview bar). Teams and Review do scroll —
+Teams is out of scope for this arc, and Review is a read-back of every answer,
+which cannot fit one screen by nature.
+
 ## Keeper rules config keys
 
 Two independent dimensions. Written by the create-league wizard, editable in
@@ -1249,8 +1290,12 @@ copy of a component drifts away from the original.
   from before the switch rather than presenting it as authoritative. The one
   place this does NOT apply is league CREATION, where there is no prior data
   to preserve and an unused `auctionRules` block would be a misleading
-  legacy signal — `buildLeague` writes only the selected model's block.
-  Storage is cheap; the data isn't.
+  legacy signal (it is exactly what the shim reads as "this is an auction
+  league" for pre-wizard rows, so writing it on a slot-only league would make
+  the row genuinely ambiguous) — `buildLeague` writes only the selected
+  model's block. **This exception is reviewed and accepted, not an oversight:
+  preserve-don't-delete protects data that exists, and at creation there is
+  none.** Storage is cheap; the data isn't.
 - **League cards** → use the real `TradingCard` (in `components.jsx`),
   never a lookalike.
 - **Keeper cells** → use the shared `SampleKeeperCell`
@@ -2095,6 +2140,18 @@ buttons, no member login until (B)'s trigger is hit.
       stat-columns model (`STAT_CATEGORIES` /
       `league.statCategories`) applies as-is (rushing/receiving/
       passing yards, TDs, INTs, etc.).
+
+25. **FUTURE — team-tenure keeper leagues (a gap the two-dimension model
+    cannot express).** The cost/term model asks "how many keepers" as a
+    fixed player count. A real and Yahoo-supported variant instead budgets
+    **years of service**: a team protects a fixed number of keeper-YEARS, so
+    it could keep ten first-year players, or one player held for ten years,
+    or any combination summing to the budget. This breaks the count question
+    at its root — the number of keepers becomes variable rather than fixed,
+    so `keeperSlots` stops being a meaningful cap and the whole
+    count → cost → term sequence needs rethinking for that path. **Not
+    being built.** Recorded so the gap is known rather than rediscovered
+    when someone asks why a tenure league can't be set up.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's

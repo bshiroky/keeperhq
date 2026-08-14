@@ -120,5 +120,39 @@ const shell = renderToStaticMarkup(React.createElement(CreateLeagueWizard, {
 eq(/step\s+\d+\s+of\s+\d+/i.test(shell), false, 'shell renders no "Step N of M" eyebrow');
 eq(shell.includes('Basics') && shell.includes('Review'), true, 'rail renders all phases');
 
+// ── Option strip is a GRID, never inline flow ─────────────────────────────
+// It wrapped in the browser when it was flex + flex-wrap: three uneven pills
+// broke across two rows. Equal-width grid columns are the fix, and these
+// assertions stop a revert to inline flow going unnoticed.
+section('Option strip layout');
+eq(/\.kh-wz-strip\s*\{[^}]*grid-auto-flow:\s*column/.test(shell), true,
+  'desktop strip is one row of grid columns');
+eq(/\.kh-wz-strip\s*\{[^}]*grid-auto-columns:\s*1fr/.test(shell), true,
+  'desktop columns are equal width regardless of label length');
+eq(/@media[^{]*760px[^}]*\)\s*\{[\s\S]*?\.kh-wz-strip\s*\{[^}]*grid-auto-flow:\s*row/.test(shell), true,
+  'mobile strip is one option per row');
+eq(/\.kh-wz-strip\s*\{[^}]*flex-wrap/.test(shell), false,
+  'strip never uses flex-wrap (the bug this replaced)');
+// The shell opens on Basics, which has no strip — assert against screens
+// that do, one per option-strip question.
+for (const id of ['format', 'cost', 'term']) {
+  const html = renderScreen(id, { ...makeInitial(), sport: 'hockey', name: 'Test' }, false);
+  eq(html.includes('class="kh-wz-strip"'), true, `${id} screen renders the grid strip class`);
+  eq(html.includes('role="radiogroup"'), true, `${id} screen strip is a radiogroup`);
+}
+
+// ── Reserves are the MEASURED values ──────────────────────────────────────
+// Measured in Chromium: tallest state is 83px desktop / 111px mobile on all
+// three screens, so all three reserves are equal at each breakpoint.
+// Re-measure (scratchpad harness) before changing these.
+section('Description reserves');
+eq(/\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*104px/.test(shell), true,
+  'desktop reserve 104px, shared by all three screens');
+eq(/@media[^{]*760px[^}]*\)[\s\S]*?\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*132px/.test(shell), true,
+  'mobile reserve 132px, shared by all three screens');
+eq(/\.kh-wz-slot\s*\{\s*min-height:\s*34px/.test(shell), true, 'desktop control slot reserved at 34px');
+eq(/@media[^{]*760px[^}]*\)[\s\S]*?\.kh-wz-slot\s*\{\s*min-height:\s*44px/.test(shell), true,
+  'mobile control slot reserved at 44px');
+
 console.log(`\n${fail === 0 ? '✓' : '✗'} ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

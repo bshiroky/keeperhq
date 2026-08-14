@@ -36,20 +36,43 @@ const PHASE_TITLES = {
 // collapses to a single column.
 const MOBILE_Q = '(max-width: 760px)';
 
-// Description-block reserves (spec §2). Each is the tallest body at that
-// breakpoint PLUS the control slot, so the block never changes height as a
-// keyboard user arrows through the group. Raise a reserve if copy grows;
-// never trim it to the shortest state. The control slot is reserved
-// UNCONDITIONALLY — states revealing no control render an empty slot — because
-// a min-height alone pads short states but still lets a tall one push past.
+// Description-block reserves (spec §2), MEASURED in Chromium at both
+// breakpoints rather than estimated — see the derivation rule below.
+//
+// Reserve = tallest measured state (which already includes the control slot)
+// rounded up to a multiple of 4, plus one body line (20px) of headroom.
+// Measured tallest state, all three screens: 83px desktop / 111px mobile
+// (the mobile 111 is any two-line body; the term screen's revealed Select
+// fits inside the reserved control slot, which is why it doesn't measure
+// taller than a no-control state — that is the unconditional slot working).
+//   desktop  84 + 20 = 104
+//   mobile  112 + 20 = 132
+// All three screens currently measure the same, so all three reserves are
+// equal; they keep separate classes so a future copy change can diverge per
+// screen. If a copy edit pushes a state past its reserve, RE-MEASURE and
+// raise the reserve — never trim it toward the shortest state.
+//
+// The control slot is reserved UNCONDITIONALLY — states revealing no control
+// render an empty slot — because a min-height alone pads short states but
+// still lets a tall one push past.
 const WIZARD_STYLES = `
   .kh-fighter-card { transition: background 0.2s, border-color 0.2s, box-shadow 0.25s, transform 0.2s; }
   .kh-fighter-card--unselected:hover { background: rgba(0,0,0,0.025); transform: translateY(-1px); }
   .kh-fighter-card--selected .kh-fighter-char { animation: kh-bob 1.4s ease-in-out infinite; }
 
-  .kh-wz-desc--format, .kh-wz-desc--cost { min-height: 104px; }
-  .kh-wz-desc--term { min-height: 148px; }
+  .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 104px; }
   .kh-wz-slot { min-height: 34px; display: flex; align-items: center; }
+
+  /* Option strip: a GRID, never inline flow. Desktop is equal-width columns
+     on one row — every option the same width regardless of label length, so
+     the row can't wrap and the pills can't read as ragged. Mobile is one
+     full-width option per row. Grid rows stretch, so a pill whose label wraps
+     lifts all of them to the same height rather than staggering. */
+  .kh-wz-strip {
+    display: grid; gap: 8px;
+    grid-auto-flow: column; grid-auto-columns: 1fr;
+    align-items: stretch;
+  }
 
   /* Between-group gap, visibly larger than the label-to-control gap — that
      contrast is what separates the decisions. */
@@ -59,11 +82,11 @@ const WIZARD_STYLES = `
   .kh-wz-mobile-only { display: none; }
 
   @media (max-width: 760px) {
-    .kh-wz-desc--format, .kh-wz-desc--cost { min-height: 112px; }
-    .kh-wz-desc--term { min-height: 164px; }
+    .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 132px; }
     .kh-wz-slot { min-height: 44px; }
     .kh-wz-groups { gap: 24px; }
     .kh-wz-grid { grid-template-columns: minmax(0, 1fr); }
+    .kh-wz-strip { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); }
     .kh-wz-rail, .kh-wz-preview { display: none; }
     .kh-wz-mobile-only { display: block; }
   }
@@ -363,8 +386,8 @@ function OptionStrip({ label, options, value, onChange, accent, isDark }) {
   }
 
   return (
-    <div role="radiogroup" aria-label={label} onKeyDown={onKeyDown}
-      style={{ display: 'flex', flexWrap: 'wrap', gap: tokens.spaceXs }}>
+    <div className="kh-wz-strip" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}
+      style={{ maxWidth: 520 }}>
       {options.map((o, i) => {
         const sel = o.value === value;
         const Icon = o.Icon;
@@ -374,8 +397,9 @@ function OptionStrip({ label, options, value, onChange, accent, isDark }) {
             tabIndex={i === idx ? 0 : -1}
             onClick={() => onChange(o.value)}
             style={{
-              display: 'inline-flex', alignItems: 'center', gap: tokens.spaceXs,
-              minHeight: 44, padding: `0 ${tokens.spaceMd}px`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: tokens.spaceXs,
+              minHeight: 44, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
+              textAlign: 'center', boxSizing: 'border-box',
               borderRadius: tokens.radiusPill, cursor: 'pointer', fontFamily: 'inherit',
               border: `1px solid ${sel ? accent : t.border}`,
               background: sel ? accent : (isDark ? '#1c2130' : '#fff'),
@@ -383,8 +407,8 @@ function OptionStrip({ label, options, value, onChange, accent, isDark }) {
               ...tokens.typeBody, fontWeight: sel ? 700 : 500,
               transition: 'background 0.15s, border-color 0.15s, color 0.15s',
             }}>
-            {Icon && <Icon size={15} strokeWidth={2} aria-hidden="true" />}
-            {o.label}
+            {Icon && <Icon size={15} strokeWidth={2} aria-hidden="true" style={{ flexShrink: 0 }} />}
+            <span>{o.label}</span>
           </button>
         );
       })}
@@ -1108,7 +1132,7 @@ function CreateLeagueWizard({ isDark, existingLeagues, onCreate, onCancel }) {
 
   return (
     <DarkContext.Provider value={isDark}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: tokens.space2xl, paddingBottom: isMobile ? 80 : tokens.space2xl }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: tokens.space2xl, paddingBottom: isMobile ? 56 : tokens.space2xl }}>
         <style>{CARD_STYLES}</style>
         <style>{WIZARD_STYLES}</style>
 
