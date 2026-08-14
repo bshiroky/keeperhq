@@ -205,6 +205,17 @@ features have shipped through their own branches (all merged):
   equal-width columns on one desktop row (so uneven label lengths can't read
   as ragged and the row can't wrap — it did, with the cost question's three
   pills breaking across two rows), one full-width option per row on mobile.
+  The column count is set **inline** per strip as
+  `repeat(N, minmax(0, 1fr))` so N equal columns always span the content
+  column rather than shrinking to fit; the strip, the screen title and the
+  description block share the same left and right edges (no local
+  `maxWidth` on any of them). Labels are kept short and even enough to fit
+  one line at every width — `Keeper slot` · `Draft pick` ·
+  `Auction dollars` (`dollars`, not `value`: it matches the vocabulary on
+  the specifics screen and in `CostPath`, and `value` reads as a rating
+  rather than a price). Each description is **one sentence that explains
+  rather than restating its pill** — "Keeping costs you a draft pick" under
+  a pill reading "Draft pick" spent a line saying nothing.
   Reserves are **measured in Chromium, not estimated** — see the reserve
   table below. Between-group gap 30px desktop / 24px mobile. Also: the shared `CostPath`
   beat strip, a live-preview pill composed as `{cost} · {term} · {N} keepers`
@@ -920,13 +931,15 @@ estimated table caused three rounds of layout bugs.
 
 | Screen | Tallest state (desktop) | Tallest state (mobile) | Reserve desktop | Reserve mobile |
 |---|---|---|---|---|
-| Draft format | 83 | 111 | **104** | **132** |
-| Cost | 83 | 111 | **104** | **132** |
-| Term | 83 | 111 | **104** | **132** |
+| Draft format | 85 | 95 | **108** | **116** |
+| Cost | 65.5 | 95 | **108** | **116** |
+| Term | 85 | 95 | **108** | **116** |
 
 Derivation: **tallest measured state (which already includes the control
 slot), rounded up to a multiple of 4, plus one body line (20px) of headroom.**
-Desktop 84 + 20 = 104; mobile 112 + 20 = 132.
+Desktop 88 + 20 = 108; mobile 96 + 20 = 116. The 10px desktop/mobile gap is
+exactly the control-slot difference (34 vs 44) — the text block itself
+measures the same at both breakpoints.
 
 All three screens currently measure identically, so all three reserves are
 equal — they keep separate CSS classes only so a future copy change can
@@ -943,8 +956,9 @@ drives the real dev server in Chromium (`/opt/pw-browsers/chromium`), sets
 fails the suite.
 
 Mobile constraint: at 390×780 every **question** screen reaches its primary
-button without scrolling (tightest is the cost screen at 705px against 736px
-of usable height above the sticky preview bar). Teams and Review do scroll —
+button without scrolling (tightest is the cost screen — the only three-row
+strip — at 689px against 736px of usable height above the sticky preview
+bar). Teams and Review do scroll —
 Teams is out of scope for this arc, and Review is a read-back of every answer,
 which cannot fit one screen by nature.
 

@@ -127,29 +127,42 @@ eq(shell.includes('Basics') && shell.includes('Review'), true, 'rail renders all
 section('Option strip layout');
 eq(/\.kh-wz-strip\s*\{[^}]*grid-auto-flow:\s*column/.test(shell), true,
   'desktop strip is one row of grid columns');
-eq(/\.kh-wz-strip\s*\{[^}]*grid-auto-columns:\s*1fr/.test(shell), true,
-  'desktop columns are equal width regardless of label length');
+eq(/\.kh-wz-strip\s*\{[^}]*width:\s*100%/.test(shell), true,
+  'strip spans the full content column, sharing edges with the title');
 eq(/@media[^{]*760px[^}]*\)\s*\{[\s\S]*?\.kh-wz-strip\s*\{[^}]*grid-auto-flow:\s*row/.test(shell), true,
   'mobile strip is one option per row');
 eq(/\.kh-wz-strip\s*\{[^}]*flex-wrap/.test(shell), false,
   'strip never uses flex-wrap (the bug this replaced)');
 // The shell opens on Basics, which has no strip — assert against screens
 // that do, one per option-strip question.
-for (const id of ['format', 'cost', 'term']) {
+// Column count is set inline per strip, so N equal columns always span the
+// container rather than shrinking to fit their content.
+const STRIP_COLS = { format: 2, cost: 3, term: 2 };
+for (const [id, cols] of Object.entries(STRIP_COLS)) {
   const html = renderScreen(id, { ...makeInitial(), sport: 'hockey', name: 'Test' }, false);
   eq(html.includes('class="kh-wz-strip"'), true, `${id} screen renders the grid strip class`);
   eq(html.includes('role="radiogroup"'), true, `${id} screen strip is a radiogroup`);
+  eq(new RegExp(`grid-template-columns:\\s*repeat\\(${cols},\\s*minmax\\(0,\\s*1fr\\)\\)`).test(html), true,
+    `${id} strip declares ${cols} equal full-width columns`);
+  eq((html.match(/role="radio"/g) || []).length, cols, `${id} strip renders ${cols} options`);
+}
+
+// The description must explain, not restate the pill it sits under.
+const costHtml = renderScreen('cost', { ...makeInitial(), sport: 'hockey', name: 'Test' }, false);
+for (const label of ['Keeper slot', 'Draft pick', 'Auction dollars']) {
+  eq((costHtml.match(new RegExp(label, 'g')) || []).length, 1,
+    `"${label}" appears once — as the pill, not echoed by the description`);
 }
 
 // ── Reserves are the MEASURED values ──────────────────────────────────────
-// Measured in Chromium: tallest state is 83px desktop / 111px mobile on all
-// three screens, so all three reserves are equal at each breakpoint.
+// Measured in Chromium: tallest state is 85px desktop / 95px mobile across
+// all three screens, so all three reserves are equal at each breakpoint.
 // Re-measure (scratchpad harness) before changing these.
 section('Description reserves');
-eq(/\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*104px/.test(shell), true,
-  'desktop reserve 104px, shared by all three screens');
-eq(/@media[^{]*760px[^}]*\)[\s\S]*?\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*132px/.test(shell), true,
-  'mobile reserve 132px, shared by all three screens');
+eq(/\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*108px/.test(shell), true,
+  'desktop reserve 108px, shared by all three screens');
+eq(/@media[^{]*760px[^}]*\)[\s\S]*?\.kh-wz-desc--format,\s*\.kh-wz-desc--cost,\s*\.kh-wz-desc--term\s*\{\s*min-height:\s*116px/.test(shell), true,
+  'mobile reserve 116px, shared by all three screens');
 eq(/\.kh-wz-slot\s*\{\s*min-height:\s*34px/.test(shell), true, 'desktop control slot reserved at 34px');
 eq(/@media[^{]*760px[^}]*\)[\s\S]*?\.kh-wz-slot\s*\{\s*min-height:\s*44px/.test(shell), true,
   'mobile control slot reserved at 44px');

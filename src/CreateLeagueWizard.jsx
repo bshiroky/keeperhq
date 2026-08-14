@@ -41,12 +41,14 @@ const MOBILE_Q = '(max-width: 760px)';
 //
 // Reserve = tallest measured state (which already includes the control slot)
 // rounded up to a multiple of 4, plus one body line (20px) of headroom.
-// Measured tallest state, all three screens: 83px desktop / 111px mobile
-// (the mobile 111 is any two-line body; the term screen's revealed Select
-// fits inside the reserved control slot, which is why it doesn't measure
-// taller than a no-control state — that is the unconditional slot working).
-//   desktop  84 + 20 = 104
-//   mobile  112 + 20 = 132
+// Measured tallest state across all three screens: 85px desktop / 95px mobile
+// (a two-line body; the 10px gap between them is exactly the control-slot
+// difference, 44 vs 34, so the text block itself measures the same at both
+// breakpoints). The term screen's revealed Select fits inside the reserved
+// slot, which is why it doesn't measure taller than a control-less state —
+// that is the unconditional slot working.
+//   desktop  88 + 20 = 108
+//   mobile   96 + 20 = 116
 // All three screens currently measure the same, so all three reserves are
 // equal; they keep separate classes so a future copy change can diverge per
 // screen. If a copy edit pushes a state past its reserve, RE-MEASURE and
@@ -60,18 +62,20 @@ const WIZARD_STYLES = `
   .kh-fighter-card--unselected:hover { background: rgba(0,0,0,0.025); transform: translateY(-1px); }
   .kh-fighter-card--selected .kh-fighter-char { animation: kh-bob 1.4s ease-in-out infinite; }
 
-  .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 104px; }
+  .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 108px; }
   .kh-wz-slot { min-height: 34px; display: flex; align-items: center; }
 
-  /* Option strip: a GRID, never inline flow. Desktop is equal-width columns
-     on one row — every option the same width regardless of label length, so
-     the row can't wrap and the pills can't read as ragged. Mobile is one
-     full-width option per row. Grid rows stretch, so a pill whose label wraps
-     lifts all of them to the same height rather than staggering. */
+  /* Option strip: a GRID, never inline flow. Desktop is N equal columns
+     spanning the full content column — every option the same width regardless
+     of label length, so the row can't wrap and the pills can't read as
+     ragged. The column count is set inline per strip as
+     repeat(N, minmax(0, 1fr)) — minmax(0,...) keeps a long label from growing
+     its track past its share, which plain 1fr allows.
+     Mobile is one full-width option per row. Rows stretch, so a pill whose
+     label wraps lifts all of them together rather than staggering. */
   .kh-wz-strip {
-    display: grid; gap: 8px;
-    grid-auto-flow: column; grid-auto-columns: 1fr;
-    align-items: stretch;
+    display: grid; gap: 8px; width: 100%;
+    grid-auto-flow: column; align-items: stretch;
   }
 
   /* Between-group gap, visibly larger than the label-to-control gap — that
@@ -82,11 +86,11 @@ const WIZARD_STYLES = `
   .kh-wz-mobile-only { display: none; }
 
   @media (max-width: 760px) {
-    .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 132px; }
+    .kh-wz-desc--format, .kh-wz-desc--cost, .kh-wz-desc--term { min-height: 116px; }
     .kh-wz-slot { min-height: 44px; }
     .kh-wz-groups { gap: 24px; }
     .kh-wz-grid { grid-template-columns: minmax(0, 1fr); }
-    .kh-wz-strip { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: minmax(0, 1fr); }
+    .kh-wz-strip { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr) !important; }
     .kh-wz-rail, .kh-wz-preview { display: none; }
     .kh-wz-mobile-only { display: block; }
   }
@@ -360,7 +364,7 @@ function FieldHelp({ children, t }) {
 // repeating it beneath. A subtitle only where it earns its place.
 function ScreenIntro({ subtitle, t }) {
   if (!subtitle) return null;
-  return <div style={{ ...tokens.typeBody, color: t.textSecondary, marginBottom: tokens.spaceLg, maxWidth: 520, lineHeight: 1.5 }}>{subtitle}</div>;
+  return <div style={{ ...tokens.typeBody, color: t.textSecondary, marginBottom: tokens.spaceLg, lineHeight: 1.5 }}>{subtitle}</div>;
 }
 
 // ── Option strip (the one new primitive) ──────────────────────────────────
@@ -387,7 +391,7 @@ function OptionStrip({ label, options, value, onChange, accent, isDark }) {
 
   return (
     <div className="kh-wz-strip" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}
-      style={{ maxWidth: 520 }}>
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}>
       {options.map((o, i) => {
         const sel = o.value === value;
         const Icon = o.Icon;
@@ -420,21 +424,24 @@ function OptionStrip({ label, options, value, onChange, accent, isDark }) {
 // It swaps content on selection change and never changes height: `variant`
 // picks the reserve, and the control slot is always rendered even when the
 // selected state reveals no control.
-function OptionDescription({ variant, title, body, control }) {
+//
+// ONE sentence, and it explains rather than restating the pill — a block
+// titled "Keeping costs you a draft pick" under a pill reading "Draft pick"
+// spends a line saying nothing, and the shorter labels made that obvious.
+function OptionDescription({ variant, body, control }) {
   return (
     <div className={`kh-wz-desc kh-wz-desc--${variant}`} aria-live="polite"
-      style={{ marginTop: tokens.spaceMd, maxWidth: 520 }}>
-      <OptionDescriptionBody title={title} body={body} control={control} />
+      style={{ marginTop: tokens.spaceMd }}>
+      <OptionDescriptionBody body={body} control={control} />
     </div>
   );
 }
 
-function OptionDescriptionBody({ title, body, control }) {
+function OptionDescriptionBody({ body, control }) {
   const t = makeTheme(useIsDark());
   return (
     <>
-      <div style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary }}>{title}</div>
-      <div style={{ ...tokens.typeBodyMeta, color: t.textSecondary, marginTop: tokens.space2xs, lineHeight: 1.5 }}>{body}</div>
+      <div style={{ ...tokens.typeBody, color: t.textBody, lineHeight: 1.5 }}>{body}</div>
       <div className="kh-wz-slot" style={{ marginTop: tokens.spaceSm }}>{control || null}</div>
     </>
   );
@@ -629,19 +636,18 @@ const FORMAT_OPTIONS = [
   { value: 'auction', label: 'Auction', Icon: Gavel },
 ];
 const FORMAT_COPY = {
-  snake: { title: 'Picks go round by round', body: 'Draft order snakes back and forth each round.' },
-  auction: { title: 'Everyone bids on every player', body: 'Each team spends from a budget instead of drafting in order.' },
+  snake: 'Draft order snakes back and forth each round.',
+  auction: 'Everyone bids on every player from a shared budget instead of drafting in order.',
 };
 
 function ScreenFormat({ s, dispatch, isDark, accent }) {
   const t = makeTheme(isDark);
-  const copy = FORMAT_COPY[s.draftType] || FORMAT_COPY.snake;
   return (
     <div>
       <ScreenIntro t={t} subtitle="This sets how the draft itself runs — it doesn’t decide what keeping costs." />
       <OptionStrip label="Draft format" options={FORMAT_OPTIONS} value={s.draftType} accent={accent} isDark={isDark}
         onChange={v => dispatch({ type: 'set', patch: { draftType: v } })} />
-      <OptionDescription variant="format" title={copy.title} body={copy.body} />
+      <OptionDescription variant="format" body={FORMAT_COPY[s.draftType] || FORMAT_COPY.snake} />
     </div>
   );
 }
@@ -679,26 +685,29 @@ function ScreenCount({ s, dispatch, isDark }) {
 }
 
 // ── Keeper rules · 2 — what keeping costs ─────────────────────────────────
+// Three roughly even labels that fit one line at any width. "dollars" rather
+// than "value": it matches the vocabulary downstream on the specifics screen
+// and in CostPath ("Drafted $58 → Keep for $63"), and "value" would read as a
+// rating rather than a price.
 const COST_OPTIONS = [
-  { value: COST_SLOT, label: 'A keeper slot only', Icon: Square },
-  { value: COST_PICKS, label: 'A draft pick', Icon: Ticket },
+  { value: COST_SLOT, label: 'Keeper slot', Icon: Square },
+  { value: COST_PICKS, label: 'Draft pick', Icon: Ticket },
   { value: COST_AUCTION, label: 'Auction dollars', Icon: DollarSign },
 ];
 const COST_COPY = {
-  [COST_SLOT]: { title: 'The slot is the whole cost', body: 'No pick changes hands and no price follows him around.' },
-  [COST_PICKS]: { title: 'Keeping costs you a draft pick', body: 'Every keeper eats one of your picks in the next draft.' },
-  [COST_AUCTION]: { title: 'Keeping costs what he was paid for', body: 'His auction price travels with him, usually climbing each year.' },
+  [COST_SLOT]: 'No pick changes hands and no price follows him around.',
+  [COST_PICKS]: 'Every keeper eats one of your picks in the next draft.',
+  [COST_AUCTION]: 'His auction price travels with him, usually climbing each year.',
 };
 
 function ScreenCost({ s, dispatch, isDark, accent }) {
   const t = makeTheme(isDark);
-  const copy = COST_COPY[s.keeperCostModel];
   return (
     <div>
       <ScreenIntro t={t} subtitle="This sets whether the rest talks in dollars or rounds." />
       <OptionStrip label="What keeping costs" options={COST_OPTIONS} value={s.keeperCostModel} accent={accent} isDark={isDark}
         onChange={v => dispatch({ type: 'costModel', value: v })} />
-      <OptionDescription variant="cost" title={copy.title} body={copy.body} />
+      <OptionDescription variant="cost" body={COST_COPY[s.keeperCostModel]} />
     </div>
   );
 }
@@ -798,8 +807,9 @@ function ScreenTerm({ s, dispatch, isDark, accent }) {
         onChange={v => dispatch({ type: 'set', patch: { termModel: v } })} />
       <OptionDescription
         variant="term"
-        title={fixed ? 'Every keep runs the same length' : 'No term'}
-        body={fixed ? 'When the term is up, he goes back into the draft.' : NO_TERM_BODY[s.keeperCostModel]}
+        body={fixed
+          ? 'Every keep runs the same length, and when the term is up he goes back into the draft.'
+          : NO_TERM_BODY[s.keeperCostModel]}
         control={fixed ? (
           <Select value={s.termYears} onChange={v => dispatch({ type: 'set', patch: { termYears: Number(v) } })}
             options={[2, 3, 4, 5]} suffix="years" width={140} isDark={isDark} />
