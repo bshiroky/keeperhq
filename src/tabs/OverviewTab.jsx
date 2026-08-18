@@ -5,6 +5,7 @@ import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { SampleKeeperCell } from './keeper-grid-variants.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
+import { keeperValueText, isFinalYear, hasTerm, isAuctionCost } from '../lib/keeperRules.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
@@ -74,10 +75,10 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
   const [playerMap, setPlayerMap] = React.useState(null); // normalized name → player record
   const maxKeepers = league.keeperSlots;
   const isPreseason = league.status === 'pre-draft' || league.status === 'setup';
-  // Grid accent is driven by draft type, not sport: contract/snake = blue,
-  // auction = orange. Used for keeper values + empty "+ Add" cells + the
-  // Pre-Season pill so both league types read as consistently themed.
-  const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
+  // Grid accent is driven by the keeper cost model, not sport and not the
+  // draft format: dollar-cost leagues = orange, everything else = blue. Used
+  // for keeper values + empty "+ Add" cells + the Pre-Season pill.
+  const gridAccent = isAuctionCost(league) ? tokens.warning : tokens.info;
 
   // Column-width constants — Team & Edit are pinned (sticky). K columns
   // operate in one of two mutually exclusive modes:
@@ -204,7 +205,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Keepers</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {league.draftType === 'snake' && (
+            {hasTerm(league) && (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '11px', color: t.textMuted }}>
                 <span aria-hidden="true" style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, background: t.dangerBg, border: `1px solid ${t.dangerBorder}` }} />
                 Final year
@@ -309,7 +310,7 @@ function CompactKeeperGrid({ league, accentColor, isDark, onUpdateLeague }) {
                           {slot ? (
                             <SampleKeeperCell
                               slot={slot}
-                              isSnake={league.draftType === 'snake'}
+                              league={league}
                               isDark={isDark}
                               gridAccent={gridAccent}
                               onReassignClick={(e) => { e.stopPropagation(); setMovingKeeper(popoverOpen ? null : { teamId: slot.sourceTeamId, keeperIdx: slot.sourceIdx }); }}
@@ -465,13 +466,8 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
 // team. Below the grid, snake leagues get the "Expiring after this season"
 // roll-up (the back-to-the-draft list).
 
-function keeperValueText(k, isSnake) {
-  return isSnake ? `Y${k.contractYear}/${k.contractLength}` : `$${k.keptFor}`;
-}
-
 function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen, playerMap }) {
   const t = makeTheme(isDark);
-  const isSnake = league.draftType === 'snake';
   const slots = league.keeperSlots || 0;
   const keepers = team.keepers || [];
   const count = keepers.length;
@@ -497,7 +493,7 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
         {Array.from({ length: slots }, (_, i) => {
           const k = keepers[i];
           const last = i === slots - 1;
-          const expiring = k && isSnake && k.contractYear >= k.contractLength;
+          const expiring = k && isFinalYear(league, k);
           return (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 0', borderBottom: last ? 'none' : `1px solid ${t.dividerFaint}`, minHeight: 38, boxSizing: 'border-box' }}>
               <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, width: 22, flexShrink: 0 }}>K{i + 1}</span>
@@ -506,7 +502,7 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
                 <>
                   <span style={{ ...tokens.typeBody, fontWeight: 600, color: expiring ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.player}</span>
                   {expiring && <span style={{ ...tokens.typePillEmphatic, color: t.danger, flexShrink: 0 }}>Final yr</span>}
-                  <span style={{ ...tokens.typePill, fontWeight: 700, color: expiring ? t.danger : gridAccent, flexShrink: 0 }}>{keeperValueText(k, isSnake)}</span>
+                  <span style={{ ...tokens.typePill, fontWeight: 700, color: expiring ? t.danger : gridAccent, flexShrink: 0 }}>{keeperValueText(league, k)}</span>
                 </>
               ) : (
                 <span style={{ ...tokens.typeBody, color: t.textMuted, fontStyle: 'italic', flex: 1 }}>Open slot</span>
@@ -553,11 +549,11 @@ function ExpiringSection({ expiring, isDark }) {
 function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
-  const isSnake = league.draftType === 'snake';
+  const termed = hasTerm(league);
   const slots = league.keeperSlots || 0;
-  // Grid accent follows draft type (blue snake / orange auction), matching the
-  // value coloring used across the keeper surfaces.
-  const gridAccent = league.draftType === 'auction' ? tokens.warning : tokens.info;
+  // Grid accent follows the keeper cost model, matching the value coloring
+  // used across the keeper surfaces.
+  const gridAccent = isAuctionCost(league) ? tokens.warning : tokens.info;
   const playerMap = usePlayerMap(league.sport);
 
   if (teams.length === 0 || slots === 0) {
@@ -575,9 +571,9 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
     );
   }
 
-  const expiring = isSnake
+  const expiring = termed
     ? teams.flatMap(tm => (tm.keepers || [])
-        .filter(k => k.contractYear >= k.contractLength)
+        .filter(k => isFinalYear(league, k))
         .map(k => ({ ...k, teamName: tm.name })))
     : [];
 
@@ -589,7 +585,7 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
           <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} playerMap={playerMap} />
         ))}
       </div>
-      {isSnake && <ExpiringSection expiring={expiring} isDark={isDark} />}
+      {termed && <ExpiringSection expiring={expiring} isDark={isDark} />}
     </div>
   );
 }

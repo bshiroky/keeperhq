@@ -1,4 +1,5 @@
 import React from 'react';
+import { draftFormatOf, hasTerm, termOf } from '../lib/keeperRules.js';
 import { makeTheme } from '../components.jsx';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
 import { parseDraftResults } from '../lib/draftParse.js';
@@ -40,8 +41,12 @@ function draftPlaceholder(sport, isSnake) {
 
 function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, onCancel }) {
   const t = makeTheme(isDark);
-  const isSnake = league.draftType === 'snake';
-  const contractLen = league.contractYears || 3;
+  // Two different questions here: the paste SHAPE depends on the draft format
+  // (an auction export carries salaries, a snake one doesn't), while the
+  // contract-year carry-forward only exists where the league has a term.
+  const isSnake = draftFormatOf(league) === 'snake';
+  const termed = hasTerm(league);
+  const contractLen = termOf(league).years || 3;
   const [text, setText] = React.useState('');
   const [preview, setPreview] = React.useState(null);
   const [mapping, setMapping] = React.useState({}); // {parsedName: leagueTeamId}
@@ -98,7 +103,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
           acquisitionMethod: 'draft',
           rookieAtAcquisition: false,
         };
-        if (isSnake) {
+        if (termed) {
           // priorKeepers.contractYear stores years already served (data.js
           // convention: 0 = drafted last year, entering Y1 if kept), so the
           // pool advances an "entering Y2" import to exactly Y2.
@@ -115,7 +120,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
         players: priorKeepers.length,
         // Snake: contracts carried forward mid-deal (entering year > 1).
         // Auction: carry-over keepers (kept before) + rows with a price.
-        withContracts: isSnake
+        withContracts: termed
           ? priorKeepers.filter(k => (k.contractYear || 0) > 0).length
           : priorKeepers.filter(k => (k.yearsKept || 0) > 0).length,
         withPrices: isSnake ? null : priorKeepers.filter(k => k.keptFor != null).length,
@@ -138,7 +143,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
       {!preview && (
         <>
           <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-            Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>{draftSampleRow(league.sport, isSnake)}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{isSnake ? ', and you can set each player’s current contract year on the preview step' : ''}.
+            Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>{draftSampleRow(league.sport, isSnake)}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{termed ? ', and you can set each player’s current term year on the preview step' : ''}.
           </div>
           {error && (
             <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>{error}</div>
@@ -172,7 +177,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
             Parsed <strong>{preview.length}</strong> team{preview.length === 1 ? '' : 's'} ·{' '}
             <strong>{preview.reduce((s, p) => s + p.players.length, 0)}</strong> players. Map each parsed name to one of your league's teams:
           </div>
-          {isSnake && (
+          {termed && (
             <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.5 }}>
               Carry-forward contracts: expand a team to set each player's contract year <em>entering this season</em> (Y1–Y{contractLen}, defaults to Y1). A player entering Y{contractLen} is in their final keepable year.
             </div>
@@ -195,7 +200,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
                       </div>
                     )}
                   </div>
-                  {isSnake && (
+                  {termed && (
                     <button onClick={() => setExpandedTeams({ ...expandedTeams, [p.name]: !isExpanded })}
                       style={{ background: 'none', border: `1px solid ${t.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, color: t.textSecondary, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                       {isExpanded ? 'Hide players ▾' : 'Set contract years (carry-forward) ▸'}
@@ -222,7 +227,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
                     })}
                   </select>
                 </div>
-                {isSnake && isExpanded && (
+                {termed && isExpanded && (
                   <div style={{ borderTop: `1px solid ${t.divider}`, padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.4, padding: '2px 0 4px' }}>
                       Set each player's current contract year entering this season.
@@ -282,7 +287,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
 // keeping its result step so that flow still ends on a summary, not silence.
 function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
   const t = makeTheme(isDark);
-  const isSnake = league.draftType === 'snake';
+  const termed = hasTerm(league);
   const [result, setResult] = React.useState(null); // { teams: [{name, players, withContracts, withPrices}] }
 
   const overlay = {
@@ -320,7 +325,7 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tm.name}</span>
                       <span style={{ fontSize: 12, color: t.textSecondary, whiteSpace: 'nowrap' }}>{tm.players} player{tm.players === 1 ? '' : 's'}</span>
                       <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>
-                        · {tm.withContracts} {isSnake ? 'with contracts' : 'kept before'}
+                        · {tm.withContracts} {termed ? 'with terms' : 'kept before'}
                       </span>
                       {tm.withPrices != null && (
                         <span style={{ fontSize: 12, color: t.textMuted, whiteSpace: 'nowrap' }}>· {tm.withPrices} with prices</span>
@@ -329,7 +334,7 @@ function DraftImportModal({ league, accentColor, isDark, onImport, onClose }) {
                   ))}
                 </div>
                 <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
-                  {isSnake
+                  {termed
                     ? "These players now seed each team's eligible keeper pool with their contract years and draft rounds."
                     : "These players now seed each team's eligible keeper pool — next-season keeper costs are calculated from the imported prices."}
                 </div>

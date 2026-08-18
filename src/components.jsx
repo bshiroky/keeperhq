@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Check, X } from 'lucide-react';
 import { totalKeepers } from './lib/celebration.js';
 import { loadPlayers, normalizeName } from './lib/players.js';
+import { keeperCostModelOf, termOf, termLabel, hasTerm, isAuctionCost, COST_LABEL } from './lib/keeperRules.js';
 
 // Shared UI components — exported to window
 
@@ -178,7 +179,10 @@ function Headshot({ name, map, size = 26, isDark }) {
   );
 }
 
-const DRAFT_LABEL = { snake: 'Contract Snake', auction: 'Auction' };
+// Draft FORMAT only — how the draft runs. "Contract Snake" used to live here,
+// which baked a keeper rule into a format label; contracts are a term now and
+// are named separately.
+const DRAFT_LABEL = { snake: 'Snake', auction: 'Auction' };
 const STATUS_CONFIG = {
   'pre-draft': { label: 'Pre-Draft',  bg: 'rgba(59,138,230,0.15)',  color: '#6ab0f5' },
   'active':    { label: 'Active',     bg: tokens.successBg,         color: tokens.success },
@@ -289,7 +293,9 @@ function getLeagueStats(league) {
   const paid = teams.filter(t => t.paid).length;
   const withKeepers = teams.filter(t => (t.keepers || []).length > 0).length;
   const rostersLoaded = teams.filter(t => (t.roster || []).length > 0).length;
-  const expiring = league.draftType === 'snake'
+  // Expiry is a property of the term, not the draft format — an auction league
+  // with a fixed term has expiring keeps too.
+  const expiring = hasTerm(league)
     ? teams.flatMap(t => (t.keepers || []).filter(k => k.expiresAfter === '2025-26')).length
     : 0;
   const collectedPool = paid * league.buyIn;
@@ -576,14 +582,15 @@ function nextAction(league) {
   if (league.status === 'active')    return { kind: 'ready',  label: 'In season',        cta: false };
   if (league.status === 'setup')     return { kind: 'action', label: 'Set up league',    cta: true };
 
-  if (league.draftType === 'snake') {
+  // Which import a league still needs is a function of what keeping costs:
+  // auction-cost leagues need last year's prices, everyone else needs rosters.
+  if (isAuctionCost(league)) {
+    const hasAnyPriors = teams.some(tm => (tm.priorKeepers || []).length > 0);
+    if (!hasAnyPriors) return { kind: 'action', label: "Import last year's draft", cta: true };
+  } else {
     const rostersLoaded = teams.filter(tm => (tm.roster || []).length > 0).length;
     if (rostersLoaded === 0)       return { kind: 'action', label: 'Upload rosters', cta: true };
     if (rostersLoaded < teamCount) return { kind: 'action', label: `Upload rosters · ${rostersLoaded}/${teamCount}`, cta: true };
-  }
-  if (league.draftType === 'auction') {
-    const hasAnyPriors = teams.some(tm => (tm.priorKeepers || []).length > 0);
-    if (!hasAnyPriors) return { kind: 'action', label: "Import last year's draft", cta: true };
   }
 
   if (teamsWithKeepers < teamCount) {
@@ -627,14 +634,20 @@ function paymentsOf(league) {
   };
 }
 
+// The league card's rule pill. Reads the keeper cost model and term rather
+// than draftType, which is the draft FORMAT now and says nothing about what
+// keeping costs. Composed as "{cost} · {term}" so auction-with-a-term reads
+// correctly instead of collapsing to one half.
+// `keeperRulesAnswered` is set ONLY by the create-league wizard's live
+// preview, which holds each half back until its screen has been answered
+// ("Keeper league · 4 keepers" before the cost question). Real leagues never
+// carry it, so they always show both halves.
 function ruleMod(league) {
-  if (league.draftType === 'snake' && league.contractYears) {
-    return `${league.contractYears}-yr contracts`;
-  }
-  if (league.draftType === 'auction' && league.auctionRules?.costIncreasePerYear) {
-    return `+$${league.auctionRules.costIncreasePerYear}/yr keeper cost`;
-  }
-  return null;
+  const answered = league.keeperRulesAnswered;
+  const parts = [];
+  if (!answered || answered.cost) parts.push(COST_LABEL[keeperCostModelOf(league)]);
+  if (!answered || answered.term) parts.push(termLabel(termOf(league)));
+  return parts.length ? parts.join(' · ') : 'Keeper league';
 }
 
 // Commissioner-voice copy for the LeagueView HeaderAnchor bubble.
@@ -676,8 +689,8 @@ function leagueFlavor(league, action) {
     if (paid === teamCount - 1)  return `One team to go — ${soleUnpaidName(league) || 'one team'} owes.`;
     return `Keepers locked. ${paid} of ${teamCount} paid — collect dues before draft day.`;
   }
-  if (league.draftType === 'snake' && expiring > 0) {
-    return `Ready for draft. ${expiring} contracts head back to the pool.`;
+  if (hasTerm(league) && expiring > 0) {
+    return `Ready for draft. ${expiring} keeps head back to the pool.`;
   }
   return "Locked and loaded. Bring on draft day.";
 }

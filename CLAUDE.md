@@ -61,7 +61,7 @@ features have shipped through their own branches (all merged):
   Keepers tab row, right side, as bordered secondary buttons; they
   open right slide-in sheets — except **Lottery**, a full page. The
   league-identity header became a card (sport-color top border, sport
-  avatar, name + phase pill, [Hockey][Contract Snake][N teams] pills +
+  avatar, name + phase pill, [Hockey][Snake][N teams] pills +
   season/draft meta, keeper-deadline control on the right) — no stat
   strip, no commissioner speech-bubble. **Players is dropped** as a
   standalone tab/route (the NHL directory is absorbed into the Eligible
@@ -181,6 +181,67 @@ features have shipped through their own branches (all merged):
   exists, an import-modal "directory unavailable" banner for
   zero-player directories, and `loadPlayers` never caching an empty
   payload.
+
+- **Keeper-rules wizard + the cost/term split (this branch's PR):** the
+  create-league flow is rebuilt around **two independent dimensions** —
+  what keeping COSTS (a slot / a draft pick / auction dollars) and whether
+  the keep has a TERM — replacing the old three-way archetype fork, which
+  could not express "auction dollars with three-year terms". Five FIXED rail
+  phases (Basics · League type · Keeper rules · Teams · Review), identical on
+  every path; sub-screens share their phase's rail row. **No "Step N of M"
+  anywhere** — the screen count varies by path, so a counter would be a
+  moving target; mobile gets a 5-segment progress bar plus the phase label.
+  Keeper rules is one question per screen: count → cost → specifics (branch)
+  → term. Slot-only skips specifics (3 screens); auction gets one (4); draft
+  picks splits its specifics into **3a which pick** (drafted round vs top
+  picks in order, each with a compressed round grid) and **3b the dials**
+  (escalation + same-round tie-breaker, hidden on top-picks where slots can't
+  collide) — 4 numbered screens, 5 rendered. The **option strip** is the one
+  new primitive: a `role="radiogroup"` pill row (label + glyph, 44px min) over
+  a single `aria-live="polite"` description block at a **reserved height**
+  with the revealed-control slot reserved **unconditionally** (34px/44px) so
+  nothing shifts as a keyboard user arrows the group — load-bearing
+  accessibility, not styling. The strip is a **grid, never inline flow**:
+  equal-width columns on one desktop row (so uneven label lengths can't read
+  as ragged and the row can't wrap — it did, with the cost question's three
+  pills breaking across two rows), one full-width option per row on mobile.
+  The column count is set **inline** per strip as
+  `repeat(N, minmax(0, 1fr))` so N equal columns always span the content
+  column rather than shrinking to fit; the strip, the screen title and the
+  description block share the same left and right edges (no local
+  `maxWidth` on any of them). Labels are kept short and even enough to fit
+  one line at every width — `Keeper slot` · `Draft pick` ·
+  `Auction dollars` (`dollars`, not `value`: it matches the vocabulary on
+  the specifics screen and in `CostPath`, and `value` reads as a rating
+  rather than a price). Each description is **one sentence that explains
+  rather than restating its pill** — "Keeping costs you a draft pick" under
+  a pill reading "Draft pick" spent a line saying nothing.
+  Reserves are **measured in Chromium, not estimated** — see the reserve
+  table below. Between-group gap 30px desktop / 24px mobile. Also: the shared `CostPath`
+  beat strip, a live-preview pill composed as `{cost} · {term} · {N} keepers`
+  that never names an archetype (each half held back until its screen is
+  answered), a mobile sticky footer summary bar that expands the TradingCard
+  as a bottom sheet, and a Review `info` callout naming the two never-asked
+  settings (`waiverRound: 'last'`, `rookieRules` disabled). `StepBasics`,
+  `SportPicker` and `StepTeams` were explicitly out of scope and are
+  unchanged. Bundled with it, because the new config shape creates them:
+  **(1) the `draftType` conflation is gone** — `draftType` is the draft
+  FORMAT only, asked directly on League type and never derived from the
+  keeper rules (a contracts league running an auction draft used to be
+  mislabelled snake, rendering the wrong vocabulary silently); every keeper
+  surface now reads cost/term instead. **(2) `season.js`'s term advance runs
+  for any cost model** — it used to branch on `draftType === 'snake'`, so an
+  auction league with a term never advanced its contract years (a combination
+  that only became reachable now). **(3) `keeperArchetype` is `null` for
+  slot + no term** rather than forced onto a wrong legacy value. **(4) a
+  read-side shim** (`src/lib/keeperRules.js`) maps legacy `contractYears` /
+  `auctionRules` / `draftType` onto the new keys so existing leagues render
+  the new labels with **no data migration and no write-on-read**. **(5)
+  draft format is editable in Settings** (safe — it owns no keeper data),
+  while the **cost model locks** once a season has keepers or an imported
+  prior draft recorded, with the reason stated rather than a warning-and-
+  allow. See the **preserve-don't-delete** rule in Build constraints.
+  193 tests (`npm test`).
 
 - **Pick-ownership foundation (this branch's PR):** the data foundation
   for a third keeper archetype — **pick-cost keepers** (keeping a player
@@ -522,9 +583,17 @@ headless.
 - `npm run build` — runs `scripts/fetch-players-nhl.mjs` then `vite build`.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
+- `npm test` — everything below in sequence
 - `npm run test:parser` — paste-parser unit tests, draft + roster
   (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`;
   plain node, no framework)
+- `npm run test:rules` — keeper cost/term model, the legacy read shim, the
+  season rollover, and `buildLeague` (`scripts/test-keeper-rules.mjs`)
+- `npm run test:wizard` — renders every create-league screen on all three
+  cost-model paths in both themes, plus the flow's structural invariants
+  (`scripts/smoke-wizard.mjs`). Both of these esbuild-bundle
+  `CreateLeagueWizard.jsx` to `.tmp-wizard-bundle.mjs` first (gitignored,
+  React kept external so the SSR render shares one React copy).
 - This Claude Code container's network policy **blocks** `api-web.nhle.com`
   and `api.nhle.com`. Vercel's build environment can reach them — the fetch
   script runs for real on deploy, but you can't exercise it in-session.
@@ -853,6 +922,104 @@ local-first app; not worth a migration shim.
   against a $1,200 pool ($250 unallocated).
 - `baseball-placeholder`: `{ standings: [], other: [] }`.
 
+## Create-league wizard — option-strip reserves (MEASURED)
+
+The description block under each option strip holds a fixed height so it never
+shifts as a keyboard user arrows the group. The numbers are **measured in
+Chromium against the running dev server**, never estimated — an earlier
+estimated table caused three rounds of layout bugs.
+
+| Screen | Tallest state (desktop) | Tallest state (mobile) | Reserve desktop | Reserve mobile |
+|---|---|---|---|---|
+| Draft format | 85 | 95 | **108** | **116** |
+| Cost | 65.5 | 95 | **108** | **116** |
+| Term | 85 | 95 | **108** | **116** |
+
+Derivation: **tallest measured state (which already includes the control
+slot), rounded up to a multiple of 4, plus one body line (20px) of headroom.**
+Desktop 88 + 20 = 108; mobile 96 + 20 = 116. The 10px desktop/mobile gap is
+exactly the control-slot difference (34 vs 44) — the text block itself
+measures the same at both breakpoints.
+
+All three screens currently measure identically, so all three reserves are
+equal — they keep separate CSS classes only so a future copy change can
+diverge per screen. The control slot itself is 34px desktop / 44px mobile and
+is rendered **unconditionally**, including for states that reveal no control;
+that is why the term screen's revealed `Select` does not measure taller than a
+control-less state.
+
+If a copy edit pushes a state past its reserve, **re-measure and raise the
+reserve** — never trim it toward the shortest state. The measuring harness
+drives the real dev server in Chromium (`/opt/pw-browsers/chromium`), sets
+`min-height: 0` on the block, clicks each option and reads the natural height;
+`npm run test:wizard` then asserts the committed values so a silent drift
+fails the suite.
+
+Mobile constraint: at 390×780 every **question** screen reaches its primary
+button without scrolling (tightest is the cost screen — the only three-row
+strip — at 689px against 736px of usable height above the sticky preview
+bar). Teams and Review do scroll —
+Teams is out of scope for this arc, and Review is a read-back of every answer,
+which cannot fit one screen by nature.
+
+## Keeper rules config keys
+
+Two independent dimensions. Written by the create-league wizard, editable in
+Settings, and read ONLY through `src/lib/keeperRules.js` (never directly).
+
+```js
+// ── League type ──
+league.draftType = 'snake' | 'auction'   // draft FORMAT. ASKED, never derived.
+
+// ── Keeper rules ──
+league.keeperSlots   = 4
+league.minKeepers    = 0        // === keeperSlots when mustFillSlots is on
+league.mustFillSlots = false    // legacy mirror: league.contractsRequired
+
+league.keeperCostModel = 'slot' | 'picks' | 'auction'
+
+league.pickRules = {            // read only when keeperCostModel === 'picks'
+  subModel: 'draftedRound' | 'topSlots',
+  escalationPerYear: 1,         // 0 = flat
+  waiverRound: 'last',          // NOT ASKED — written silently at creation
+  collision: 'earlier' | 'later'   // draftedRound only; omitted for topSlots
+}
+
+league.auctionRules = {         // read only when keeperCostModel === 'auction'
+  costIncreasePerYear: 5, undraftedStartCost: 5,
+  budget: <not asked>, minBid: <not asked>
+}
+
+league.termModel = 'none' | 'fixed'
+league.termYears = 3 | null      // null when termModel === 'none'
+league.termMinYears = null       // RESERVED — "owners choose" not shipped
+league.termMaxYears = null       // RESERVED
+
+league.rookieRules = { enabled: false, extraYears: 1, escalationPerYear: 0, freeFirstYear: false }
+                                 // NOT ASKED — written disabled at creation
+
+// Legacy mirrors, kept in step with the resolved term so old read sites agree.
+league.contractYears = termModel === 'fixed' ? termYears : null
+league.keeperTimeCap = termModel === 'fixed' ? termYears : null   // no separate
+                                 // consecutive-years ceiling exists; a term
+                                 // that runs out sends the player to the draft
+league.keeperArchetype = 'auctionPrices' | 'draftPicks' | 'contracts' | null
+                                 // null === slot + no term (no legacy
+                                 // equivalent). Nothing in the UI names it.
+```
+
+**Two values are never asked** and are surfaced only by the Review callout:
+`pickRules.waiverRound` (`'last'` — the pick engine needs a round for
+undrafted players and the answer is the last round in essentially every
+league) and `rookieRules` (disabled — a cross-cutting exception that belongs
+to neither dimension, and on the no-term path it produced a live
+contradiction by offering "longer term").
+
+**Legacy mapping (read-side only, no migration):** old snake + `contractYears`
+→ slot cost + fixed term; old `auctionRules` (or `draftType: 'auction'`) →
+auction cost, no term unless `contractYears` says otherwise. The explicit keys
+always win, which is what makes preserved-but-inactive rule blocks safe.
+
 ## Critical decisions made
 
 1. **Local-first *for now* — server-side persistence is now planned.**
@@ -921,11 +1088,17 @@ local-first app; not worth a migration shim.
      so the row reads as a matched pair. Pill string is built from
      `ruleMod(league)` + keeper count.
 
-   **Rule strings (trimmed for pill density):**
-   - snake: `${contractYears}-yr contracts` (was: "max contract")
-   - auction: `+$${costIncreasePerYear}/yr keeper cost`
-   - keeper count: `${keeperSlots} keepers` (was: "Up to ${N} keepers")
-   - Combined pill: `"3-yr contracts · 4 keepers"`, `"+$5/yr keeper cost · 4 keepers"`.
+   **Rule strings** — composed from the two keeper dimensions, never naming
+   an archetype and never reading `draftType` (which is the draft FORMAT):
+   - `ruleMod(league)` → `"{cost} · {term}"` via `COST_LABEL` + `termLabel`
+     — e.g. `"Auction · 3-yr terms"`, `"Slot only · no term"`.
+   - keeper count appended by the card: `${keeperSlots} keepers`.
+   - Combined pill: `"Slot only · 3-yr terms · 4 keepers"`,
+     `"Auction · no term · 4 keepers"`.
+   - The create-league live preview sets `league.keeperRulesAnswered =
+     {cost, term}` to hold each half back until its screen is answered
+     (`"Keeper league · 4 keepers"` before then). Real leagues never carry
+     that key, so they always show both halves.
 
    Hover: card lifts, holofoil shine sweeps, mascot bobs. Stats are
    `Teams · Paid (X/N) · Pool ($total)`. The Add League slot at grid's
@@ -1116,6 +1289,27 @@ If one of these is unavoidable, the next step is *add a token*, not
 Standing rules for building new surfaces. They exist because a parallel
 copy of a component drifts away from the original.
 
+- **Preserve, don't delete — rule changes never destroy keeper data.**
+  There is no version history in this app, so anything cleared is
+  unrecoverable. All cost-model rule blocks (`auctionRules`, `pickRules`)
+  stay on the league row; only the block matching the current
+  `keeperCostModel` is ever READ, and the others are inert, not dangerous
+  (this is why the explicit `keeperCostModel` must always beat the legacy
+  presence checks in `keeperRules.js` — a preserved `auctionRules` block
+  must not resurrect the auction cost model). **Never clear anything on a
+  keeper row because a rule changed**: a keeper's `contractYear` stays
+  stored and unread while the league is in auction mode and is intact if it
+  switches back, and the same for dollar values on the reverse trip. If
+  preserved data is ever surfaced after a round trip, label it as recovered
+  from before the switch rather than presenting it as authoritative. The one
+  place this does NOT apply is league CREATION, where there is no prior data
+  to preserve and an unused `auctionRules` block would be a misleading
+  legacy signal (it is exactly what the shim reads as "this is an auction
+  league" for pre-wizard rows, so writing it on a slot-only league would make
+  the row genuinely ambiguous) — `buildLeague` writes only the selected
+  model's block. **This exception is reviewed and accepted, not an oversight:
+  preserve-don't-delete protects data that exists, and at creation there is
+  none.** Storage is cheap; the data isn't.
 - **League cards** → use the real `TradingCard` (in `components.jsx`),
   never a lookalike.
 - **Keeper cells** → use the shared `SampleKeeperCell`
@@ -1179,10 +1373,20 @@ copy of a component drifts away from the original.
   Imports `TradingCard` from `components.jsx` (it no longer lives
   here — see below); renders `PackStats`, `SportFilter`, and the card
   grid.
-- `src/CreateLeagueWizard.jsx` — the `/new` create-league flow.
-  4 steps (Basics → League Format → Teams → Review); `useReducer`
+- `src/CreateLeagueWizard.jsx` — the `/new` create-league flow. Five FIXED
+  rail phases (Basics · League type · Keeper rules · Teams · Review) over a
+  screen list DERIVED from the answers (`screensOf`) — the rail never grows,
+  shrinks or reorders, and there is no "Step N of M" anywhere. `useReducer`
   state; three-column card (left rail · form · right live-`TradingCard`
-  preview, `state='building'` until Review flips it to `'ready'`).
+  preview, `state='building'` until Review flips it to `'ready'`); at ≤760px
+  the rail becomes a 5-segment progress bar and the preview column becomes a
+  sticky footer summary bar that expands the card as a bottom sheet.
+  `OptionStrip` + `OptionDescription` are the reserved-height question
+  pattern (see the wizard PR bullet); `CostPath` is the shared beat strip;
+  `WizardScreen` maps a screen id to its component so the list and the
+  renderer can't drift. Cost-model switches PRESERVE every other model's
+  typed values. Exports `screensOf` / `reducer` / `makeInitial` /
+  `WizardScreen` as test seams for `scripts/smoke-wizard.mjs`.
   `buildLeague(state, existing)` produces the saved object (the
   `src/data.js` shape; `slugify`'d unique id; `commissionerTeamId` +
   `teams[0].isCommissioner`; snake adds `contractYears`, auction adds
@@ -1295,6 +1499,33 @@ copy of a component drifts away from the original.
   re-key consistently. Returns `{ teamId, teamName,
   status: 'rostered'|'keeper'|'expired', isExpired, keeperList,
   keeperIdx, tradedTo*, ... }` keyed by normalized name.
+  The Settings **Keeper Rules** card is the post-creation editor for the
+  cost/term model: **Draft Format is editable** (safe to change any time — it
+  only sets vocabulary and how the Last Draft page parses an import, and owns
+  no keeper data), while **Keeper Cost locks** once `hasKeeperData(league)` is
+  true (any declared keeper or imported prior-draft record). The lock states
+  its reason — dollars and rounds have no honest conversion, so switching
+  would strand recorded values — rather than allowing it behind a warning.
+  Term, the per-cost-model rule fields, and the slot rules are all editable;
+  `saveRules` writes only the ACTIVE cost model's rule block and leaves the
+  others intact (see the preserve-don't-delete rule).
+
+- `src/lib/keeperRules.js` — **the single read path for keeper cost + term**,
+  and the legacy shim. `keeperCostModelOf` (`'slot'|'picks'|'auction'`),
+  `termOf` → `{model, years}`, `hasTerm`, `isAuctionCost`, `isPickCost`,
+  `draftFormatOf` (draft FORMAT only — never a keeper signal),
+  `keeperValueText` / `isFinalYear` (compose both dimensions: an auction
+  league with a term shows `$63 · Y2/3`, a slot league with no term shows
+  `1 slot`), `keeperArchetypeOf` (null for slot + no term — read sites must
+  handle null), `hasKeeperData` (the Settings cost-model lock gate),
+  `COST_LABEL` / `termLabel` / `keeperRuleSummary`. Leagues created before
+  the wizard carry only `contractYears` / `auctionRules` / `draftType`; every
+  read goes through here so both shapes render identically. **Resolution is
+  read-time only — nothing is written back**, so no data migration exists or
+  is needed. The rule of thumb when touching a keeper surface: a
+  `draftType === 'snake'` test almost always meant one of two DIFFERENT
+  things — "shows contract years" (now `hasTerm`) or "doesn't show dollars"
+  (now `!isAuctionCost`) — and they are no longer complementary.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
   years, drops expired, resets keepers, etc.). `advanceKeeper` spreads
   the keeper object, so acquisition metadata survives season rollovers
@@ -1425,9 +1656,9 @@ copy of a component drifts away from the original.
   — with `borderCollapse: separate` a `<tr>` border doesn't paint, so
   the divider has to be per-cell.
 
-  **Grid accent is draft-type-based, not sport-based.** `gridAccent =
-  draftType === 'auction' ? tokens.warning : tokens.info` — blue
-  (`#3b8ae6`) for contract/snake, orange (`#e8832a`) for auction.
+  **Grid accent is COST-MODEL-based, not sport- or draft-format-based.**
+  `gridAccent = isAuctionCost(league) ? tokens.warning : tokens.info` — blue
+  (`#3b8ae6`) for slot/pick costs, orange (`#e8832a`) for dollar costs.
   Drives keeper values, the empty "+ Add" cells (border + text +
   needsMore bg tint), the Pre-Season pill, and the pencil-hover color.
   This is independent of `SPORT_CONFIG[sport].color` (which the
@@ -1923,6 +2154,18 @@ buttons, no member login until (B)'s trigger is hit.
       stat-columns model (`STAT_CATEGORIES` /
       `league.statCategories`) applies as-is (rushing/receiving/
       passing yards, TDs, INTs, etc.).
+
+25. **FUTURE — team-tenure keeper leagues (a gap the two-dimension model
+    cannot express).** The cost/term model asks "how many keepers" as a
+    fixed player count. A real and Yahoo-supported variant instead budgets
+    **years of service**: a team protects a fixed number of keeper-YEARS, so
+    it could keep ten first-year players, or one player held for ten years,
+    or any combination summing to the budget. This breaks the count question
+    at its root — the number of keepers becomes variable rather than fixed,
+    so `keeperSlots` stops being a meaningful cap and the whole
+    count → cost → term sequence needs rethinking for that path. **Not
+    being built.** Recorded so the gap is known rather than rediscovered
+    when someone asks why a tenure league can't be set up.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's

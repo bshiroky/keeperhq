@@ -1,6 +1,7 @@
 import { supabase } from './supabase.js';
 import { normalizeName } from './players.js';
 import { buildTeamPool } from '../tabs/SetKeepersTab.jsx';
+import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
 
 // Data layer for the public shared league page (/l/:token).
 //
@@ -33,8 +34,9 @@ export async function fetchSharedLeague(token) {
 const KIND_PRIORITY = { keeper: 3, contract: 2, rostered: 1, expired: 0 };
 
 export function buildSharedRows(league) {
-  const isSnake = league.draftType === 'snake';
-  const defaultLen = league.contractYears || 3;
+  // Term and dollar cost are independent — a league can have both, or neither.
+  const termed = hasTerm(league);
+  const defaultLen = termOf(league).years || league.contractYears || 3;
   const teams = league.teams || [];
   const teamById = new Map(teams.map(t => [t.id, t]));
   const rows = new Map();
@@ -59,7 +61,7 @@ export function buildSharedRows(league) {
         kind: 'keeper', player: k.player, pos: k.pos,
         teamId: owner.id, teamName: owner.name,
         year: k.contractYear || 1, len,
-        final: isSnake && (k.contractYear || 0) >= len,
+        final: isFinalYear(league, k),
         cost: k.keptFor,
         draftedCost: priorByName.get(normalizeName(k.player))?.keptFor ?? null,
         round: priorByName.get(normalizeName(k.player))?.acquisitionRound ?? null,
@@ -86,7 +88,7 @@ export function buildSharedRows(league) {
         round: e.acquisitionRound ?? null,
       });
     }
-    if (isSnake) {
+    if (termed) {
       // buildTeamPool's expired entries drop the contract length; recover it
       // from the prior record so the row can render "Expired Y{len}/{len}".
       const priorLen = new Map((team.priorKeepers || []).map(p => [normalizeName(p.player), p.contractLength || defaultLen]));
@@ -164,7 +166,7 @@ export function sortRowsDefault(rows, playerMap, league) {
     };
     return sorted.sort((a, b) => (score(b) - score(a)) || a.player.localeCompare(b.player));
   }
-  if (league?.draftType === 'auction') {
+  if (isAuctionCost(league)) {
     return sorted.sort((a, b) => ((b.cost ?? -1) - (a.cost ?? -1)) || a.player.localeCompare(b.player));
   }
   return sorted.sort((a, b) => {
