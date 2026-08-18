@@ -9,6 +9,8 @@ import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
+import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
+import { isNflSport } from './lib/nflDirectory.js';
 import { startNewSeason } from './lib/season.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
@@ -998,6 +1000,12 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
           Bring in rosters, draft prices, and rounds from your fantasy platform — the data KeeperHQ uses to track contracts and keeper costs.
         </div>
       </div>
+
+      {/* Football only: the stored NFL directory that imported names resolve
+          against, with its manual refresh. It sits above the import cards
+          because a stale/empty directory is what makes an import land
+          name-only. */}
+      {isNflSport(league.sport) && <NflDirectoryCard isDark={isDark} accentColor={accentColor} />}
 
       {/* Last year's draft lives on its own page — this is a pointer, not a
           flow. What the import is FOR differs by league type. */}

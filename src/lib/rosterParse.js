@@ -48,6 +48,19 @@ export function cleanPlayerName(raw) {
   return s;
 }
 
+// Yahoo's team-position line under a name ("SJ - C", "Buf - QB", "CLE - PF,C").
+// Read as a HINT only — it disambiguates a name that matches more than one
+// directory player (common last names, juniors). It is never stored as the
+// player's position: the leftmost column is a lineup slot, and positions come
+// from the directory match downstream.
+const TEAM_POS_LINE = /^([A-Za-z]{2,4})\s*[-–—]\s*([A-Za-z0-9,/\s]{1,20})$/;
+
+function hintFrom(line) {
+  const m = TEAM_POS_LINE.exec((line || '').trim());
+  if (!m) return null;
+  return { proTeam: m[1].trim(), positions: m[2].trim() };
+}
+
 // Parser: position code line → next non-empty line is the player name.
 // Validates by checking the following line contains a " - " (Yahoo's
 // team-position string, e.g. "SJ - C"). Skips vacant-slot placeholders and
@@ -84,7 +97,18 @@ export function parseYahooRosterText(text) {
     if (ROSTER_POSITIONS.has(player)) continue;
     // The slot label (`line`) is deliberately dropped — it anchors the parse
     // but is a lineup slot, not a position.
-    out.push({ player, _ok: !!looksValid });
+    // Yahoo prints the name twice, so the "TEAM - POS" line usually sits two
+    // lines below it. Scan a short lookahead for it and stop at the next slot
+    // label, so a hint can never be read off the following player's block.
+    let hint = null;
+    for (let k = next.idx + 1, seen = 0; k < lines.length && seen < 3; k++) {
+      if (!lines[k]) continue;
+      seen++;
+      if (ROSTER_POSITIONS.has(lines[k])) break;
+      hint = hintFrom(lines[k]);
+      if (hint) break;
+    }
+    out.push({ player, ...(hint ? { hint } : {}), _ok: !!looksValid });
     i = next.idx; // advance past the name line
   }
 

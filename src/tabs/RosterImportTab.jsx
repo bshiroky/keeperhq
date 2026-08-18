@@ -4,6 +4,8 @@ import { makeTheme, tokens, Button } from '../components.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText } from '../lib/rosterParse.js';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
+import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '../lib/nflDirectory.js';
+import { lookupByNames, fetchDirectoryStatus, directoryConfigured } from '../lib/nflDirectoryStore.js';
 import '../claudeStub.js';
 
 // Per-Team Roster Import
@@ -68,6 +70,7 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
   const [addValue, setAddValue] = React.useState('');
   const roster = team?.roster || [];
+  const nfl = isNflSport(league.sport);
 
   function setRoster(next) {
     onUpdateLeague({
@@ -82,7 +85,13 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
     const clean = (name || '').trim();
     if (!clean) return;
     if (roster.some(p => normalizeName(p.player) === normalizeName(clean))) return;
-    setRoster([...roster, rec?.pos ? { player: clean, pos: posForRoster(rec.pos) } : { player: clean }]);
+    // NFL rows carry the resolved Sleeper id + what was typed, same as an
+    // import writes (see importFieldsFor); other sports keep name (+ position)
+    // only, exactly as before.
+    const entry = nfl
+      ? { player: clean, ...importFieldsFor(rec?.playerId ? { player_id: rec.playerId, pos: rec.pos } : null, clean) }
+      : (rec?.pos ? { player: clean, pos: posForRoster(rec.pos) } : { player: clean });
+    setRoster([...roster, entry]);
     setAddValue('');
   }
 
@@ -174,17 +183,32 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
   // match rate) instead of closing into silence.
   const [result, setResult] = React.useState(null); // { teamName, total, matched }
 
-  // NHL player directory — the source of truth for positions. Only hockey has
-  // a directory today; other sports import names with no position data.
+  // Player directories — the source of truth for positions, and (NFL) for the
+  // stored player identity. Two sources, two mechanics:
+  //   hockey → the build-time JSON blob, filtered in memory (loadPlayers)
+  //   football → the stored Sleeper directory in Supabase, queried per name
+  // Every other sport imports names with no directory at all, unchanged.
   // dirStatus distinguishes "still loading" from "loaded but EMPTY/broken" —
   // an empty directory must read as an error state (banner below), not as
   // every name silently passing with no position.
-  const supportsDirectory = league.sport === 'hockey' || league.sport === 'nhl';
+  const nfl = isNflSport(league.sport);
+  const supportsDirectory = league.sport === 'hockey' || league.sport === 'nhl' || nfl;
   const [directory, setDirectory] = React.useState(null);
-  const [dirStatus, setDirStatus] = React.useState(supportsDirectory ? 'loading' : 'none'); // loading | ready | empty | error | none
+  // "No database configured" is knowable synchronously, so it starts as the
+  // error state rather than flashing "loading" on the way there.
+  const [dirStatus, setDirStatus] = React.useState(
+    !supportsDirectory ? 'none' : (nfl && !directoryConfigured() ? 'error' : 'loading')
+  ); // loading | ready | empty | error | none
   React.useEffect(() => {
     if (!supportsDirectory) return;
     let cancelled = false;
+    if (nfl) {
+      if (!directoryConfigured()) { setDirStatus('error'); return; }
+      fetchDirectoryStatus()
+        .then(s => { if (!cancelled) setDirStatus(s.count > 0 ? 'ready' : 'empty'); })
+        .catch(() => { if (!cancelled) setDirStatus('error'); });
+      return () => { cancelled = true; };
+    }
     loadPlayers('nhl')
       .then(d => {
         if (cancelled) return;
@@ -194,7 +218,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
       })
       .catch(() => { if (!cancelled) setDirStatus('error'); });
     return () => { cancelled = true; };
-  }, [supportsDirectory]);
+  }, [supportsDirectory, nfl]);
   const dirUnavailable = dirStatus === 'empty' || dirStatus === 'error';
   const dirMap = React.useMemo(() => {
     if (!directory) return null;
@@ -202,8 +226,71 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
     directory.forEach(p => { const k = normalizeName(p.name); if (k && !m.has(k)) m.set(k, p); });
     return m;
   }, [directory]);
-  // Directory record for a typed name; null = unmatched, undefined = no directory to match against.
-  const matchFor = (name) => dirMap && dirMap.size > 0 ? (dirMap.get(normalizeName(name)) || null) : undefined;
+
+  // NFL resolution cache: normalized name → { status, row, candidates } from
+  // pickDirectoryMatch. Filled by a debounced batch lookup over whatever names
+  // are currently in the preview, so editing a misspelling re-resolves it
+  // without a query per keystroke. Keys already resolved are never re-queried.
+  const [nflMatches, setNflMatches] = React.useState(() => new Map());
+  const previewNames = players.map(p => p.player).filter(n => (n || '').trim());
+  const previewNameSig = previewNames.join('|');
+  React.useEffect(() => {
+    if (!nfl || dirStatus !== 'ready') return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      const pending = [];
+      const hints = new Map();
+      players.forEach(p => {
+        const key = directoryKey(p.player);
+        if (!key || nflMatches.has(key)) return;
+        pending.push(p.player);
+        if (p.hint && !hints.has(key)) hints.set(key, p.hint);
+      });
+      if (pending.length === 0) return;
+      lookupByNames(pending)
+        .then(found => {
+          if (cancelled) return;
+          setNflMatches(prev => {
+            const next = new Map(prev);
+            pending.forEach(name => {
+              const key = directoryKey(name);
+              if (!key || next.has(key)) return;
+              // The paste line's team/position carry the disambiguation —
+              // pickDirectoryMatch never guesses between two live players.
+              next.set(key, pickDirectoryMatch(found.get(key) || [], hints.get(key) || {}));
+            });
+            return next;
+          });
+        })
+        .catch(() => {});
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [nfl, dirStatus, previewNameSig]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resolution for one preview row.
+  //   { row } matched · null unmatched · undefined not-yet-known / no directory
+  // A row the user resolved by picking a suggestion wins over the cache — that
+  // pick IS the answer, including for an ambiguous name.
+  function resolutionFor(p) {
+    if (!supportsDirectory || dirUnavailable) return undefined;
+    if (nfl) {
+      if (p.pickedId) return { status: 'matched', row: { player_id: p.pickedId, pos: p.pickedPos || null } };
+      const key = directoryKey(p.player);
+      if (!key) return undefined;
+      return nflMatches.get(key);
+    }
+    if (!dirMap || dirMap.size === 0) return undefined;
+    const rec = dirMap.get(normalizeName(p.player));
+    return rec ? { status: 'matched', row: rec } : { status: 'unmatched', row: null };
+  }
+
+  // Position label for a resolved row. NHL codes need the L/R → LW/RW map;
+  // Sleeper's NFL positions are already the labels we store.
+  function posLabel(res) {
+    const row = res?.row;
+    if (!row?.pos) return null;
+    return nfl ? row.pos : posForRoster(row.pos);
+  }
 
   const selectedTeam = league.teams.find(tm => tm.id === teamId) || league.teams[0];
   const existingRoster = selectedTeam?.roster || [];
@@ -215,7 +302,10 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
       setError("Couldn't find any players. Yahoo's roster page has each name listed twice in a row — make sure you copied the full table including names.");
       return;
     }
-    setPlayers(parsed);
+    // sourceName is pinned to what the paste actually said, so later edits
+    // (fixing a spelling, picking a suggestion) never overwrite the record of
+    // what a stored id was resolved FROM.
+    setPlayers(parsed.map(p => ({ ...p, sourceName: p.player })));
   }
 
   async function doExtractFromFile(file) {
@@ -232,7 +322,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
           const merged = [...prev];
           extracted.forEach(p => {
             if (!seen.has(p.player.toLowerCase())) {
-              merged.push(p);
+              merged.push({ ...p, sourceName: p.player });
               seen.add(p.player.toLowerCase());
             }
           });
@@ -260,10 +350,23 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
     // Position comes from the directory match (real position codes), never
     // from the paste. Unmatched names save with no pos at all — better no
     // data than a lineup-slot label masquerading as a position.
+    //
+    // NFL additionally stores the resolved Sleeper player_id and the original
+    // pasted string on every row: the id is what makes a later cross-platform
+    // reconciliation a join instead of name matching, and the source string is
+    // the only way to audit a wrong match. Other sports are unchanged.
     const cleaned = players.filter(p => p.player.trim()).map(p => {
       const name = p.player.trim();
-      const rec = matchFor(name);
-      return rec?.pos ? { player: name, pos: posForRoster(rec.pos) } : { player: name };
+      const res = resolutionFor(p);
+      const pos = posLabel(res);
+      if (nfl) {
+        return {
+          player: name,
+          ...importFieldsFor(res?.status === 'matched' ? res.row : null, p.sourceName || name),
+          ...(pos ? { pos } : {}),
+        };
+      }
+      return pos ? { player: name, pos } : { player: name };
     });
     if (cleaned.length === 0) {
       setError("Nothing to import.");
@@ -275,6 +378,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
       teamName: selectedTeam?.name || '?',
       total: cleaned.length,
       matched: cleaned.filter(p => p.pos).length,
+      resolved: cleaned.filter(p => p.playerId).length,
     });
   }
 
@@ -350,10 +454,21 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               </div>
               {supportsDirectory && dirStatus === 'ready' && (
                 <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-                  {result.matched} matched the NHL directory (position filled in)
-                  {result.total - result.matched > 0 && (
-                    <span style={{ color: tokens.warning }}> · {result.total - result.matched} unmatched — saved name-only, re-import to fix spelling</span>
-                  )}.
+                  {nfl ? (
+                    <>
+                      {result.resolved} of {result.total} resolved to a player ID from the NFL directory
+                      {result.total - result.resolved > 0 && (
+                        <span style={{ color: tokens.warning }}> · {result.total - result.resolved} saved name-only — re-import to attach an ID</span>
+                      )}.
+                    </>
+                  ) : (
+                    <>
+                      {result.matched} matched the NHL directory (position filled in)
+                      {result.total - result.matched > 0 && (
+                        <span style={{ color: tokens.warning }}> · {result.total - result.matched} unmatched — saved name-only, re-import to fix spelling</span>
+                      )}.
+                    </>
+                  )}
                 </div>
               )}
               <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
@@ -367,10 +482,23 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               border: `1px solid ${tokens.warningBorder}`, borderRadius: 6,
               fontSize: 12, color: tokens.warning, lineHeight: 1.5,
             }}>
-              <strong>Player directory unavailable</strong> — names can't be checked
-              against the NHL directory right now, so spelling won't be verified and
-              positions won't be filled in. You can still import names and re-import
-              later, but matching is off until the directory loads.
+              {nfl ? (
+                <>
+                  <strong>{dirStatus === 'empty' ? 'NFL directory is empty' : 'NFL directory unavailable'}</strong> —
+                  {dirStatus === 'empty'
+                    ? ' nothing has been loaded from Sleeper yet, so names can\'t be resolved to player IDs.'
+                    : ' the stored directory couldn\'t be read, so names can\'t be resolved to player IDs.'}
+                  {' '}Refresh it from the <strong>NFL player directory</strong> card on the Import page, then re-open this
+                  import. You can still save names now, but rows will have no ID attached.
+                </>
+              ) : (
+                <>
+                  <strong>Player directory unavailable</strong> — names can't be checked
+                  against the NHL directory right now, so spelling won't be verified and
+                  positions won't be filled in. You can still import names and re-import
+                  later, but matching is off until the directory loads.
+                </>
+              )}
             </div>
           )}
           {!result && mode === 'paste' && (
@@ -438,9 +566,13 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
                 <div style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                   Preview · {players.length} player{players.length === 1 ? '' : 's'}
                   {(() => {
-                    const unmatchedCount = players.filter(p => p.player.trim() && matchFor(p.player) === null).length;
-                    return unmatchedCount > 0
-                      ? <span style={{ color: tokens.danger, marginLeft: 8 }}>· {unmatchedCount} unmatched</span>
+                    const unresolved = players.filter(p => {
+                      if (!p.player.trim()) return false;
+                      const res = resolutionFor(p);
+                      return !!res && res.status !== 'matched';
+                    }).length;
+                    return unresolved > 0
+                      ? <span style={{ color: tokens.danger, marginLeft: 8 }}>· {unresolved} unmatched</span>
                       : null;
                   })()}
                 </div>
@@ -451,37 +583,49 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                 {players.map((p, i) => {
-                  const rec = matchFor(p.player);
-                  const unmatched = rec === null && !!p.player.trim();
+                  const res = resolutionFor(p);
+                  const pos = posLabel(res);
+                  const hasName = !!p.player.trim();
+                  // Three states, not two: matched, not-in-the-directory, and
+                  // (NFL) matched-more-than-one. All three are fixed the same
+                  // way — pick the right player from the typeahead — but the
+                  // hint has to say which problem it is.
+                  const ambiguous = hasName && res?.status === 'ambiguous';
+                  const unmatched = hasName && res?.status === 'unmatched';
+                  const flagged = ambiguous || unmatched;
                   // Directory autocomplete on every row — typing edits the
                   // name, picking a suggestion resolves it to the directory's
                   // exact formatting (the fix path for unmatched rows). Other
                   // rows' names are disabled to keep the roster dupe-free.
                   const otherNames = new Set(players.filter((_, oi) => oi !== i).map(op => normalizeName(op.player)).filter(Boolean));
                   return (
-                    <div key={i} style={{ padding: '6px 8px', background: t.sectionBg, border: `1px solid ${unmatched ? tokens.dangerBorder : t.border}`, borderRadius: 6 }}>
+                    <div key={i} style={{ padding: '6px 8px', background: t.sectionBg, border: `1px solid ${flagged ? tokens.dangerBorder : t.border}`, borderRadius: 6 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 42, boxSizing: 'border-box', flexShrink: 0, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 4, padding: '3px 5px', fontSize: 11, color: rec?.pos ? t.textPrimary : t.textMuted, textAlign: 'center', fontWeight: 700 }}>
-                          {rec?.pos ? posForRoster(rec.pos) : '—'}
+                        <span style={{ width: 42, boxSizing: 'border-box', flexShrink: 0, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 4, padding: '3px 5px', fontSize: 11, color: pos ? t.textPrimary : t.textMuted, textAlign: 'center', fontWeight: 700 }}>
+                          {pos || '—'}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <PlayerAutocomplete
                             value={p.player}
-                            onChange={name => updatePlayer(i, { player: name })}
+                            onChange={(name, picked) => updatePlayer(i, picked
+                              ? { player: name, pickedId: picked.playerId || null, pickedPos: picked.pos || null }
+                              : { player: name, pickedId: null, pickedPos: null })}
                             sport={league.sport}
                             isDark={isDark}
                             placeholder="Player name"
                             league={league}
                             disabledNames={otherNames}
-                            inputStyle={{ width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', fontSize: 12, color: unmatched ? tokens.danger : t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600, padding: 0 }}
+                            inputStyle={{ width: '100%', boxSizing: 'border-box', background: 'none', border: 'none', fontSize: 12, color: flagged ? tokens.danger : t.textPrimary, fontFamily: 'inherit', outline: 'none', fontWeight: 600, padding: 0 }}
                           />
                         </div>
                         <button onClick={() => removePlayer(i)} title="Remove player"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 14, lineHeight: 1, padding: '0 2px', fontFamily: 'inherit' }}>×</button>
                       </div>
-                      {unmatched && (
+                      {flagged && (
                         <div style={{ marginTop: 3, paddingLeft: 48, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
-                          unmatched — pick from the suggestions or fix the spelling
+                          {ambiguous
+                            ? `matches ${res.candidates.length} players — pick the right one from the suggestions`
+                            : 'unmatched — pick from the suggestions or fix the spelling'}
                         </div>
                       )}
                     </div>
