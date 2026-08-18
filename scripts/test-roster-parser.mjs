@@ -77,6 +77,22 @@ test('cleanPlayerName: whitespace-anchored flag strip (Hellebuyck regression)', 
   assert.equal(cleanPlayerName('Matthew Tkachuk No new player Notes'), 'Matthew Tkachuk');
 });
 
+// The team/position line under a name is captured as a HINT (never as the
+// stored position) — it's what disambiguates a name matching more than one
+// directory player.
+test('team/position line is captured as a disambiguation hint', () => {
+  const out = parseYahooRosterText('QB\nJosh Allen\nJosh Allen\nBuf - QB\nW, 31-24 vs MIA\n');
+  assert.deepEqual(out[0].hint, { proTeam: 'Buf', positions: 'QB' });
+  assert.equal(out[0].pos, undefined, 'the lineup slot is still never stored as a position');
+});
+
+test('multi-position hint survives, and a missing line means no hint', () => {
+  const multi = parseYahooRosterText('C\nEvan Mobley\nEvan Mobley\nCLE - PF,C\n');
+  assert.deepEqual(multi[0].hint, { proTeam: 'CLE', positions: 'PF,C' });
+  const none = parseYahooRosterText('BN\nSome Player\nSome Player\n');
+  assert.equal(none[0].hint, undefined);
+});
+
 test('dedupe keeps the first occurrence', () => {
   const out = parseYahooRosterText('C\nNico Hischier\nNico Hischier\nNJ - C\nBN\nNico Hischier\nNico Hischier\nNJ - C\n');
   assert.deepEqual(names(out), ['Nico Hischier']);

@@ -4,6 +4,7 @@ import { isAuctionCost } from '../lib/keeperRules.js';
 import { makeTheme, tokens, Button, Headshot, HScrollRow } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
+import { isNflSport } from '../lib/nflDirectory.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
 import { DraftImportFlow } from './ImportTab.jsx';
 
@@ -30,9 +31,12 @@ function NameCell({ value, onCommit, league, isDark, unmatched, disabledNames })
   const [draft, setDraft] = React.useState(value);
   React.useEffect(() => { setDraft(value); }, [value]);
 
-  function commit(name) {
+  // `picked` is the directory record when the name came from a suggestion —
+  // that's how an NFL row with no player ID gets one attached in place
+  // (the caller decides what to store).
+  function commit(name, picked) {
     const clean = (name || '').trim();
-    if (clean && clean !== value) onCommit(clean);
+    if (clean && (clean !== value || picked)) onCommit(clean, picked);
     else setDraft(value); // blanked or unchanged — snap back to the saved name
   }
 
@@ -41,7 +45,7 @@ function NameCell({ value, onCommit, league, isDark, unmatched, disabledNames })
       onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) commit(draft); }}>
       <PlayerAutocomplete
         value={draft}
-        onChange={(name, picked) => { setDraft(name); if (picked) commit(name); }}
+        onChange={(name, picked) => { setDraft(name); if (picked) commit(name, picked); }}
         sport={league.sport} isDark={isDark} placeholder="Player name"
         league={league} disabledNames={disabledNames}
         inputStyle={{
@@ -80,11 +84,18 @@ function PriceCell({ value, gridAccent, isDark, onCommit }) {
 function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirReady, maxRound, onUpdate, onRemove }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
+  const nfl = isNflSport(league.sport);
   const rec = dirMap ? dirMap.get(normalizeName(entry.player)) : null;
-  const unmatched = dirReady && !rec && !!entry.player;
+  // NFL flags rows with no stored player ID (nothing to join on later);
+  // hockey flags names the JSON directory doesn't know.
+  const unmatched = nfl
+    ? (!entry.playerId && !!entry.player)
+    : (dirReady && !rec && !!entry.player);
   // Position: directory match wins (real codes); the paste's own position
   // string is the fallback for unmatched/non-NHL rows.
-  const pos = rec?.pos ? posForRoster(rec.pos) : (entry.positions || '').split(',')[0].trim() || null;
+  const pos = nfl
+    ? (entry.pos || (entry.positions || '').split(',')[0].trim() || null)
+    : (rec?.pos ? posForRoster(rec.pos) : (entry.positions || '').split(',')[0].trim() || null);
   const otherNames = new Set(
     (team.priorKeepers || []).filter((_, oi) => oi !== idx).map(p => normalizeName(p.player)).filter(Boolean)
   );
@@ -105,7 +116,12 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
           {pos || '—'}
         </span>
         <NameCell value={entry.player} league={league} isDark={isDark} unmatched={unmatched}
-          disabledNames={otherNames} onCommit={name => onUpdate({ player: name })} />
+          disabledNames={otherNames}
+          onCommit={(name, picked) => onUpdate(nfl && picked?.playerId
+            // Picking a suggestion resolves the row: store the id and keep
+            // (or set) the source string this row came from.
+            ? { player: name, playerId: picked.playerId, ...(picked.pos ? { pos: picked.pos } : {}), sourceName: entry.sourceName || entry.player }
+            : { player: name })} />
         {isSnake ? (
           <select value={entry.acquisitionRound ?? ''} aria-label="Draft round"
             onChange={e => onUpdate({ acquisitionRound: e.target.value === '' ? null : parseInt(e.target.value) })}
@@ -124,7 +140,9 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
       </div>
       {unmatched && (
         <div style={{ marginTop: 3, paddingLeft: 68, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
-          unmatched — pick from the suggestions or fix the spelling
+          {nfl
+            ? 'no player ID — pick this player from the suggestions to attach one'
+            : 'unmatched — pick from the suggestions or fix the spelling'}
         </div>
       )}
     </div>
@@ -141,6 +159,10 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
   // NHL directory — matching + headshots + the in-place autocomplete. Same
   // status handling as the roster import: "loaded but empty" is an explicit
   // error state (banner), never silent pass-through.
+  // NFL rows carry their own resolution (playerId, stamped at import), so this
+  // page needs no directory load for them — only the in-place typeahead,
+  // which queries Supabase itself.
+  const nfl = isNflSport(league.sport);
   const supportsDirectory = league.sport === 'hockey' || league.sport === 'nhl';
   const [dirMap, setDirMap] = React.useState(null);
   const [dirStatus, setDirStatus] = React.useState(supportsDirectory ? 'loading' : 'none'); // loading | ready | empty | error | none
@@ -165,9 +187,16 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
   const teamsWithDraft = teams.filter(tm => (tm.priorKeepers || []).length > 0);
   const totalPlayers = teamsWithDraft.reduce((s, tm) => s + tm.priorKeepers.length, 0);
   const hasData = totalPlayers > 0;
-  const unmatchedCount = dirReady
-    ? teamsWithDraft.reduce((s, tm) => s + tm.priorKeepers.filter(p => p.player && !dirMap.get(normalizeName(p.player))).length, 0)
-    : 0;
+  // "Unmatched" means two different things by sport, and both are the same
+  // problem: a row with no resolved identity. Hockey reads it off the JSON
+  // directory; NFL reads it off the stored playerId — a row without one is
+  // exactly the row that can't be joined to another platform later, and it
+  // needs no lookup to spot.
+  const unmatchedCount = nfl
+    ? teamsWithDraft.reduce((s, tm) => s + tm.priorKeepers.filter(p => p.player && !p.playerId).length, 0)
+    : (dirReady
+      ? teamsWithDraft.reduce((s, tm) => s + tm.priorKeepers.filter(p => p.player && !dirMap.get(normalizeName(p.player))).length, 0)
+      : 0);
 
   const [importing, setImporting] = React.useState(false);
   const [summary, setSummary] = React.useState(null); // transient success banner

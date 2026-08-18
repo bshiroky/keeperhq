@@ -516,6 +516,164 @@ features have shipped through their own branches (all merged):
   filter renders it as the in-table partition row (since #36); the
   mobile eyebrow now matches that treatment's tight spacing.
 
+- **NFL player directory + import resolution (this branch's PR):** imported
+  rows stop storing free-text names and start storing a **resolved Sleeper
+  `player_id`**, so a later reconciliation against another platform (Yahoo) is
+  a join instead of fuzzy name matching across hundreds of rows. **NFL only** —
+  the other three sports keep their exact current behavior, and no generic
+  multi-sport abstraction was built (their sources differ enough that a shared
+  shape now would be guesswork). Four parts. (1) **Storage** —
+  `supabase/migrations/004_nfl_player_directory.sql` adds `public.nfl_players`
+  (one row per Sleeper player; `player_id text` PK because team defenses have
+  ids like `'CAR'`; promoted columns incl. **`yahoo_id` / `espn_id` /
+  `sportradar_id` / `rotowire_id` / `stats_id` / `fantasy_data_id`** — unused
+  today, and the whole reason for doing this before the Yahoo work — plus the
+  **full unfiltered** Sleeper object in `data jsonb`) and
+  `public.nfl_directory_refreshes` (one row per run: counts, cross-platform id
+  fill rates, ok/error). The `?active=true` / `?position=` filters are
+  deliberately NOT used: last season's rosters reference retired and cut
+  players, and they must still resolve. (2) **Refresh is manual, never
+  destructive** — a button on the Import page's **NFL player directory** card
+  (football leagues only; status line = stored player count + last-refresh
+  time + fill rates). *Manual-only and the fixed 250-row chunking are both
+  SUPERSEDED by the follow-up bullet below* (daily cron + byte-budgeted,
+  self-healing writes); the rest of this bullet still stands. Writes go
+  through `upsert_nfl_players(jsonb)`; **there is no delete
+  policy on either table**, so a stored id can never be orphaned by a later
+  fetch, and every column is `COALESCE`d on conflict so a null in a later
+  payload leaves the last known value rather than blanking it (a player who
+  drops out of Sleeper keeps his row with a stale `last_seen_at`). Same
+  preserve-don't-delete rule as the keeper data, enforced in the DB rather
+  than in app code. RLS: read for `anon` + `authenticated` (public reference
+  data, so demo leagues resolve too), write for `authenticated` only.
+  (3) **Resolution at import** — the roster paste and the draft paste both
+  resolve names through `normalizeName` against `search_key` (OUR
+  normalization is the join column on both sides, so "A.J. Brown" and
+  "AJ Brown" both land on `ajbrown` with no fuzzy matching; Sleeper's own
+  `search_full_name` is stored alongside for reference and the two agree in
+  practice). Every saved row carries **both** the resolved `playerId` and
+  `sourceName`, the original pasted string — if a match is ever wrong, that's
+  the only way to see what it was resolved FROM. A name matching more than one
+  player is narrowed by the **team/position the paste already carried** (the
+  roster parser now captures Yahoo's "Buf - QB" line as a `hint`, never as a
+  stored position; the draft parser already had `proTeam`/`positions`), and a
+  tie that the hints can't break comes back **ambiguous rather than guessed**.
+  (4) **Unmatched rows are fixable, never silently text-only** — the roster
+  preview flags them (three states: matched / not-in-directory / matches-N) and
+  `PlayerAutocomplete` is now NFL-aware (debounced Supabase typeahead beside
+  the hockey JSON path), so picking a suggestion attaches the id; on the Last
+  Draft page an NFL row with no `playerId` is itself the flag ("no player ID —
+  pick this player from the suggestions"), which needs no lookup at all.
+  **Cross-platform fill rates are measured, not assumed** — but this container's
+  network policy blocks `api.sleeper.app`, so the numbers come from the app: the
+  refresh records `yahoo_id`/`espn_id` counts over active players and the
+  directory card displays them, and `npm run players:nfl:report` prints the same
+  report (with a per-position breakdown) from any machine that can reach
+  Sleeper. **The real numbers are in — see "Cross-platform ID coverage" below.**
+  Not in scope: backfilling ids onto already-imported rows
+  (Open item #26), and nothing yet READS the cross-platform ids.
+
+### Cross-platform ID coverage (MEASURED — the Yahoo sizing input)
+
+From the live `nfl_players` table, 2026-08-18, first full load:
+
+| | count | % of active |
+|---|---|---|
+| Players stored (unfiltered payload) | 12,221 | — |
+| `status = 'Active'` | 8,579 | 100% |
+| Active with `yahoo_id` | 4,018 | **47%** |
+| Active with `espn_id` | 3,900 | **45%** |
+
+**What this means for the Yahoo integration (Open item #15): it cannot be a
+pure `yahoo_id` join.** Roughly half of active players have no Yahoo id at all,
+so the reconciliation is **two-tier — join on `yahoo_id` where present, fall
+back to `search_key` name matching where it isn't.** Both halves already exist:
+`search_key` is our `normalizeName` on both sides, and `pickDirectoryMatch`
+handles the ambiguity that name matching creates. Plan for both paths and for a
+review surface on what the second one can't resolve; do NOT design as if the id
+join covers everything.
+
+**ASSUMPTION, NOT YET VERIFIED:** the missing 53% is expected to be the tail —
+practice-squad and deep-bench players nobody rosters in a 12-team league — so
+coverage on *real rosters* should be far higher than 47%. Plausible, and it
+matches the fact that the payload is deliberately unfiltered (retired and cut
+players are stored on purpose so old rosters still resolve). But it is a guess
+until measured. **How to settle it cheaply:** after a real league's rosters are
+imported, count how many stored rows carry a `playerId` whose directory row also
+has a `yahoo_id` — that's the number that actually governs the integration's
+cost, and the 47% figure above is only its floor. Until that's run, size the
+Yahoo work off 47%, not off the optimistic reading.
+
+- **Directory refresh: daily schedule + a resilient writer (this branch's PR,
+  follow-up):** the first real refresh fetched all 12,221 players but died at
+  row 750 writing them (`TypeError: Failed to fetch`). Two fixes, plus the
+  reversal of the manual-only decision. **(1) The diagnosis is in the error's
+  shape**: supabase-js RETURNS `{data, error}` for any HTTP response, so a
+  THROWN `TypeError` means no response arrived — not Postgres, not auth, and
+  not parallelism (the writes were already sequential in a `for await` loop).
+  Chunks 1–3 of identical row count succeeded, so the only thing that varied
+  was BYTES: Sleeper player objects differ wildly in size, so a fixed 250-ROW
+  chunk is a wildly varying request size. Two causes fit (a request body
+  rejected at the edge, or a transient drop) and they need different fixes, so
+  `writeDirectoryRows` (`src/lib/nflDirectory.js`) **runs the discriminating
+  experiment instead of guessing**: chunks are budgeted by BYTES (128KB
+  browser / 256KB server), a failed chunk retries with exponential backoff
+  (transient drops recover here), and a chunk that still fails is **split in
+  half** down to a single row (a size limit recovers here, and only here).
+  Which one recovered it is counted and reported by `diagnoseWrite` into the
+  run log's `notes` and the card, so a recurrence names its own cause. Auth
+  and permission failures are marked `fatal` and abort instantly — retrying
+  those 4× per chunk across 12k rows would be thousands of pointless requests.
+  A failure now reports rows-written and states that re-running is safe
+  (the upsert is idempotent), rather than leaving the question open.
+  **(2) Refresh is automatic and daily** — a **Vercel cron** (`vercel.json`
+  `crons`, 09:00 UTC) hits `api/refresh-nfl-directory.js`. Chosen over Supabase
+  `pg_cron` because that would mean enabling `pg_net`, fetching 5MB of JSON
+  from inside Postgres and parsing it in a SQL function — more surface, in the
+  layer that's hardest to debug; Vercel already builds and deploys this app, so
+  the job is one config entry plus one file, with logs where every other log
+  is. **The manual button calls the SAME endpoint** (server-side execution
+  removes the browser from the risky part) and falls back to the in-browser
+  writer only when the endpoint is missing or returns **501 = not configured**
+  — so the directory can still be loaded before the env vars are set. The
+  function needs `SUPABASE_SERVICE_ROLE_KEY` (server-only, never `VITE_`
+  prefixed — it bypasses RLS) plus `SUPABASE_URL`, and honors `CRON_SECRET`.
+  **(3) Runs are logged as they happen, not just when they succeed**
+  (`005_directory_refresh_runs.sql`): a row is opened with `status='running'`
+  BEFORE the write and patched at the end, and carries `trigger`
+  (`scheduled`|`manual`). So a run that dies mid-flight leaves a stalled row
+  instead of silence, and the card surfaces a failed or never-finished
+  scheduled run even while the stored player count looks healthy — a silently
+  failing cron being worse than no cron. Staleness threshold dropped 21 → 3
+  days, since a working daily schedule should never reach it.
+
+- **The card reads the DIRECTORY, not the run log (this branch's PR,
+  follow-up):** the first successful refresh wrote all 12,221 players and then
+  showed "The last refresh failed", "refresh time unknown", and no fill rates.
+  **Cause:** the run row named `trigger` — a column migration 005 adds — so on
+  a pre-005 schema PostgREST rejected the insert with PGRST204, `startRun`
+  swallowed it and returned null, and `finishRun(null, …)` returned early. A
+  fully successful run left NO row. That was a regression introduced with the
+  scheduled-refresh work: before it, success INSERTED a complete row directly
+  and didn't depend on an opening row existing. Three fixes, and the third is
+  the real lesson. **(1) Log writes are schema-tolerant** —
+  `withoutUnknownColumn` parses PostgREST's "Could not find the 'x' column"
+  and retries without it, so an optional column can never cost the record;
+  `finishRun` INSERTS the completed row when no row was opened, so a finished
+  run always leaves one. Both paths (browser + serverless) use it. **(2) A
+  failure banner can't outlive the failure** — `refreshRunState` (pure,
+  unit-tested) reads only the NEWEST run, and suppresses it entirely once the
+  player rows were written AFTER that run ENDED (`finished_at` when present,
+  else `refreshed_at`, which for a failure row inserted at the end IS the end
+  time). A partial write during a failed run therefore still shows, while a
+  later unlogged success clears it. **(3) The card's facts now come from
+  `nfl_players`** — count, `max(last_seen_at)` for "last written", and the
+  yahoo/espn fill rates as three `count(head)` queries with
+  `.eq('status','Active')`. The run log is provenance only (scheduled vs
+  manual, what failed). **A log row is not allowed to be load-bearing for
+  facts the data itself knows**; when no completed run is on record the card
+  says exactly that instead of printing "unknown" beside a healthy count.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -583,10 +741,22 @@ headless.
 - `npm run build` — runs `scripts/fetch-players-nhl.mjs` then `vite build`.
   Vercel runs this on every push.
 - `npm run players:nhl` — refresh NHL player directory on-demand
+- `npm run players:nfl:report` — cross-platform ID coverage report for the
+  Sleeper NFL directory (`scripts/report-sleeper-nfl.mjs`; fetches live, or
+  reads a saved payload passed as an argument). **Read-only — it never writes
+  to the database**; the NFL directory refresh is an in-app button, not a
+  build step.
 - `npm test` — everything below in sequence
 - `npm run test:parser` — paste-parser unit tests, draft + roster
   (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`;
   plain node, no framework)
+- `npm run test:nfl` — NFL directory pure helpers: the match key, the Sleeper
+  row mapping, the disambiguation rules, the fill-rate summary
+  (`scripts/test-nfl-directory.mjs`)
+- `npm run test:nfl-ui` — server-renders the four sport-branched import
+  surfaces on a football AND a hockey league in both themes, and asserts the
+  hockey path is untouched (`scripts/smoke-nfl-import.mjs`; esbuild-bundles
+  `scripts/nfl-smoke-entry.jsx` to `.tmp-nfl-bundle.mjs`, gitignored)
 - `npm run test:rules` — keeper cost/term model, the legacy read shim, the
   season rollover, and `buildLeague` (`scripts/test-keeper-rules.mjs`)
 - `npm run test:wizard` — renders every create-league screen on all three
@@ -594,9 +764,12 @@ headless.
   (`scripts/smoke-wizard.mjs`). Both of these esbuild-bundle
   `CreateLeagueWizard.jsx` to `.tmp-wizard-bundle.mjs` first (gitignored,
   React kept external so the SSR render shares one React copy).
-- This Claude Code container's network policy **blocks** `api-web.nhle.com`
-  and `api.nhle.com`. Vercel's build environment can reach them — the fetch
-  script runs for real on deploy, but you can't exercise it in-session.
+- This Claude Code container's network policy **blocks** `api-web.nhle.com`,
+  `api.nhle.com`, and `api.sleeper.app`. Vercel's build environment can reach
+  the NHL ones — that fetch script runs for real on deploy, but you can't
+  exercise it in-session. Sleeper is only ever called from the **browser**
+  (the manual refresh button), so a blocked container doesn't affect it in
+  production; it does mean the fill-rate report can't be run from here.
 - **The fetch script FAILS THE BUILD (exit 1) when the fetch errors and no
   previous good `players-nhl.json` (non-empty `players`) exists** — an
   empty directory silently killed matching/positions/autocomplete app-wide
@@ -737,6 +910,36 @@ RLS policy exists on the table**; RLS stays `auth.uid() = owner_id`.
 Regenerating the link is a plain authed UPDATE of `share_token`
 (client-minted `crypto.randomUUID()`), which invalidates the old URL
 instantly. SQL lives in `supabase/migrations/002_share_token.sql`.
+
+**First serverless function + first scheduled job.** `api/refresh-nfl-directory.js`
+is the app's only Vercel function, invoked by a daily cron (`vercel.json`) and
+by the Import page's manual refresh. It is also the only place a **server-side
+secret** exists: `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS — never `VITE_`
+prefixed, or it would ship in the browser bundle), alongside `SUPABASE_URL` and
+an optional `CRON_SECRET`. Scheduled calls authenticate with `CRON_SECRET`;
+manual calls carry the signed-in user's Supabase access token, verified with the
+publishable key. Unconfigured, it answers **501**, which is the client's signal
+to fall back to writing from the browser rather than failing. Note the SPA
+rewrite in `vercel.json` now excludes `/api/` (`/((?!api/).*)`) so the function
+isn't shadowed by `index.html`.
+
+**NFL player directory (`public.nfl_players` + `public.nfl_directory_refreshes`).**
+The first table that is NOT per-user data: it's a shared reference directory
+sourced from Sleeper's public `/v1/players/nfl` endpoint (no auth, no key).
+One row per player keyed by Sleeper's `player_id` (TEXT — team defenses are
+`'CAR'` etc.), with the cross-platform ids and the full unfiltered player
+object promoted alongside; `search_key` (our `normalizeName`) is the column
+imports join on. **RLS differs from `leagues` on purpose**: read is granted to
+`anon` + `authenticated` because it's public reference data (demo leagues
+resolve names too), write only to `authenticated`, and **no delete policy
+exists on either table** — that absence is what guarantees a stored
+`player_id` on a keeper/roster row can never be orphaned. Refresh is a manual
+in-app button (Import page, football leagues) that calls
+`upsert_nfl_players(jsonb)` in chunks; the function `COALESCE`s every column so
+a later payload's nulls can't blank known values. No cron, no build-time
+fetch, no service-role key — the browser talks to Sleeper directly and writes
+through the same RLS as everything else. SQL in
+`supabase/migrations/004_nfl_player_directory.sql`.
 
 **Yahoo API is a separate, unblocked-independent track.** The read-only
 Yahoo application (Open item #15) is blocked on Yahoo enabling the
@@ -1486,9 +1689,54 @@ copy of a component drifts away from the original.
   leagues and project `keeperDeadlineTime`. Run after 002 (same
   run-via-SQL-Editor caveat). RLS untouched; grants survive the
   CREATE OR REPLACE.
-- `src/PlayerAutocomplete.jsx` — autocomplete input backed by
-  `loadPlayers`; takes `disabledNames` to block dupes; shows
-  in-league keeper/rostered status next to suggestions
+- `src/PlayerAutocomplete.jsx` — autocomplete input over **two** directory
+  sources behind one component: hockey filters the `loadPlayers` JSON blob in
+  memory, football runs a **debounced Supabase typeahead** (`searchDirectory`)
+  because 11k NFL rows don't belong in the browser. NFL suggestions are mapped
+  into the hockey shape (`{id, name, pos, team}`) plus a `playerId`, so the
+  suggestion list, the status lookup, and every caller stay one code path;
+  callers that store identity read `picked.playerId`. Takes `disabledNames` to
+  block dupes; shows in-league keeper/rostered status next to suggestions.
+- `src/lib/nflDirectory.js` — NFL directory **pure** helpers (no network, no
+  Supabase, so `scripts/test-nfl-directory.mjs` can run them in plain node):
+  `directoryKey` (= `normalizeName`, the join key on both sides),
+  `normalizeProTeam` (Yahoo→Sleeper abbreviation aliases: WSH→WAS, JAC→JAX,
+  OAK→LV…), `sleeperToRow` / `sleeperPayloadToRows` (payload → table rows,
+  raw object preserved in `data`), `summarizeCrossIds` + `pct` (the
+  yahoo_id/espn_id fill rates), **`pickDirectoryMatch`** (team → position →
+  active-status narrowing; returns `'ambiguous'` rather than guessing, and an
+  unhelpful hint never eliminates every candidate), `importFieldsFor`
+  (`{playerId, pos, sourceName}` — the fields an import writes), `isNflSport`,
+  and the write layer: `chunkRowsByBytes` (byte budget, never a row count —
+  an oversized single row still gets its own chunk rather than being dropped),
+  **`writeDirectoryRows`** (injected `call`/`sleep`, so the browser and the
+  scheduled job share one implementation and the retry/split behavior is
+  unit-testable), and `diagnoseWrite` (splits ⇒ requests were too large;
+  retries alone ⇒ transient drops).
+- `api/refresh-nfl-directory.js` — the daily-cron + manual-override endpoint
+  (the app's only serverless function). Service-role client, `CRON_SECRET` or
+  a verified user token, opens a `running` log row before writing and patches
+  it at the end, returns **501 when unconfigured** so the client can fall back
+  to the browser path. Writes through the same `upsert_nfl_players`, so
+  preserve-don't-delete holds on the scheduled path identically.
+- `supabase/migrations/005_directory_refresh_runs.sql` — `trigger`
+  (`scheduled`|`manual`), `finished_at`, `notes` on the run log, plus the
+  UPDATE policy that lets a run row be closed. `nfl_players` untouched.
+- `src/lib/nflDirectoryStore.js` — the I/O half: `fetchSleeperPlayers`,
+  `refreshNflDirectory` (**server first** via `refreshOnServer` → the Vercel
+  function; falls back to `refreshInBrowser` only on a missing/501 endpoint,
+  and tells the caller which one ran), the run-log open/close pair,
+  `isPermanent` (auth/permission errors are marked `fatal` so the writer
+  aborts instead of retrying), `fetchDirectoryStatus` (count + last SUCCESSFUL
+  run + newest run of ANY kind — they differ exactly when the newest run
+  failed or stalled, which is how a broken schedule surfaces),
+  `lookupByNames` (batched `in('search_key', …)` → key → candidate rows), and
+  `searchDirectory` (typeahead; prefix + active first).
+- `src/tabs/NflDirectoryCard.jsx` — the directory's one control surface, on the
+  Import page for football leagues: stored player count, last-refresh time
+  (warning-tinted past 21 days or when empty), the cross-platform ID fill rates
+  from the last run, and the **Refresh from Sleeper** button (disabled when
+  signed out — reads work signed out, writes don't).
 - `src/lib/players.js` — `loadPlayers(sport)`, `normalizeName`,
   `buildStatusIndex(league)` — **the** util for matching league
   rosters to the player directory. `normalizeName` treats diacritics,
@@ -1795,7 +2043,11 @@ copy of a component drifts away from the original.
   labels anchor the parse and are discarded; vacant-slot furniture
   ("--empty--", "(Empty)", punctuation-only lines) is skipped via
   `isRosterPlaceholder` (a real basketball import once saved a player
-  named "--empty--"). `cleanPlayerName`'s status-flag strip requires
+  named "--empty--"). Yahoo's "Buf - QB" line under a name IS captured now,
+  as `hint: {proTeam, positions}` — read only to disambiguate a name matching
+  more than one directory player, **never** stored as the player's position
+  (short lookahead, stopping at the next slot label, because Yahoo prints the
+  name twice before that line). `cleanPlayerName`'s status-flag strip requires
   whitespace before the flag (`\s+`) — with `\s*` it truncated names
   ending in K/O/Q/P (Hellebuyck → "Hellebuyc").
 - `src/tabs/RosterImportTab.jsx` — the roster-import modal (paste via
@@ -1926,10 +2178,14 @@ buttons, no member login until (B)'s trigger is hit.
 5. **Export/import button** for league data — workaround for no-backend
    life. ~1-hour change. User said they don't need it yet because they
    won't seriously use the app until there's a real backend.
-6. **NBA / NFL / MLB player directories** — same pattern as the NHL
-   fetch script. Sport choices discussed: Sleeper for NFL (free, no
-   key), ESPN unofficial for NBA, MLB Stats API for MLB. Defer until
-   user wants to actually use those sports.
+6. **NBA / MLB player directories — NFL SHIPPED (this branch's PR), the other
+   two still open.** NFL went a different route than the NHL script: not a
+   build-time JSON blob but a **stored Supabase table** refreshed by a manual
+   button, because its job is identity resolution (stable `player_id` on every
+   imported row), not just search. NBA (ESPN unofficial) and MLB (MLB Stats
+   API) remain unbuilt — and note the app now has **two** directory patterns;
+   pick per sport by whether that sport needs stored identities or just a
+   name/position lookup, rather than assuming either is "the" pattern.
 7. **Real backend / database — SHIPPED (PR #23).** Supabase
    (Postgres + auth) is live: one `public.leagues` row per league
    (`owner_id`, `id`, `sport`, `data jsonb`), RLS-enforced single
@@ -2166,6 +2422,27 @@ buttons, no member login until (B)'s trigger is hit.
     count → cost → term sequence needs rethinking for that path. **Not
     being built.** Recorded so the gap is known rather than rediscovered
     when someone asks why a tenure league can't be set up.
+
+26. **Backfill player IDs onto rows imported before the directory existed.**
+    Explicitly out of scope for the NFL-directory PR. Every NFL row imported
+    from now on carries a `playerId` + `sourceName`; rows already in the blob
+    carry neither, and they're exactly the rows a Yahoo join would miss. The
+    shape of the fix is known — run the stored names through `lookupByNames` +
+    `pickDirectoryMatch` (no team/position hint available, so more rows land
+    ambiguous) and write the ids back, with a review surface for the ones that
+    don't resolve cleanly. Do it as its own pass, and only against leagues the
+    commissioner still cares about.
+
+27. **Nothing reads the cross-platform IDs yet.** `yahoo_id`, `espn_id`, and
+    friends are captured on every refresh and used by nothing — deliberately,
+    that's the foundation this PR was for. They become live when the Yahoo
+    integration (Open item #15) is unblocked. **Measured coverage: 47%
+    `yahoo_id` / 45% `espn_id` over 8,579 active players** — see the
+    "Cross-platform ID coverage" table above. The consequence is already
+    decided: the Yahoo reconciliation is **two-tier** (id join, then
+    `search_key` name matching), not a pure join. The open question is only
+    how much of the second tier real rosters actually hit — measure that
+    against an imported league before sizing the work.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's

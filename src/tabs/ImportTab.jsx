@@ -3,6 +3,8 @@ import { draftFormatOf, hasTerm, termOf } from '../lib/keeperRules.js';
 import { makeTheme } from '../components.jsx';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
 import { parseDraftResults } from '../lib/draftParse.js';
+import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '../lib/nflDirectory.js';
+import { lookupByNames } from '../lib/nflDirectoryStore.js';
 
 // Import Last Year's Draft — the paste flow over lib/draftParse.js, which
 // handles BOTH Yahoo Draft Results views (team-by-team blocks and the flat
@@ -56,6 +58,46 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
   const [entryYears, setEntryYears] = React.useState({});
   const [expandedTeams, setExpandedTeams] = React.useState({}); // {teamName: bool}
   const [error, setError] = React.useState(null);
+  // NFL only: resolve every parsed name against the stored Sleeper directory
+  // so the import writes player IDs, not just names. The parse already
+  // carries each row's pro team and positions, which is what separates two
+  // players sharing a normalized name. Resolution NEVER blocks the import —
+  // a name the directory doesn't know still imports (name-only) and is
+  // fixable in place on this page afterwards.
+  const nfl = isNflSport(league.sport);
+  const [nflMatches, setNflMatches] = React.useState(() => new Map());
+  const [resolving, setResolving] = React.useState(false);
+
+  async function resolveNflNames(parsed) {
+    const rows = parsed.flatMap(p => p.players);
+    if (rows.length === 0) return new Map();
+    setResolving(true);
+    try {
+      const found = await lookupByNames(rows.map(r => r.player));
+      const out = new Map();
+      rows.forEach(r => {
+        const key = directoryKey(r.player);
+        if (!key || out.has(key)) return;
+        out.set(key, pickDirectoryMatch(found.get(key) || [], { proTeam: r.proTeam, positions: r.positions }));
+      });
+      return out;
+    } catch (e) {
+      console.warn('[KeeperHQ] NFL directory lookup failed during draft import:', e);
+      return new Map();
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  const nflResolvedCount = React.useMemo(() => {
+    if (!nfl || !preview) return 0;
+    return preview.reduce((sum, p) => sum + p.players.filter(pl => {
+      const m = nflMatches.get(directoryKey(pl.player));
+      return m?.status === 'matched';
+    }).length, 0);
+  }, [nfl, preview, nflMatches]);
+  const previewPlayerCount = React.useMemo(
+    () => (preview || []).reduce((s, p) => s + p.players.length, 0), [preview]);
 
   const yearKey = (teamName, player) => `${teamName}|${player}`;
   const entryYearFor = (teamName, p) => entryYears[yearKey(teamName, p.player)] ?? (p.isKeeper ? Math.min(2, contractLen) : 1);
@@ -73,6 +115,8 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
     setPreview(parsed);
     setEntryYears({});
     setExpandedTeams({});
+    setNflMatches(new Map());
+    if (nfl) resolveNflNames(parsed).then(setNflMatches);
     // Resolve each parsed Yahoo team name: the saved league.yahooTeamMap first
     // (previously-confirmed names resolve silently, surviving Yahoo renames),
     // then a string-similarity suggestion against the league's team names.
@@ -93,8 +137,16 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
       const fromParsed = preview.find(p => mapping[p.name] === tm.id);
       if (!fromParsed) return tm;
       const priorKeepers = fromParsed.players.map(p => {
+        // NFL: attach the resolved Sleeper id + the string the paste actually
+        // carried. An unresolved row imports name-only rather than being
+        // dropped, and the Last Draft page flags it for an in-place fix.
+        const match = nfl ? nflMatches.get(directoryKey(p.player)) : null;
+        const identity = nfl
+          ? importFieldsFor(match?.status === 'matched' ? match.row : null, p.player)
+          : null;
         const base = {
           player: p.player, proTeam: p.proTeam, positions: p.positions,
+          ...(identity || {}),
           // Acquisition metadata (foundation for pick-cost keepers / rookie
           // rules): the draft paste is a draft record, so method is 'draft'
           // and the round comes straight from the parse. Rookie status isn't
@@ -259,6 +311,16 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
           {dupNames.length > 0 && (
             <div style={{ padding: '9px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, fontWeight: 600, color: t.danger }}>
               {dupNames.join(', ')} {dupNames.length === 1 ? 'is' : 'are'} mapped to more than one pasted team — a league team can only receive one draft. Reassign one of the rows.
+            </div>
+          )}
+          {/* NFL: say up front how many rows will land with a real player ID.
+              Never a blocker — the unresolved ones import name-only and are
+              fixed in place on this page. */}
+          {nfl && previewPlayerCount > 0 && (
+            <div style={{ fontSize: 11, color: resolving ? t.textMuted : (nflResolvedCount === previewPlayerCount ? t.textSecondary : t.warning) }}>
+              {resolving
+                ? 'Matching players against the NFL directory…'
+                : `${nflResolvedCount} of ${previewPlayerCount} players matched to a directory ID${nflResolvedCount < previewPlayerCount ? ' — the rest import name-only and can be matched below after importing.' : '.'}`}
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

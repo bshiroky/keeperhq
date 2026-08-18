@@ -1,6 +1,8 @@
 import React from 'react';
 import { makeTheme } from './components.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from './lib/players.js';
+import { isNflSport } from './lib/nflDirectory.js';
+import { searchDirectory } from './lib/nflDirectoryStore.js';
 
 // Autocomplete text input backed by the player directory for the league's sport.
 // Falls back to a plain input if the directory isn't available (e.g. sports not
@@ -18,16 +20,48 @@ export function PlayerAutocomplete({ value, onChange, sport, isDark, placeholder
   const [focused, setFocused] = React.useState(-1);
   const containerRef = React.useRef(null);
 
-  const supported = sport === 'hockey' || sport === 'nhl';
+  // Two directory sources, one input. Hockey ships as a build-time JSON blob
+  // that's filtered locally; NFL lives in Supabase and is queried per
+  // keystroke (11k rows is too many to ship to the browser, and the query is
+  // indexed). Everything else has no directory and falls back to a plain
+  // input.
+  const nfl = isNflSport(sport);
+  const nhl = sport === 'hockey' || sport === 'nhl';
+  const supported = nfl || nhl;
+  const [remote, setRemote] = React.useState([]);
 
   React.useEffect(() => {
-    if (!supported) return;
+    if (!nhl) return;
     let cancelled = false;
     loadPlayers('nhl')
       .then(d => { if (!cancelled) setPlayers(d.players || []); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [supported]);
+  }, [nhl]);
+
+  // NFL: debounced remote search. Rows are mapped into the same shape the
+  // hockey directory uses ({id, name, pos, team}) so the suggestion list and
+  // the status lookup below stay one code path; `playerId` rides along for
+  // callers that store the resolved identity.
+  React.useEffect(() => {
+    if (!nfl) return;
+    const q = value || '';
+    if (normalizeName(q).length < 2) { setRemote([]); return; }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      searchDirectory(q, 8)
+        .then(rows => {
+          if (cancelled) return;
+          setRemote(rows.map(r => ({
+            id: r.player_id, playerId: r.player_id,
+            name: r.full_name || [r.first_name, r.last_name].filter(Boolean).join(' '),
+            pos: r.pos || '', team: r.team || '', status: r.status,
+          })));
+        })
+        .catch(() => { if (!cancelled) setRemote([]); });
+    }, 180);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [nfl, value]);
 
   React.useEffect(() => {
     function onDoc(e) {
@@ -52,6 +86,7 @@ export function PlayerAutocomplete({ value, onChange, sport, isDark, placeholder
   }
 
   const suggestions = React.useMemo(() => {
+    if (nfl) return remote;
     if (!players || !value || value.length < 2) return [];
     const q = normalizeName(value);
     const out = [];
@@ -62,7 +97,7 @@ export function PlayerAutocomplete({ value, onChange, sport, isDark, placeholder
       }
     }
     return out;
-  }, [players, value]);
+  }, [players, value, nfl, remote]);
 
   function selectSuggestion(p) {
     const { isDisabled } = metaFor(p);
