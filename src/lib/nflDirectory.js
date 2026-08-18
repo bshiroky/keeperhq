@@ -318,6 +318,54 @@ export function diagnoseWrite(stats) {
   return null;
 }
 
+// PostgREST rejects a write naming a column the schema doesn't have
+// (PGRST204: "Could not find the 'trigger' column of '<table>' …"). That is
+// exactly what cost a successful 12,221-player refresh its log row: the run
+// row named `trigger`, a column migration 005 adds, and the whole record was
+// dropped on the floor when 005 hadn't been applied yet.
+//
+// Optional columns must never cost us the record. This returns the row minus
+// the column the error named, so the caller can retry with what the schema
+// actually has — or null when there's nothing left to strip (a real error).
+const UNKNOWN_COLUMN = /could not find the '([^']+)' column/i;
+
+export function withoutUnknownColumn(row, error) {
+  const message = String(error?.message || '');
+  const code = String(error?.code || '');
+  if (code !== 'PGRST204' && !UNKNOWN_COLUMN.test(message)) return null;
+  const named = UNKNOWN_COLUMN.exec(message)?.[1];
+  if (!named || !(named in (row || {}))) return null;
+  const { [named]: _dropped, ...rest } = row;
+  return rest;
+}
+
+// What the directory card should say about the last run, given the run log AND
+// the directory's own write timestamp. Pure, so the rules are testable.
+//
+// The rule that matters: a failure banner must not outlive the failure. Only
+// the NEWEST run can be news (an older failure never is), and even that is
+// suppressed once the player rows were written AFTER that run ended — which is
+// proof a later refresh succeeded, whether or not it managed to log itself.
+//
+// `lastWriteAt` is max(last_seen_at) from nfl_players: ground truth that
+// doesn't depend on the log being intact.
+export function refreshRunState({ count = 0, lastWriteAt = null, lastRun = null, lastOk = null } = {}) {
+  const runEndedAt = lastRun?.finished_at || lastRun?.refreshed_at || null;
+  const writtenSinceRun = !!(lastWriteAt && runEndedAt
+    && new Date(lastWriteAt).getTime() > new Date(runEndedAt).getTime());
+  const stalledFor = lastRun?.status === 'running' && lastRun?.refreshed_at
+    ? (Date.now() - new Date(lastRun.refreshed_at).getTime()) / 3600000
+    : 0;
+  return {
+    writtenSinceRun,
+    failed: lastRun?.status === 'error' && !writtenSinceRun,
+    stalled: lastRun?.status === 'running' && stalledFor >= 1 && !writtenSinceRun,
+    // Players present, no completed run on record: the card has to say that
+    // plainly rather than printing "unknown" beside a healthy count.
+    unlogged: count > 0 && !lastOk,
+  };
+}
+
 // Which sports have a stored directory. NFL is the only one on this path;
 // hockey keeps its build-time JSON directory (loadPlayers), and the rest have
 // none. Kept as one function so callers don't re-roll the sport test.

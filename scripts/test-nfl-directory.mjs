@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import {
   directoryKey, normalizeProTeam, sleeperToRow, sleeperPayloadToRows,
   summarizeCrossIds, pct, pickDirectoryMatch, importFieldsFor, isNflSport,
-  chunkRowsByBytes, writeDirectoryRows, diagnoseWrite,
+  chunkRowsByBytes, writeDirectoryRows, diagnoseWrite, withoutUnknownColumn,
+  refreshRunState,
 } from '../src/lib/nflDirectory.js';
 
 let passed = 0;
@@ -334,6 +335,102 @@ await atest('write: progress is reported throughout, not only at the end', async
   assert.ok(seen.length > 3, `expected progress per chunk, got ${seen.length} updates`);
   assert.deepEqual(seen, [...seen].sort((a, b) => a - b), 'progress only moves forward');
   assert.equal(seen[seen.length - 1], 30);
+});
+
+// ── Run-log resilience ──────────────────────────────────────────────────────
+// Regression tests for the bug that put a stale "last refresh failed" banner
+// on top of 12,221 successfully written players: the run row named `trigger`,
+// a column migration 005 adds, so on a pre-005 schema PostgREST rejected the
+// insert and the successful run left no record at all.
+
+test('withoutUnknownColumn: drops exactly the column PostgREST named', () => {
+  const row = { source: 'sleeper', trigger: 'manual', status: 'ok' };
+  const reduced = withoutUnknownColumn(row, {
+    code: 'PGRST204',
+    message: "Could not find the 'trigger' column of 'nfl_directory_refreshes' in the schema cache",
+  });
+  assert.deepEqual(reduced, { source: 'sleeper', status: 'ok' });
+  assert.ok(!('trigger' in reduced));
+  assert.ok('trigger' in row, 'the caller\'s row is not mutated');
+});
+
+test('withoutUnknownColumn: a real error is not mistaken for schema drift', () => {
+  const row = { source: 'sleeper', status: 'ok' };
+  assert.equal(withoutUnknownColumn(row, { code: '42501', message: 'permission denied' }), null);
+  assert.equal(withoutUnknownColumn(row, { message: 'network unreachable' }), null);
+  // Names a column that isn't in the row — nothing to strip, so don't loop.
+  assert.equal(withoutUnknownColumn(row, {
+    code: 'PGRST204', message: "Could not find the 'notes' column of 'x' in the schema cache",
+  }), null);
+});
+
+test('withoutUnknownColumn: strips repeatedly until the row fits the schema', () => {
+  // The real pre-005 shape: `trigger`, then `finished_at`, then `notes`.
+  let row = { source: 'sleeper', trigger: 'manual', finished_at: 'x', notes: 'y', status: 'ok' };
+  const missing = ['trigger', 'finished_at', 'notes'];
+  for (const col of missing) {
+    row = withoutUnknownColumn(row, {
+      code: 'PGRST204', message: `Could not find the '${col}' column of 'nfl_directory_refreshes' in the schema cache`,
+    });
+    assert.ok(row, `should still have a row to retry after dropping ${col}`);
+  }
+  assert.deepEqual(row, { source: 'sleeper', status: 'ok' },
+    'what survives is the columns migration 004 created — a real record, not nothing');
+});
+
+// ── What the card says about the last run ───────────────────────────────────
+const minutesAgo = m => new Date(Date.now() - m * 60000).toISOString();
+
+test('run state: the reported bug — a stale failure must not outlive a later write', () => {
+  // Exactly what production showed: a 750-row failure at 3:48, then a
+  // successful 12,221-row run at 3:52 that never managed to log itself.
+  const state = refreshRunState({
+    count: 12221,
+    lastWriteAt: minutesAgo(20),
+    lastRun: { status: 'error', refreshed_at: minutesAgo(24), upserted_count: 750 },
+    lastOk: null,
+  });
+  assert.equal(state.failed, false, 'the failure banner must be gone once later data landed');
+  assert.equal(state.writtenSinceRun, true);
+  assert.equal(state.unlogged, true, 'but the missing run record is stated honestly');
+});
+
+test('run state: a genuine failure with no later write still shows', () => {
+  // The partial write lands DURING the run, so it is never "since" the run:
+  // finished_at is what a later refresh has to beat.
+  const state = refreshRunState({
+    count: 750,
+    lastWriteAt: minutesAgo(29),
+    lastRun: { status: 'error', refreshed_at: minutesAgo(30), finished_at: minutesAgo(28), upserted_count: 750 },
+    lastOk: null,
+  });
+  assert.equal(state.failed, true);
+  assert.equal(state.writtenSinceRun, false);
+});
+
+test('run state: a clean run reports nothing to worry about', () => {
+  const ok = { id: 9, status: 'ok', refreshed_at: minutesAgo(10), finished_at: minutesAgo(9), trigger: 'scheduled' };
+  const state = refreshRunState({ count: 12221, lastWriteAt: minutesAgo(9), lastRun: ok, lastOk: ok });
+  assert.equal(state.failed, false);
+  assert.equal(state.stalled, false);
+  assert.equal(state.unlogged, false);
+});
+
+test('run state: a run stuck on "running" surfaces only after an hour, and only if nothing landed since', () => {
+  const stuck = at => ({ status: 'running', refreshed_at: at });
+  assert.equal(refreshRunState({ count: 0, lastRun: stuck(minutesAgo(20)) }).stalled, false, 'still plausibly in flight');
+  assert.equal(refreshRunState({ count: 0, lastRun: stuck(minutesAgo(180)) }).stalled, true, 'three hours is dead');
+  assert.equal(
+    refreshRunState({ count: 12221, lastWriteAt: minutesAgo(5), lastRun: stuck(minutesAgo(180)) }).stalled,
+    false, 'data written since means something later succeeded',
+  );
+});
+
+test('run state: an empty directory with no runs is not a failure', () => {
+  const state = refreshRunState({ count: 0, lastWriteAt: null, lastRun: null, lastOk: null });
+  assert.equal(state.failed, false);
+  assert.equal(state.stalled, false);
+  assert.equal(state.unlogged, false, 'nothing written, nothing to explain');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} NFL-DIRECTORY TESTS PASS`);

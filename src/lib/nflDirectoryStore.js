@@ -26,7 +26,7 @@
 import { supabase } from './supabase.js';
 import {
   directoryKey, sleeperPayloadToRows, summarizeCrossIds,
-  writeDirectoryRows, diagnoseWrite,
+  writeDirectoryRows, diagnoseWrite, withoutUnknownColumn,
 } from './nflDirectory.js';
 
 export const SLEEPER_PLAYERS_URL = 'https://api.sleeper.app/v1/players/nfl';
@@ -57,27 +57,53 @@ export async function fetchSleeperPlayers() {
 
 // ── Run log ─────────────────────────────────────────────────────────────────
 
-async function startRun(trigger) {
-  const { data, error } = await supabase
-    .from('nfl_directory_refreshes')
-    .insert({ source: 'sleeper', trigger, status: 'running' })
-    .select('id')
-    .maybeSingle();
-  if (error) {
-    // A missing log row must never block the actual refresh.
-    console.warn('[KeeperHQ] Could not open a directory-refresh log row:', error);
-    return null;
+// Log writes retry without any column the schema doesn't have, rather than
+// losing the record: a run that isn't recorded is a run the card has to guess
+// about, which is what produced a "last refresh failed" banner sitting on top
+// of 12,221 successfully written players.
+async function insertRunRow(row, wantId) {
+  let attempt = { ...row };
+  for (let i = 0; i < 5; i++) {
+    const query = supabase.from('nfl_directory_refreshes').insert(attempt);
+    const { data, error } = wantId ? await query.select('id').maybeSingle() : await query;
+    if (!error) return data?.id ?? null;
+    const reduced = withoutUnknownColumn(attempt, error);
+    if (!reduced) {
+      console.warn('[KeeperHQ] Could not write a directory-refresh log row:', error);
+      return null;
+    }
+    attempt = reduced;
   }
-  return data?.id ?? null;
+  return null;
 }
 
+async function startRun(trigger) {
+  return insertRunRow({ source: 'sleeper', trigger, status: 'running' }, true);
+}
+
+// Closes the run. If the row was never opened (an older schema, a failed
+// insert), this INSERTS the completed record instead of silently doing
+// nothing — a finished run always leaves a row, which is the whole point of
+// the log.
 async function finishRun(id, patch) {
-  if (!id) return;
-  const { error } = await supabase
-    .from('nfl_directory_refreshes')
-    .update({ ...patch, finished_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) console.warn('[KeeperHQ] Could not close the directory-refresh log row:', error);
+  const finished = { ...patch, finished_at: new Date().toISOString() };
+  if (!id) return insertRunRow(finished, false);
+
+  let attempt = finished;
+  for (let i = 0; i < 5; i++) {
+    const { error } = await supabase
+      .from('nfl_directory_refreshes')
+      .update(attempt)
+      .eq('id', id);
+    if (!error) return id;
+    const reduced = withoutUnknownColumn(attempt, error);
+    if (!reduced) {
+      console.warn('[KeeperHQ] Could not close the directory-refresh log row:', error);
+      return null;
+    }
+    attempt = reduced;
+  }
+  return null;
 }
 
 // Auth / permission failures: no amount of waiting or shrinking fixes them,
@@ -202,27 +228,53 @@ export async function refreshNflDirectory({ onProgress } = {}) {
 
 // ── Status ──────────────────────────────────────────────────────────────────
 
-// The card's data: how many players are stored, plus the last COMPLETED run
-// and the newest run of any kind. Those differ exactly when the newest run
-// failed or is still going — which is what makes a broken schedule visible
-// instead of the card quietly showing an older success.
+// The card's data.
+//
+// The facts the card states — how many players are stored, when they were last
+// written, and the cross-platform ID coverage — are read from nfl_players
+// ITSELF, not from the run log. The log is provenance (scheduled vs manual,
+// what failed) and nothing more. That's the lesson from the first real
+// refresh: the players landed, the log row didn't, and a card that trusted the
+// log reported "refresh time unknown" and an old failure while sitting on a
+// complete directory. The data can answer these questions; it should.
 export async function fetchDirectoryStatus() {
-  if (!supabase) return { configured: false, count: 0, lastRefresh: null, lastRun: null };
-  const [countRes, lastOkRes, lastAnyRes] = await Promise.all([
-    supabase.from('nfl_players').select('player_id', { count: 'exact', head: true }),
+  if (!supabase) {
+    return { configured: false, count: 0, lastWriteAt: null, fill: null, lastRun: null, lastOk: null };
+  }
+
+  const players = () => supabase.from('nfl_players').select('player_id', { count: 'exact', head: true });
+  const [countRes, activeRes, yahooRes, espnRes, writtenRes, lastOkRes, lastAnyRes] = await Promise.all([
+    players(),
+    players().eq('status', 'Active'),
+    players().eq('status', 'Active').not('yahoo_id', 'is', null),
+    players().eq('status', 'Active').not('espn_id', 'is', null),
+    // Ground truth for "when was the directory last written": every upsert
+    // stamps last_seen_at, so this is true even for a run that never logged.
+    supabase.from('nfl_players').select('last_seen_at')
+      .order('last_seen_at', { ascending: false }).limit(1),
     supabase.from('nfl_directory_refreshes').select('*').eq('status', 'ok')
       .order('refreshed_at', { ascending: false }).limit(1),
     supabase.from('nfl_directory_refreshes').select('*')
       .order('refreshed_at', { ascending: false }).limit(1),
   ]);
   if (countRes.error) throw countRes.error;
-  if (lastOkRes.error) throw lastOkRes.error;
-  if (lastAnyRes.error) throw lastAnyRes.error;
+
+  // The run log is optional context. If reading it fails (an older schema, a
+  // policy gap), the card still reports everything the table knows rather
+  // than erroring out.
+  const logRow = res => (res.error ? null : (res.data || [])[0] || null);
+
   return {
     configured: true,
     count: countRes.count || 0,
-    lastRefresh: (lastOkRes.data || [])[0] || null,
-    lastRun: (lastAnyRes.data || [])[0] || null,
+    lastWriteAt: writtenRes.error ? null : (writtenRes.data || [])[0]?.last_seen_at || null,
+    fill: {
+      active: activeRes.error ? null : activeRes.count || 0,
+      yahoo: yahooRes.error ? null : yahooRes.count || 0,
+      espn: espnRes.error ? null : espnRes.count || 0,
+    },
+    lastOk: logRow(lastOkRes),
+    lastRun: logRow(lastAnyRes),
   };
 }
 

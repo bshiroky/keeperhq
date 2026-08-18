@@ -616,6 +616,33 @@ features have shipped through their own branches (all merged):
   failing cron being worse than no cron. Staleness threshold dropped 21 → 3
   days, since a working daily schedule should never reach it.
 
+- **The card reads the DIRECTORY, not the run log (this branch's PR,
+  follow-up):** the first successful refresh wrote all 12,221 players and then
+  showed "The last refresh failed", "refresh time unknown", and no fill rates.
+  **Cause:** the run row named `trigger` — a column migration 005 adds — so on
+  a pre-005 schema PostgREST rejected the insert with PGRST204, `startRun`
+  swallowed it and returned null, and `finishRun(null, …)` returned early. A
+  fully successful run left NO row. That was a regression introduced with the
+  scheduled-refresh work: before it, success INSERTED a complete row directly
+  and didn't depend on an opening row existing. Three fixes, and the third is
+  the real lesson. **(1) Log writes are schema-tolerant** —
+  `withoutUnknownColumn` parses PostgREST's "Could not find the 'x' column"
+  and retries without it, so an optional column can never cost the record;
+  `finishRun` INSERTS the completed row when no row was opened, so a finished
+  run always leaves one. Both paths (browser + serverless) use it. **(2) A
+  failure banner can't outlive the failure** — `refreshRunState` (pure,
+  unit-tested) reads only the NEWEST run, and suppresses it entirely once the
+  player rows were written AFTER that run ENDED (`finished_at` when present,
+  else `refreshed_at`, which for a failure row inserted at the end IS the end
+  time). A partial write during a failed run therefore still shows, while a
+  later unlogged success clears it. **(3) The card's facts now come from
+  `nfl_players`** — count, `max(last_seen_at)` for "last written", and the
+  yahoo/espn fill rates as three `count(head)` queries with
+  `.eq('status','Active')`. The run log is provenance only (scheduled vs
+  manual, what failed). **A log row is not allowed to be load-bearing for
+  facts the data itself knows**; when no completed run is on record the card
+  says exactly that instead of printing "unknown" beside a healthy count.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system

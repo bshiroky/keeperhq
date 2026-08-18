@@ -2,7 +2,7 @@ import React from 'react';
 import { Users, Loader } from 'lucide-react';
 import { makeTheme, tokens, Button } from '../components.jsx';
 import { supabase } from '../lib/supabase.js';
-import { pct } from '../lib/nflDirectory.js';
+import { pct, refreshRunState } from '../lib/nflDirectory.js';
 import { fetchDirectoryStatus, refreshNflDirectory, directoryConfigured } from '../lib/nflDirectoryStore.js';
 
 // The NFL player directory's status + override control, on the Import page for
@@ -25,11 +25,6 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 }
 
-function hoursSince(iso) {
-  if (!iso) return null;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
-}
-
 function formatWhen(iso) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -43,7 +38,7 @@ function formatWhen(iso) {
 
 export function NflDirectoryCard({ isDark, accentColor }) {
   const t = makeTheme(isDark);
-  const [status, setStatus] = React.useState(null);   // {count, lastRefresh, lastRun}
+  const [status, setStatus] = React.useState(null);   // see fetchDirectoryStatus
   const [loading, setLoading] = React.useState(true);
   const [signedIn, setSignedIn] = React.useState(false);
   const [running, setRunning] = React.useState(false);
@@ -85,23 +80,30 @@ export function NflDirectoryCard({ isDark, accentColor }) {
 
   const configured = directoryConfigured();
   const count = status?.count || 0;
-  const lastOk = status?.lastRefresh || null;   // last run that finished cleanly
+  const lastOk = status?.lastOk || null;        // newest run that finished cleanly
   const lastRun = status?.lastRun || null;      // newest run of any kind
-  const stale = !lastOk || (daysSince(lastOk.refreshed_at) ?? 999) > STALE_DAYS;
+  // When the directory was last WRITTEN, straight from the player rows. This
+  // is the honest answer even when a run failed to log itself.
+  const lastWriteAt = status?.lastWriteAt || null;
+  const fill = status?.fill || null;
+  const stale = !lastWriteAt || (daysSince(lastWriteAt) ?? 999) > STALE_DAYS;
 
-  // The newest run failed or is still marked running while a later successful
-  // one doesn't exist → something is wrong with the schedule, and the card has
-  // to say so even though the stored player count looks fine.
-  const runFailed = lastRun && lastRun.status === 'error' && (!lastOk || lastRun.id !== lastOk.id);
-  const runStalled = lastRun && lastRun.status === 'running' && (hoursSince(lastRun.refreshed_at) ?? 0) >= 1;
+  // Banner rules live in refreshRunState (pure, unit-tested): a failure must
+  // not outlive the failure, and players-with-no-log-row must read honestly.
+  const { failed: runFailed, stalled: runStalled, unlogged: unloggedWrite } =
+    refreshRunState({ count, lastWriteAt, lastRun, lastOk });
 
   const statusLine = () => {
     if (loading) return 'Checking…';
     if (!configured) return 'Not available in this build (no database configured).';
     if (count === 0) return 'Empty — no players loaded yet. Refresh before importing rosters.';
-    const when = formatWhen(lastOk?.refreshed_at);
-    const how = lastOk?.trigger === 'scheduled' ? 'scheduled' : lastOk?.trigger === 'manual' ? 'manual' : null;
-    return `${count.toLocaleString()} players${when ? ` · refreshed ${when}${how ? ` (${how})` : ''}` : ' · refresh time unknown'}`;
+    const when = formatWhen(lastWriteAt);
+    // Provenance only when a completed run actually accounts for this write.
+    const matchesRun = lastOk && lastWriteAt
+      && Math.abs(new Date(lastWriteAt) - new Date(lastOk.refreshed_at)) < 6 * 3600 * 1000;
+    const how = matchesRun && (lastOk.trigger === 'scheduled' || lastOk.trigger === 'manual')
+      ? ` (${lastOk.trigger})` : '';
+    return `${count.toLocaleString()} players${when ? ` · last written ${when}${how}` : ''}`;
   };
 
   const progressLine = () => {
@@ -144,7 +146,7 @@ export function NflDirectoryCard({ isDark, accentColor }) {
             borderRadius: tokens.radiusSm, padding: '6px 8px',
           }}>
             <strong>
-              {lastRun.trigger === 'scheduled' ? 'The scheduled refresh' : 'The last refresh'}
+              {lastRun.trigger === 'scheduled' ? 'The scheduled refresh' : 'The most recent refresh'}
               {runStalled ? ' never finished' : ' failed'}
             </strong>
             {formatWhen(lastRun.refreshed_at) ? ` (${formatWhen(lastRun.refreshed_at)})` : ''}
@@ -155,14 +157,25 @@ export function NflDirectoryCard({ isDark, accentColor }) {
           </div>
         )}
 
-        {/* Cross-platform ID coverage from the last good run. Unused by the app
-            today — it's the number that says how much of a future Yahoo
-            reconciliation is a straight join. */}
-        {lastOk && lastOk.active_count > 0 && (
+        {/* No completed run on record, but the players are here. Say so —
+            "unknown" next to a healthy count reads as a broken directory. */}
+        {unloggedWrite && !loading && (
+          <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 4, lineHeight: 1.45 }}>
+            The player data is here, but no completed refresh is recorded in the log — the run that wrote it
+            didn't save a record. The counts above come from the directory itself; the next refresh will log
+            properly.
+          </div>
+        )}
+
+        {/* Cross-platform ID coverage, counted from the directory rather than
+            read out of a run record — so it's right even when a run failed to
+            log. Unused by the app today: it's the number that says how much of
+            a future Yahoo reconciliation is a straight join. */}
+        {fill && fill.active > 0 && (
           <div style={{ fontSize: '11px', color: t.textMuted, marginTop: 4 }}>
-            Cross-platform IDs on active players: Yahoo {pct(lastOk.yahoo_id_count, lastOk.active_count)}%
-            {' · '}ESPN {pct(lastOk.espn_id_count, lastOk.active_count)}%
-            {' · '}{lastOk.active_count.toLocaleString()} active of {(lastOk.payload_count || 0).toLocaleString()} stored
+            Cross-platform IDs on active players: Yahoo {pct(fill.yahoo, fill.active)}%
+            {' · '}ESPN {pct(fill.espn, fill.active)}%
+            {' · '}{fill.active.toLocaleString()} active of {count.toLocaleString()} stored
           </div>
         )}
 

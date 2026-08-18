@@ -34,6 +34,7 @@
 import { createClient } from '@supabase/supabase-js';
 import {
   sleeperPayloadToRows, summarizeCrossIds, writeDirectoryRows, diagnoseWrite,
+  withoutUnknownColumn,
 } from '../src/lib/nflDirectory.js';
 
 const SLEEPER_URL = 'https://api.sleeper.app/v1/players/nfl';
@@ -43,6 +44,26 @@ const SLEEPER_URL = 'https://api.sleeper.app/v1/players/nfl';
 const SERVER_BUDGET_BYTES = 256 * 1024;
 
 export const config = { maxDuration: 60 };
+
+// Log writes drop any column this schema doesn't have and retry, rather than
+// losing the record of a run that actually happened — the failure mode that
+// left a completed 12,221-player refresh with no row at all.
+async function logRun(db, row, { id = null } = {}) {
+  let attempt = { ...row };
+  for (let i = 0; i < 5; i++) {
+    const { data, error } = id
+      ? await db.from('nfl_directory_refreshes').update(attempt).eq('id', id).select('id').maybeSingle()
+      : await db.from('nfl_directory_refreshes').insert(attempt).select('id').maybeSingle();
+    if (!error) return data?.id ?? id;
+    const reduced = withoutUnknownColumn(attempt, error);
+    if (!reduced) {
+      console.warn('[KeeperHQ] directory-refresh log write failed:', error);
+      return id;
+    }
+    attempt = reduced;
+  }
+  return id;
+}
 
 const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -96,7 +117,7 @@ export default async function handler(req, res) {
   } catch (e) {
     // Log the failed fetch so a broken schedule is visible in the app rather
     // than only in Vercel's logs.
-    await db.from('nfl_directory_refreshes').insert({
+    await logRun(db, {
       source: 'sleeper', trigger: auth.trigger, status: 'error',
       error: `Sleeper fetch failed: ${String(e?.message || e)}`.slice(0, 500),
       finished_at: new Date().toISOString(),
@@ -105,7 +126,7 @@ export default async function handler(req, res) {
   }
 
   if (rows.length === 0) {
-    await db.from('nfl_directory_refreshes').insert({
+    await logRun(db, {
       source: 'sleeper', trigger: auth.trigger, status: 'error',
       error: 'Sleeper returned zero usable players', finished_at: new Date().toISOString(),
     });
@@ -116,14 +137,17 @@ export default async function handler(req, res) {
   // Open the run row BEFORE writing: a run that dies mid-flight (function
   // timeout, instance killed) leaves a 'running' row behind, which the card
   // reports. Silence is the one outcome a scheduled job must never produce.
-  const { data: runRow } = await db.from('nfl_directory_refreshes')
-    .insert({ source: 'sleeper', trigger: auth.trigger, status: 'running', payload_count: rows.length })
-    .select('id').maybeSingle();
-  const runId = runRow?.id ?? null;
+  const runId = await logRun(db, {
+    source: 'sleeper', trigger: auth.trigger, status: 'running', payload_count: rows.length,
+  });
 
-  const close = (patch) => runId
-    ? db.from('nfl_directory_refreshes').update({ ...patch, finished_at: new Date().toISOString() }).eq('id', runId)
-    : Promise.resolve();
+  // If the row was never opened, the close INSERTS the finished record instead
+  // of doing nothing: a run that completed always leaves a row.
+  const close = (patch) => logRun(
+    db,
+    { source: 'sleeper', trigger: auth.trigger, ...patch, finished_at: new Date().toISOString() },
+    { id: runId },
+  );
 
   try {
     const stats = await writeDirectoryRows({
