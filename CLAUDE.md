@@ -569,9 +569,40 @@ features have shipped through their own branches (all merged):
   refresh records `yahoo_id`/`espn_id` counts over active players and the
   directory card displays them, and `npm run players:nfl:report` prints the same
   report (with a per-position breakdown) from any machine that can reach
-  Sleeper. **The first refresh is what produces the real number** — record it
-  here when it lands. Not in scope: backfilling ids onto already-imported rows
+  Sleeper. **The real numbers are in — see "Cross-platform ID coverage" below.**
+  Not in scope: backfilling ids onto already-imported rows
   (Open item #26), and nothing yet READS the cross-platform ids.
+
+### Cross-platform ID coverage (MEASURED — the Yahoo sizing input)
+
+From the live `nfl_players` table, 2026-08-18, first full load:
+
+| | count | % of active |
+|---|---|---|
+| Players stored (unfiltered payload) | 12,221 | — |
+| `status = 'Active'` | 8,579 | 100% |
+| Active with `yahoo_id` | 4,018 | **47%** |
+| Active with `espn_id` | 3,900 | **45%** |
+
+**What this means for the Yahoo integration (Open item #15): it cannot be a
+pure `yahoo_id` join.** Roughly half of active players have no Yahoo id at all,
+so the reconciliation is **two-tier — join on `yahoo_id` where present, fall
+back to `search_key` name matching where it isn't.** Both halves already exist:
+`search_key` is our `normalizeName` on both sides, and `pickDirectoryMatch`
+handles the ambiguity that name matching creates. Plan for both paths and for a
+review surface on what the second one can't resolve; do NOT design as if the id
+join covers everything.
+
+**ASSUMPTION, NOT YET VERIFIED:** the missing 53% is expected to be the tail —
+practice-squad and deep-bench players nobody rosters in a 12-team league — so
+coverage on *real rosters* should be far higher than 47%. Plausible, and it
+matches the fact that the payload is deliberately unfiltered (retired and cut
+players are stored on purpose so old rosters still resolve). But it is a guess
+until measured. **How to settle it cheaply:** after a real league's rosters are
+imported, count how many stored rows carry a `playerId` whose directory row also
+has a `yahoo_id` — that's the number that actually governs the integration's
+cost, and the 47% figure above is only its floor. Until that's run, size the
+Yahoo work off 47%, not off the optimistic reading.
 
 - **Directory refresh: daily schedule + a resilient writer (this branch's PR,
   follow-up):** the first real refresh fetched all 12,221 players but died at
@@ -2405,9 +2436,13 @@ buttons, no member login until (B)'s trigger is hit.
 27. **Nothing reads the cross-platform IDs yet.** `yahoo_id`, `espn_id`, and
     friends are captured on every refresh and used by nothing — deliberately,
     that's the foundation this PR was for. They become live when the Yahoo
-    integration (Open item #15) is unblocked. Until then, the only number
-    that matters is the fill rate on the directory card: it says how much of
-    that integration is a straight join.
+    integration (Open item #15) is unblocked. **Measured coverage: 47%
+    `yahoo_id` / 45% `espn_id` over 8,579 active players** — see the
+    "Cross-platform ID coverage" table above. The consequence is already
+    decided: the Yahoo reconciliation is **two-tier** (id join, then
+    `search_key` name matching), not a pure join. The open question is only
+    how much of the second tier real rosters actually hit — measure that
+    against an imported league before sizing the work.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's
