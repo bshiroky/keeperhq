@@ -6,6 +6,7 @@ import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
+  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
 } from './lib/sharedLeague.js';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
@@ -483,8 +484,8 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                     </th>
                   );
                 })}
-                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW }}>Contract</th>
-                <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>Status</th>
+                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW }}>{costColumnLabel(league)}</th>
+                <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{OWNER_COLUMN_LABEL}</th>
               </tr>
             </thead>
             <tbody>
@@ -753,14 +754,7 @@ function SharedLeaguePage({ league, isDark }) {
     [allRows, filter, locked, search, playerMap, league]
   );
 
-  const chips = [
-    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'All players') },
-    // Auction has no contract concept — the same row set (keepers + players
-    // with a prior price) reads as "Drafted last year" there.
-    { id: 'contracts', label: isAuctionCost(league) ? 'Drafted last year' : termed ? 'Under contract' : 'Kept last year' },
-    ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
-    ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
-  ];
+  const chips = sharedFilterChips({ league, locked, termed, hasExpired, teams });
 
   const teamKeeperCount = filterTeam
     ? allRows.filter(r => r.kind === 'keeper' && r.teamId === filterTeam.id).length

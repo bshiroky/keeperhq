@@ -8,3 +8,4 @@ dist
 .env.local
 .tmp-wizard-bundle.mjs
 .tmp-nfl-bundle.mjs
+.tmp-shared-bundle.mjs

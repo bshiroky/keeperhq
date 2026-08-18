@@ -106,6 +106,34 @@ export function buildSharedRows(league) {
   return Array.from(rows.values());
 }
 
+// ── Filter rail ─────────────────────────────────────────────────────────────
+// The chips above the list. Pure so the rules are testable without rendering
+// the page.
+//
+// There is deliberately NO "drafted last year" chip on a league with no term:
+// its row set (declared keepers + players carrying a prior price) is very
+// nearly the whole league, so it duplicated "All players" while implying a
+// distinction that doesn't exist where keeping costs dollars and nothing else.
+// Where a TERM exists, being under contract is a real, separate state, so the
+// chip stays there.
+export function sharedFilterChips({ league, locked, termed, hasExpired, teams = [] }) {
+  return [
+    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'All players') },
+    ...(termed ? [{ id: 'contracts', label: 'Under contract' }] : []),
+    ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
+    ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
+  ];
+}
+
+// Column headers for the two pinned right-hand columns. "Contract" is only
+// honest where a term exists (the cell holds "Y1/3"); where keeping costs
+// dollars the cell holds a price, so the header says so.
+export function costColumnLabel(league) {
+  return isAuctionCost(league) ? 'Cost to keep' : 'Contract';
+}
+
+export const OWNER_COLUMN_LABEL = 'Kept by';
+
 // ── Stat categories (desktop table) ────────────────────────────────────────
 // League-configurable with defaults. A league may carry an override at
 // league.statCategories = { skaters: ['gp','g',…], goalies: [...] } — keys

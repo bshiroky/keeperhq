@@ -442,7 +442,9 @@ features have shipped through their own branches (all merged):
   "Drafted last year · eligible" / "Rostered · undrafted", the pool's
   Expired tab is snake-only (like the shared page's Expired filter),
   the shared page's "Under contract" chip relabels to "Drafted last
-  year" on auction, and the workbench tip says "drafted prices".
+  year" on auction (**superseded** — that chip is gone entirely on
+  term-less leagues; see the shared-page cleanup bullet), and the
+  workbench tip says "drafted prices".
   (2) **Escalation math is visible wherever a keep cost renders**:
   pool rows pair `Drafted $83` with a `Keep $88` value, keeper slots
   show `Drafted $83 →` before the editable keep-cost input (via a
@@ -673,6 +675,30 @@ Yahoo work off 47%, not off the optimistic reading.
   manual, what failed). **A log row is not allowed to be load-bearing for
   facts the data itself knows**; when no completed run is on record the card
   says exactly that instead of printing "unknown" beside a healthy count.
+
+- **Shared-page cleanup for real league use (this branch's PR):** the page went
+  out to actual leaguemates, whose job on it is deciding who to keep and who to
+  trade for. Three small changes, no new surface. (1) **The "Drafted last year"
+  chip is gone on term-less leagues** — its row set (declared keepers + anyone
+  carrying a prior price) is very nearly the whole league, so it duplicated
+  "All players" while implying a distinction that doesn't exist where keeping
+  costs dollars and nothing else. **Term leagues keep "Under contract"**, where
+  being under contract IS a distinct state. Rail rules moved into
+  `sharedFilterChips` (pure, tested) so the page no longer inlines them.
+  (2) **Column headers say what the cells hold**: Status → **"Kept by"**
+  everywhere, and Contract → **"Cost to keep"** on dollar-cost leagues only
+  (`costColumnLabel`) — a termed league's cell holds `Y1/3`, so calling that a
+  cost would be wrong. Widths are untouched: the longer label only lands in the
+  auction column, which is already 132px for the `Keep for $X` / `Drafted $Y`
+  pair. (3) **"All players" was already the trade view and stays as-is** —
+  verified rather than changed: `buildSharedRows` covers every team's
+  `priorKeepers` + `roster` (deduped by name, strongest state winning), each row
+  carries the escalated keep cost (or the undrafted floor) and the holding team,
+  and `sortRowsDefault` sorts cost desc for auction with cost-less rows last but
+  never dropped. **Caveat worth remembering: that view is only as complete as
+  the imported rosters** — a team whose roster was never pasted contributes only
+  its drafted players. And the cost-desc sort is the STATS-LESS path; hockey
+  still sorts by last-season points (`sortRowsDefault` branches on sport first).
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -1635,9 +1661,10 @@ copy of a component drifts away from the original.
   11:59 PM; days granularity; hours/minutes ticking inside 48h; quiet
   "🔒 Keepers locked" past deadline; no countdown when no deadline
   set), sticky countdown pill (IntersectionObserver on the band),
-  filter rail (Keepable/All players · Under contract · Expired
-  (snake, only when expired players exist) · team chips; default
-  relabels to "Final keepers" post-lock), mobile card rows
+  filter rail (`sharedFilterChips`: Keepable/All players · Under contract
+  (**term leagues only**) · Expired (snake, only when expired players
+  exist) · team chips; default relabels to "Final keepers" post-lock),
+  mobile card rows
   (**two deliberate layouts, not one minus content**: hockey =
   headshot + two-line card with stat line + stacked contract/status;
   stats-less leagues (no directory sport) = a COMPACT single-line row,
@@ -2443,6 +2470,27 @@ buttons, no member login until (B)'s trigger is hit.
     `search_key` name matching), not a pure join. The open question is only
     how much of the second tier real rosters actually hit — measure that
     against an imported league before sizing the work.
+
+28. **Shared page, post-deadline state: the returning pool is invisible.**
+    Once keepers lock, the default view narrows to declared keepers — which
+    answers "who was kept" but not "who's going back into the draft", and the
+    second question is the one that matters for draft prep. The page should
+    show both, as separate views: final keepers, and the pool returning to the
+    draft (everyone rostered who wasn't kept, plus expired contracts on term
+    leagues). Related to Open item #23's "draft-prep window" phase-2 note,
+    which describes the same gap from the design-handoff side. Not built.
+
+29. **Shared page: the returning pool has no ranking signal.** Players heading
+    back to the draft have no keep cost by definition, so the cost-desc sort
+    that orders the keeper view can't order them — they'd land alphabetically,
+    which is useless for draft prep. Two candidate signals: last year's drafted
+    price (**already in the data** — `priorKeepers[].keptFor`, and already
+    threaded to the page as `row.draftedCost`), or last season's fantasy points
+    (needs a stats source that isn't wired for football/basketball — the NFL
+    directory stores no stats, and `STAT_CATEGORIES` is hockey-only today).
+    The first is free and available now; the second is better but is its own
+    arc. Decide which before building #28, since the ranking is what makes that
+    view usable. User will pick the direction.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's
