@@ -535,10 +535,10 @@ features have shipped through their own branches (all merged):
   players, and they must still resolve. (2) **Refresh is manual, never
   destructive** — a button on the Import page's **NFL player directory** card
   (football leagues only; status line = stored player count + last-refresh
-  time + fill rates, warning-tinted past 21 days or when empty). No cron:
-  before the draft and around week 14 is the real cadence, and Sleeper's docs
-  ask callers to store the payload and fetch at most once a day. Writes go
-  through `upsert_nfl_players(jsonb)` in chunks of 250; **there is no delete
+  time + fill rates). *Manual-only and the fixed 250-row chunking are both
+  SUPERSEDED by the follow-up bullet below* (daily cron + byte-budgeted,
+  self-healing writes); the rest of this bullet still stands. Writes go
+  through `upsert_nfl_players(jsonb)`; **there is no delete
   policy on either table**, so a stored id can never be orphaned by a later
   fetch, and every column is `COALESCE`d on conflict so a null in a later
   payload leaves the last known value rather than blanking it (a player who
@@ -572,6 +572,49 @@ features have shipped through their own branches (all merged):
   Sleeper. **The first refresh is what produces the real number** — record it
   here when it lands. Not in scope: backfilling ids onto already-imported rows
   (Open item #26), and nothing yet READS the cross-platform ids.
+
+- **Directory refresh: daily schedule + a resilient writer (this branch's PR,
+  follow-up):** the first real refresh fetched all 12,221 players but died at
+  row 750 writing them (`TypeError: Failed to fetch`). Two fixes, plus the
+  reversal of the manual-only decision. **(1) The diagnosis is in the error's
+  shape**: supabase-js RETURNS `{data, error}` for any HTTP response, so a
+  THROWN `TypeError` means no response arrived — not Postgres, not auth, and
+  not parallelism (the writes were already sequential in a `for await` loop).
+  Chunks 1–3 of identical row count succeeded, so the only thing that varied
+  was BYTES: Sleeper player objects differ wildly in size, so a fixed 250-ROW
+  chunk is a wildly varying request size. Two causes fit (a request body
+  rejected at the edge, or a transient drop) and they need different fixes, so
+  `writeDirectoryRows` (`src/lib/nflDirectory.js`) **runs the discriminating
+  experiment instead of guessing**: chunks are budgeted by BYTES (128KB
+  browser / 256KB server), a failed chunk retries with exponential backoff
+  (transient drops recover here), and a chunk that still fails is **split in
+  half** down to a single row (a size limit recovers here, and only here).
+  Which one recovered it is counted and reported by `diagnoseWrite` into the
+  run log's `notes` and the card, so a recurrence names its own cause. Auth
+  and permission failures are marked `fatal` and abort instantly — retrying
+  those 4× per chunk across 12k rows would be thousands of pointless requests.
+  A failure now reports rows-written and states that re-running is safe
+  (the upsert is idempotent), rather than leaving the question open.
+  **(2) Refresh is automatic and daily** — a **Vercel cron** (`vercel.json`
+  `crons`, 09:00 UTC) hits `api/refresh-nfl-directory.js`. Chosen over Supabase
+  `pg_cron` because that would mean enabling `pg_net`, fetching 5MB of JSON
+  from inside Postgres and parsing it in a SQL function — more surface, in the
+  layer that's hardest to debug; Vercel already builds and deploys this app, so
+  the job is one config entry plus one file, with logs where every other log
+  is. **The manual button calls the SAME endpoint** (server-side execution
+  removes the browser from the risky part) and falls back to the in-browser
+  writer only when the endpoint is missing or returns **501 = not configured**
+  — so the directory can still be loaded before the env vars are set. The
+  function needs `SUPABASE_SERVICE_ROLE_KEY` (server-only, never `VITE_`
+  prefixed — it bypasses RLS) plus `SUPABASE_URL`, and honors `CRON_SECRET`.
+  **(3) Runs are logged as they happen, not just when they succeed**
+  (`005_directory_refresh_runs.sql`): a row is opened with `status='running'`
+  BEFORE the write and patched at the end, and carries `trigger`
+  (`scheduled`|`manual`). So a run that dies mid-flight leaves a stalled row
+  instead of silence, and the card surfaces a failed or never-finished
+  scheduled run even while the stored player count looks healthy — a silently
+  failing cron being worse than no cron. Staleness threshold dropped 21 → 3
+  days, since a working daily schedule should never reach it.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -809,6 +852,18 @@ RLS policy exists on the table**; RLS stays `auth.uid() = owner_id`.
 Regenerating the link is a plain authed UPDATE of `share_token`
 (client-minted `crypto.randomUUID()`), which invalidates the old URL
 instantly. SQL lives in `supabase/migrations/002_share_token.sql`.
+
+**First serverless function + first scheduled job.** `api/refresh-nfl-directory.js`
+is the app's only Vercel function, invoked by a daily cron (`vercel.json`) and
+by the Import page's manual refresh. It is also the only place a **server-side
+secret** exists: `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS — never `VITE_`
+prefixed, or it would ship in the browser bundle), alongside `SUPABASE_URL` and
+an optional `CRON_SECRET`. Scheduled calls authenticate with `CRON_SECRET`;
+manual calls carry the signed-in user's Supabase access token, verified with the
+publishable key. Unconfigured, it answers **501**, which is the client's signal
+to fall back to writing from the browser rather than failing. Note the SPA
+rewrite in `vercel.json` now excludes `/api/` (`/((?!api/).*)`) so the function
+isn't shadowed by `index.html`.
 
 **NFL player directory (`public.nfl_players` + `public.nfl_directory_refreshes`).**
 The first table that is NOT per-user data: it's a shared reference directory
@@ -1593,11 +1648,30 @@ copy of a component drifts away from the original.
   yahoo_id/espn_id fill rates), **`pickDirectoryMatch`** (team → position →
   active-status narrowing; returns `'ambiguous'` rather than guessing, and an
   unhelpful hint never eliminates every candidate), `importFieldsFor`
-  (`{playerId, pos, sourceName}` — the fields an import writes), `isNflSport`.
+  (`{playerId, pos, sourceName}` — the fields an import writes), `isNflSport`,
+  and the write layer: `chunkRowsByBytes` (byte budget, never a row count —
+  an oversized single row still gets its own chunk rather than being dropped),
+  **`writeDirectoryRows`** (injected `call`/`sleep`, so the browser and the
+  scheduled job share one implementation and the retry/split behavior is
+  unit-testable), and `diagnoseWrite` (splits ⇒ requests were too large;
+  retries alone ⇒ transient drops).
+- `api/refresh-nfl-directory.js` — the daily-cron + manual-override endpoint
+  (the app's only serverless function). Service-role client, `CRON_SECRET` or
+  a verified user token, opens a `running` log row before writing and patches
+  it at the end, returns **501 when unconfigured** so the client can fall back
+  to the browser path. Writes through the same `upsert_nfl_players`, so
+  preserve-don't-delete holds on the scheduled path identically.
+- `supabase/migrations/005_directory_refresh_runs.sql` — `trigger`
+  (`scheduled`|`manual`), `finished_at`, `notes` on the run log, plus the
+  UPDATE policy that lets a run row be closed. `nfl_players` untouched.
 - `src/lib/nflDirectoryStore.js` — the I/O half: `fetchSleeperPlayers`,
-  `refreshNflDirectory` (chunked `upsert_nfl_players` + the run log + progress
-  callback; a CORS/network failure is reported as such, and nothing is written
-  on a failed fetch), `fetchDirectoryStatus` (count + last run),
+  `refreshNflDirectory` (**server first** via `refreshOnServer` → the Vercel
+  function; falls back to `refreshInBrowser` only on a missing/501 endpoint,
+  and tells the caller which one ran), the run-log open/close pair,
+  `isPermanent` (auth/permission errors are marked `fatal` so the writer
+  aborts instead of retrying), `fetchDirectoryStatus` (count + last SUCCESSFUL
+  run + newest run of ANY kind — they differ exactly when the newest run
+  failed or stalled, which is how a broken schedule surfaces),
   `lookupByNames` (batched `in('search_key', …)` → key → candidate rows), and
   `searchDirectory` (typeahead; prefix + active first).
 - `src/tabs/NflDirectoryCard.jsx` — the directory's one control surface, on the

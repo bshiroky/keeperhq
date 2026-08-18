@@ -178,6 +178,146 @@ export function importFieldsFor(row, sourceName) {
   return out;
 }
 
+// ── Chunked, self-healing writes ────────────────────────────────────────────
+// The first real refresh died at row 750 of 12,221 with "TypeError: Failed to
+// fetch". That signature is specific: supabase-js RETURNS {data, error} for
+// any HTTP response (including 4xx/5xx), so a THROWN TypeError means no
+// response arrived at all — the request never completed. It wasn't Postgres,
+// wasn't auth, and wasn't parallelism (the writes were already sequential).
+// Chunks 1-3 of the same shape succeeded, so the only thing that varied was
+// the payload: Sleeper player objects differ wildly in size, so a fixed
+// 250-ROW chunk is a wildly varying BYTE size.
+//
+// Two causes fit — a request body rejected at the edge, or a transient drop —
+// and they call for different fixes, so this writer does the discriminating
+// experiment instead of guessing:
+//   * chunks are budgeted by BYTES, not row count, so request size is bounded
+//     and predictable regardless of who's in the chunk;
+//   * a failed chunk is retried with exponential backoff (transient drops
+//     recover here);
+//   * a chunk that still fails is SPLIT IN HALF and retried, down to a single
+//     row (a size limit recovers here, and only here).
+// What recovered it is counted and reported, so the run itself says which
+// cause it was rather than leaving it a guess.
+const DEFAULT_BUDGET_BYTES = 192 * 1024;
+
+export function chunkRowsByBytes(rows, budgetBytes = DEFAULT_BUDGET_BYTES) {
+  const chunks = [];
+  let current = [];
+  let size = 0;
+  for (const row of rows || []) {
+    const bytes = JSON.stringify(row).length;
+    // An oversized single row still gets its own chunk — never dropped, and
+    // never silently merged into something bigger.
+    if (current.length > 0 && size + bytes > budgetBytes) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(row);
+    size += bytes;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+const defaultSleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Writes every row through `call(chunk)` — injected, so this stays pure and
+// testable and the browser and the scheduled job share one implementation.
+// `call` resolves with the number of rows written (or anything falsy, in
+// which case the chunk length is assumed) and REJECTS to signal failure.
+export async function writeDirectoryRows({
+  rows,
+  call,
+  onProgress = () => {},
+  budgetBytes = DEFAULT_BUDGET_BYTES,
+  maxAttempts = 4,
+  baseDelayMs = 500,
+  sleep = defaultSleep,
+}) {
+  const total = (rows || []).length;
+  const queue = chunkRowsByBytes(rows, budgetBytes);
+  const plannedChunks = queue.length;
+  const stats = {
+    total, written: 0, plannedChunks, sentChunks: 0,
+    retries: 0, splits: 0, recoveredByRetry: 0,
+    lastError: null,
+  };
+
+  onProgress({ phase: 'writing', done: 0, total, chunks: plannedChunks, ...stats });
+
+  while (queue.length > 0) {
+    const chunk = queue.shift();
+    let attempt = 0;
+    let done = false;
+
+    while (!done) {
+      try {
+        const written = await call(chunk);
+        stats.written += Number(written) || chunk.length;
+        stats.sentChunks++;
+        if (attempt > 0) stats.recoveredByRetry++;
+        done = true;
+      } catch (e) {
+        stats.lastError = e;
+        // Some failures can't be fixed by waiting or by sending less (an
+        // expired token, a denied permission). Retrying those 4× per chunk
+        // across a 12k-row run would be thousands of pointless requests, so
+        // the caller can mark them fatal and we stop immediately.
+        if (e?.fatal) {
+          const fatal = new Error(e.message || String(e));
+          fatal.stats = { ...stats };
+          fatal.cause = e;
+          throw fatal;
+        }
+        attempt++;
+        if (attempt < maxAttempts) {
+          stats.retries++;
+          // Exponential backoff with jitter, so a rate-shaped failure isn't
+          // retried in lockstep.
+          await sleep(baseDelayMs * 2 ** (attempt - 1) + Math.floor(Math.random() * 100));
+          continue;
+        }
+        if (chunk.length > 1) {
+          // Retrying the same bytes has failed maxAttempts times — try
+          // smaller bytes. If THIS is what fixes it, the cause was size.
+          const mid = Math.ceil(chunk.length / 2);
+          queue.unshift(chunk.slice(0, mid), chunk.slice(mid));
+          stats.splits++;
+          done = true;
+          break;
+        }
+        // One row, maxAttempts times, still failing: genuinely unwritable.
+        const bytes = JSON.stringify(chunk).length;
+        const err = new Error(
+          `chunk of ${chunk.length} row(s) / ${Math.round(bytes / 1024)}KB failed ${maxAttempts} times: ${e?.message || e}`
+        );
+        err.stats = { ...stats };
+        err.cause = e;
+        throw err;
+      }
+    }
+
+    onProgress({ phase: 'writing', done: stats.written, total, chunks: plannedChunks + stats.splits, ...stats });
+  }
+
+  return stats;
+}
+
+// What the run learned about WHY a chunk failed, in one line. Splits mean the
+// requests were too big; retries alone mean the network dropped them.
+export function diagnoseWrite(stats) {
+  if (!stats) return null;
+  if (stats.splits > 0) {
+    return `${stats.splits} chunk(s) only succeeded after being split — the requests were too large, not rate-limited.`;
+  }
+  if (stats.recoveredByRetry > 0) {
+    return `${stats.recoveredByRetry} chunk(s) succeeded on retry — transient network failures, not a size limit.`;
+  }
+  return null;
+}
+
 // Which sports have a stored directory. NFL is the only one on this path;
 // hockey keeps its build-time JSON directory (loadPlayers), and the rest have
 // none. Kept as one function so callers don't re-roll the sport test.
