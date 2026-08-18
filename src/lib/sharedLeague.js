@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { normalizeName } from './players.js';
 import { buildTeamPool } from '../tabs/SetKeepersTab.jsx';
 import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
+import { sortTeamsByName } from './teamOrder.js';
 
 // Data layer for the public shared league page (/l/:token).
 //
@@ -121,7 +122,9 @@ export function sharedFilterChips({ league, locked, termed, hasExpired, teams = 
     { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'All players') },
     ...(termed ? [{ id: 'contracts', label: 'Under contract' }] : []),
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
-    ...teams.map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
+    // Alphabetical: the strip is a lookup ("where's my team?"), and stored
+    // creation order tells a reader nothing.
+    ...sortTeamsByName(teams).map(tm => ({ id: `team:${tm.id}`, label: tm.name })),
   ];
 }
 
@@ -133,6 +136,24 @@ export function costColumnLabel(league) {
 }
 
 export const OWNER_COLUMN_LABEL = 'Kept by';
+
+// Kept players pin to the top of whatever list they're in — on a team tab
+// that's the team's keepers, on "All players" it's every declared keeper in
+// the league. The highlight on the row carries the meaning, so the list stays
+// FLAT: no section headers, and nothing labelled by its absence ("Eligible,
+// not protected" only existed to explain why the rest were listed below).
+// Same shape as the commissioner's Eligible Pool, where selected players are
+// marked in place rather than moved into their own section.
+//
+// Stable: the incoming sort (cost desc / points desc / round asc) is preserved
+// inside each group, so this only lifts the keepers.
+export function keepersFirst(list, pick = x => x) {
+  const kept = [], rest = [];
+  for (const item of list || []) {
+    (pick(item)?.kind === 'keeper' ? kept : rest).push(item);
+  }
+  return [...kept, ...rest];
+}
 
 // ── Stat categories (desktop table) ────────────────────────────────────────
 // League-configurable with defaults. A league may carry an override at

@@ -7,15 +7,24 @@
 // with what they'd cost to keep and who holds them, sorted by cost desc, and a
 // player with no cost still appears rather than disappearing.
 import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 
 // The bundle pulls in modules that touch browser globals at import time
 // (window/localStorage), so stub them before loading it.
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
+globalThis.window = {
+  addEventListener() {}, removeEventListener() {},
+  // Desktop by default so the render smoke exercises the sticky TABLE, which
+  // is where the flat-list change actually lives.
+  matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
+};
+globalThis.IntersectionObserver = class { observe() {} disconnect() {} };
 globalThis.document = { addEventListener() {}, removeEventListener() {} };
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 
 const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
+  keepersFirst, sortTeamsByName, SharedLeaguePage,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -147,6 +156,88 @@ test('columns: the cost column names a price only where keeping costs money', ()
 
 test('columns: the owner column says who holds the player', () => {
   assert.equal(OWNER_COLUMN_LABEL, 'Kept by');
+});
+
+// ── Team chip order ─────────────────────────────────────────────────────────
+
+test('team chips are alphabetical, not creation order', () => {
+  const creationOrder = [
+    { id: 'a', name: 'Ben Sh.' }, { id: 'b', name: 'Kyle' }, { id: 'c', name: 'Ryan' },
+    { id: 'd', name: 'Ben Sc.' }, { id: 'e', name: 'Zach' }, { id: 'f', name: 'Mark C' },
+    { id: 'g', name: 'Graham' },
+  ];
+  const chips = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: creationOrder });
+  const teamLabels = chips.filter(c => c.id.startsWith('team:')).map(c => c.label);
+  assert.deepEqual(teamLabels, ['Ben Sc.', 'Ben Sh.', 'Graham', 'Kyle', 'Mark C', 'Ryan', 'Zach']);
+  assert.equal(chips[0].id, 'keepable', '"All players" stays pinned first');
+});
+
+test('sortTeamsByName does not mutate or drop teams', () => {
+  const input = [{ id: 'b', name: 'Zach' }, { id: 'a', name: 'Alice' }];
+  const out = sortTeamsByName(input);
+  assert.equal(input[0].name, 'Zach', 'input order is untouched');
+  assert.deepEqual(out.map(t => t.id), ['a', 'b']);
+  assert.equal(sortTeamsByName([]).length, 0);
+  assert.equal(sortTeamsByName(undefined).length, 0);
+});
+
+// ── One flat list, kept pinned ──────────────────────────────────────────────
+
+test('kept players pin to the top, everyone else keeps the sort order', () => {
+  const list = [
+    { player: 'Expensive Guy', kind: 'rostered', cost: 90 },
+    { player: 'Kept Cheap', kind: 'keeper', cost: 10 },
+    { player: 'Mid Guy', kind: 'rostered', cost: 50 },
+    { player: 'Kept Pricey', kind: 'keeper', cost: 70 },
+  ];
+  const out = keepersFirst(list);
+  assert.deepEqual(out.map(r => r.player),
+    ['Kept Cheap', 'Kept Pricey', 'Expensive Guy', 'Mid Guy'],
+    'keepers lift to the top; order WITHIN each group is preserved');
+});
+
+test('keepersFirst is stable and works on wrapped rows', () => {
+  const wrapped = [
+    { row: { player: 'A', kind: 'rostered' } },
+    { row: { player: 'B', kind: 'keeper' } },
+    { row: { player: 'C', kind: 'rostered' } },
+  ];
+  assert.deepEqual(keepersFirst(wrapped, x => x.row).map(x => x.row.player), ['B', 'A', 'C']);
+});
+
+test('all-players view pins league-wide keepers above everyone else', () => {
+  const sorted = keepersFirst(sortRowsDefault(buildSharedRows(AUCTION), null, AUCTION));
+  const firstNonKeeper = sorted.findIndex(r => r.kind !== 'keeper');
+  const lastKeeper = sorted.map(r => r.kind).lastIndexOf('keeper');
+  assert.ok(lastKeeper < firstNonKeeper, 'no keeper appears below a non-keeper');
+  assert.equal(sorted[0].player, 'Josh Allen', 'the declared keeper leads the list');
+  assert.equal(sorted.length, buildSharedRows(AUCTION).length, 'nothing is dropped by pinning');
+});
+
+// ── Render smoke ────────────────────────────────────────────────────────────
+// The page going out to the league — rendered on the desktop table path so a
+// runtime error in the flattened table fails here rather than in front of
+// twelve leaguemates.
+
+function renderPage(league, isDark) {
+  return renderToStaticMarkup(React.createElement(SharedLeaguePage, { league, isDark }));
+}
+
+test('page renders on both themes with no section labels left', () => {
+  for (const isDark of [false, true]) {
+    const html = renderPage(AUCTION, isDark);
+    assert.ok(html.length > 500, 'page rendered');
+    assert.ok(!/Eligible, not protected/i.test(html), 'the section label is gone');
+    assert.ok(html.includes('Cost to keep') && html.includes('Kept by'), 'renamed headers present');
+    assert.ok(/Search players/.test(html), 'search still on the page');
+  }
+});
+
+test('page renders for a termed league too (hockey path untouched)', () => {
+  const html = renderPage(TERMED, false);
+  assert.ok(html.length > 500);
+  assert.ok(!/Eligible, not protected/i.test(html));
+  assert.ok(html.includes('Contract'), 'termed leagues keep the Contract header');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);

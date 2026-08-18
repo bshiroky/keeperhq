@@ -1,12 +1,12 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader, Search } from 'lucide-react';
+import { Loader, Search, Check } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
-  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
+  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst,
 } from './lib/sharedLeague.js';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
@@ -32,7 +32,7 @@ const SHARE_STYLES = `
   .kh-share-rail-scroll { scrollbar-width: none; -ms-overflow-style: none; }
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
   @media print {
-    .kh-share-rail { display: none !important; }
+    .kh-share-rail, .kh-share-search { display: none !important; }
     .kh-share-row, .kh-share-tr { break-inside: avoid; }
     .kh-share-pill-wrap { position: static !important; height: auto !important; visibility: visible !important; }
   }
@@ -212,13 +212,17 @@ function ContractText({ row, league, isDark }) {
   );
 }
 
-// Status pill — the OWNER NAME only; color carries the state (display-only).
+// "Kept by" pill — the OWNER NAME only; color carries the state, and a check
+// glyph marks a declared keeper in place (the same in-list marking the
+// commissioner's Eligible Pool uses for a selected player).
 // Keeper-accent tint (blue snake / orange auction) for declared keepers AND
 // players under contract; a readable neutral grey for rostered-but-
 // uncontracted players; "was {team}" keeps the Expired danger tint. On a
 // team-filter view the name drops (it's the team's own page): declared
 // keepers show a plain "Keeper" pill, eligible rows show no pill at all —
-// the section eyebrow already labels them.
+// the row's highlight already says which is which. A declared keeper's pill
+// carries a check, the same in-place marking the commissioner's Eligible Pool
+// uses for a selected player.
 function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
   const t = makeTheme(isDark);
   const auction = isAuctionCost(league);
@@ -240,13 +244,18 @@ function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
     bg = t.badgeBg; border = t.border; color = t.textSecondary;
     label = row.teamName;
   }
+  const kept = row.kind === 'keeper';
   return (
     <span style={{
       ...tokens.typePill, background: bg, color, border: `1px solid ${border}`,
       borderRadius: tokens.radiusPill, padding: '2px 9px',
       whiteSpace: 'nowrap', maxWidth: maxWidth ?? STATUS_W - 28, overflow: 'hidden', textOverflow: 'ellipsis',
       boxSizing: 'border-box',
-    }}>{label}</span>
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+    }}>
+      {kept && <Check size={11} strokeWidth={3} style={{ flexShrink: 0 }} />}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+    </span>
   );
 }
 
@@ -257,7 +266,7 @@ function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
 // - Stats-less leagues (no directory): a COMPACT single-line row — name+pos
 //   left, price/status inline right, tighter padding, no reserved headshot or
 //   stat-line space. "Other sports look intentional, not broken."
-function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
+function PlayerRow({ row, league, rec, isDark, hideTeam, kept }) {
   const t = makeTheme(isDark);
   const isHockey = league.sport === 'hockey';
   const expired = row.kind === 'expired';
@@ -267,11 +276,10 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
     return (
       <div className="kh-share-row" style={{
         display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-        background: expired ? t.dangerBg : t.cardBg,
-        border: `1px solid ${expired ? t.dangerBorder : t.border}`,
+        background: kept ? t.successBg : expired ? t.dangerBg : t.cardBg,
+        border: `1px solid ${kept ? t.successBorder : expired ? t.dangerBorder : t.border}`,
         borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
         boxSizing: 'border-box',
-        opacity: dim ? 0.75 : 1,
       }}>
         <span style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {row.player}
@@ -285,11 +293,10 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
   return (
     <div className="kh-share-row" style={{
       display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-      background: expired ? t.dangerBg : t.cardBg,
-      border: `1px solid ${expired ? t.dangerBorder : t.border}`,
+      background: kept ? t.successBg : expired ? t.dangerBg : t.cardBg,
+      border: `1px solid ${kept ? t.successBorder : expired ? t.dangerBorder : t.border}`,
       borderRadius: tokens.radiusLg, padding: `${tokens.spaceSm}px`,
       minHeight: 58, boxSizing: 'border-box',
-      opacity: dim ? 0.75 : 1,
     }}>
       {isHockey && <SharedHeadshot rec={rec} isDark={isDark} />}
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -313,13 +320,43 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, dim }) {
   );
 }
 
-function RowList({ rows, league, playerMap, isDark, hideTeam, dimEligible }) {
+// Search bar for the list it filters. Rendered as the table card's header
+// strip (and directly above the mobile list), never as a floating control
+// between the chip rail and the table.
+function ListSearch({ value, onChange, count, isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <div className="kh-share-search" style={{
+      display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+      padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
+      background: t.sectionBg, borderBottom: `1px solid ${t.divider}`,
+    }}>
+      <div style={{ position: 'relative', flex: 1, minWidth: 0, maxWidth: 320 }}>
+        <Search size={14} strokeWidth={2} color={t.textMuted}
+          style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+        <input value={value} onChange={e => onChange(e.target.value)} placeholder="Search players…"
+          aria-label="Search players"
+          style={{
+            width: '100%', boxSizing: 'border-box', background: t.cardBg,
+            border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill,
+            padding: '6px 12px 6px 29px', ...tokens.typeBody, color: t.textPrimary,
+            fontFamily: 'inherit', outline: 'none',
+          }} />
+      </div>
+      <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {count} player{count === 1 ? '' : 's'}
+      </span>
+    </div>
+  );
+}
+
+function RowList({ rows, league, playerMap, isDark, hideTeam }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
       {rows.map(row => (
         <PlayerRow key={`${row.teamId}-${row.player}`} row={row} league={league}
           rec={playerMap?.get(normalizeName(row.player))} isDark={isDark}
-          hideTeam={hideTeam} dim={dimEligible && row.kind !== 'keeper'} />
+          hideTeam={hideTeam} kept={row.kind === 'keeper'} />
       ))}
     </div>
   );
@@ -342,7 +379,7 @@ const STAT_W = 64;
 const CONTRACT_W = 100;
 const STATUS_W = 116;
 
-function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dimEligible, groupKeepers, defaultSortKey }) {
+function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, toolbar, defaultSortKey }) {
   const t = makeTheme(isDark);
   // Stats-less leagues (no directory sport) get this same table with cats=[]
   // — no stat columns, no headshots, single-line player cells. The hockey
@@ -388,12 +425,13 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
   }
 
   // Players with stats sort by the active column; no-stats players always sit
-  // last, alphabetical. Team-filter mode partitions keepers above eligible.
+  // last, alphabetical. Kept players then pin to the top of the result —
+  // ONE flat list, marked in place, never a labelled section.
   function orderRows(list) {
     // Stats-less leagues have no sortable stat columns — keep the page-level
     // value sort (cost desc / round asc) instead of re-sorting alphabetical.
-    if (!isHockey) return list.map(row => ({ row, rec: playerMap?.get(normalizeName(row.player)) }));
     const withRec = list.map(row => ({ row, rec: playerMap?.get(normalizeName(row.player)) }));
+    if (!isHockey) return keepersFirst(withRec, x => x.row);
     const has = withRec.filter(x => x.rec);
     const not = withRec.filter(x => !x.rec).sort((a, b) => a.row.player.localeCompare(b.row.player));
     has.sort((a, b) => {
@@ -401,29 +439,31 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
       const vb = Number(b.rec[sort.key] ?? 0);
       return sort.dir === 'asc' ? va - vb : vb - va;
     });
-    return [...has, ...not];
+    // Re-pin after the column sort, so clicking a stat header reorders within
+    // the kept block and the eligible block rather than mixing them.
+    return keepersFirst([...has, ...not], x => x.row);
   }
 
-  const partitions = groupKeepers
-    ? [
-        { rows: orderRows(rows.filter(r => r.kind === 'keeper')) },
-        { eyebrow: 'Eligible, not protected', dim: true, rows: orderRows(rows.filter(r => r.kind !== 'keeper')) },
-      ].filter(p => p.rows.length > 0)
-    : [{ rows: orderRows(rows) }];
-
-  const flatCount = partitions.reduce((n, p) => n + p.rows.length, 0);
+  const ordered = orderRows(rows);
+  const flatCount = ordered.length;
   if (flatCount === 0) return null;
 
-  const totalCols = 1 + nStats + 2;
   // Sticky cells need OPAQUE backgrounds — sectionBg/dangerBg are translucent,
   // so stat columns scrolled underneath would ghost through. Layering the
   // translucent tint over cardBg via backgroundImage keeps the exact same
   // visual color while compositing opaque. Applied to every header cell for
   // header-bg parity (the CompactKeeperGrid lesson).
   const headerBg = { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})` };
-  const rowBg = (expired) => expired
-    ? { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.dangerBg}, ${t.dangerBg})` }
-    : { backgroundColor: t.cardBg };
+  // Sticky cells must be OPAQUE (translucent ones let scrolled stat columns
+  // ghost through), so a row tint is layered over cardBg rather than set as a
+  // transparent background. Kept rows carry the success tint — the highlight
+  // that replaced the "Eligible, not protected" section label.
+  const rowBg = (row) => {
+    const tint = row.kind === 'expired' ? t.dangerBg : row.kind === 'keeper' ? t.successBg : null;
+    return tint
+      ? { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${tint}, ${tint})` }
+      : { backgroundColor: t.cardBg };
+  };
   const headerCell = {
     ...headerBg, padding: '9px 10px', textAlign: 'right',
     ...tokens.typeLabelEyebrow, color: t.textMuted,
@@ -448,6 +488,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
     <div style={{ marginBottom: tokens.spaceLg }}>
       {title && <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>{title}</div>}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden', position: 'relative' }}>
+        {toolbar}
         {!stretchMode && <div aria-hidden style={edgeFade('left', canLeft)} />}
         {!stretchMode && <div aria-hidden style={edgeFade('right', canRight)} />}
         <div ref={scrollRef} style={{
@@ -489,31 +530,24 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
               </tr>
             </thead>
             <tbody>
-              {partitions.map((part, pi) => (
-                <React.Fragment key={pi}>
-                  {part.eyebrow && (
-                    <tr className="kh-share-tr">
-                      <td colSpan={totalCols} style={{ padding: '10px 14px 4px', ...tokens.typeLabelEyebrow, color: t.textMuted, borderBottom: 'none' }}>
-                        {/* Sticky within the wide colSpan cell so the label
-                            doesn't slide out of view on horizontal scroll. */}
-                        <span style={{ display: 'inline-block', position: 'sticky', left: 14 }}>{part.eyebrow}</span>
-                      </td>
-                    </tr>
-                  )}
-                  {part.rows.map(({ row, rec }, i) => {
+              {ordered.map(({ row, rec }, i) => {
                     renderedSoFar += 1;
                     const isLast = renderedSoFar === flatCount;
                     const rowBorder = isLast ? 'none' : `1px solid ${t.border}`;
                     const expired = row.kind === 'expired';
-                    // Dim goes on cell CONTENT, never on the sticky <td>s
-                    // themselves — a semi-transparent sticky cell lets
-                    // scrolled stat columns ghost through its background
-                    // (the PR #27 transparency bug in a new costume).
-                    const dim = (part.dim || (dimEligible && row.kind !== 'keeper')) ? 0.75 : 1;
+                    const kept = row.kind === 'keeper';
+                    const dim = 1;
                     const pos = displayPos(row, rec);
                     return (
-                      <tr key={`${row.teamId}-${row.player}`} className="kh-share-tr" style={{ verticalAlign: 'middle' }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder }}>
+                      <tr key={`${row.teamId}-${row.player}`} className="kh-share-tr"
+                        style={{
+                          verticalAlign: 'middle',
+                          // Full-width tint: the <tr> paints behind the
+                          // non-sticky stat cells, the sticky cells layer the
+                          // same tint opaquely over cardBg.
+                          background: kept ? t.successBg : expired ? t.dangerBg : undefined,
+                        }}>
+                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder }}>
                           {isHockey ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
                               <SharedHeadshot rec={rec} isDark={isDark} size={30} />
@@ -550,21 +584,19 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, dim
                             </span>
                           </td>
                         )}
-                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(expired), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
+                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <ContractText row={row} league={league} isDark={isDark} />
                           </span>
                         </td>
-                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(expired), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
+                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
                           </span>
                         </td>
                       </tr>
                     );
-                  })}
-                </React.Fragment>
-              ))}
+              })}
             </tbody>
           </table>
         </div>
@@ -581,7 +613,7 @@ function isGoalieRow(row, playerMap) {
   return String(row.pos || '').toUpperCase() === 'G';
 }
 
-function StatTables({ rows, league, playerMap, isDark, hideTeam, dimEligible, groupKeepers }) {
+function StatTables({ rows, league, playerMap, isDark, hideTeam, toolbar }) {
   const skaters = rows.filter(r => !isGoalieRow(r, playerMap));
   const goalies = rows.filter(r => isGoalieRow(r, playerMap));
   return (
@@ -589,12 +621,12 @@ function StatTables({ rows, league, playerMap, isDark, hideTeam, dimEligible, gr
       {skaters.length > 0 && (
         <StatTable title="Skaters" rows={skaters} cats={statCategoriesFor(league, 'skater')}
           league={league} playerMap={playerMap} isDark={isDark} hideTeam={hideTeam}
-          dimEligible={dimEligible} groupKeepers={groupKeepers} defaultSortKey="p" />
+          toolbar={toolbar} defaultSortKey="p" />
       )}
       {goalies.length > 0 && (
         <StatTable title="Goalies" rows={goalies} cats={statCategoriesFor(league, 'goalie')}
           league={league} playerMap={playerMap} isDark={isDark} hideTeam={hideTeam}
-          dimEligible={dimEligible} groupKeepers={groupKeepers} defaultSortKey="svPct" />
+          defaultSortKey="svPct" />
       )}
     </>
   );
@@ -748,8 +780,11 @@ function SharedLeaguePage({ league, isDark }) {
     const q = normalizeName(search);
     rows = rows.filter(r => normalizeName(r.player).includes(q));
   }
+  // Kept players pin to the top of every view — the team tabs (that team's
+  // keepers) and "All players" (every declared keeper in the league). The
+  // row highlight carries the meaning, so the list stays flat.
   const sortedRows = React.useMemo(
-    () => sortRowsDefault(rows, playerMap, league),
+    () => keepersFirst(sortRowsDefault(rows, playerMap, league)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [allRows, filter, locked, search, playerMap, league]
   );
@@ -767,6 +802,13 @@ function SharedLeaguePage({ league, isDark }) {
   // stats-less leagues a compact name/price/status table (no stat columns,
   // no skater/goalie split). Mobile cards are for mobile widths only.
   const useTable = isDesktop;
+
+  // The search filters this list, so it reads as part of it: rendered inside
+  // the table's card as a header strip rather than floating between the chip
+  // rail and the table, belonging to neither.
+  const searchBar = (
+    <ListSearch value={search} onChange={setSearch} count={sortedRows.length} isDark={isDark} />
+  );
 
   const body = (
     <>
@@ -800,28 +842,15 @@ function SharedLeaguePage({ league, isDark }) {
       ) : useTable ? (
         isHockey ? (
           <StatTables rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
-            hideTeam={!!filterTeam} dimEligible={false} groupKeepers={!!filterTeam && !locked} />
+            hideTeam={!!filterTeam} toolbar={searchBar} />
         ) : (
           <StatTable rows={sortedRows} cats={[]} league={league} playerMap={playerMap} isDark={isDark}
-            hideTeam={!!filterTeam} dimEligible={false} groupKeepers={!!filterTeam && !locked} />
+            hideTeam={!!filterTeam} toolbar={searchBar} />
         )
       ) : (
         <div>
-          {filterTeam && !locked ? (
-            <>
-              <RowList rows={sortedRows.filter(r => r.kind === 'keeper')} league={league} playerMap={playerMap} isDark={isDark} hideTeam />
-              {sortedRows.some(r => r.kind !== 'keeper') && (
-                <>
-                  <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: '10px 4px 4px' }}>
-                    Eligible, not protected
-                  </div>
-                  <RowList rows={sortedRows.filter(r => r.kind !== 'keeper')} league={league} playerMap={playerMap} isDark={isDark} hideTeam dimEligible />
-                </>
-              )}
-            </>
-          ) : (
-            <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark} hideTeam={!!filterTeam} />
-          )}
+          <div style={{ marginBottom: tokens.spaceXs }}>{searchBar}</div>
+          <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark} hideTeam={!!filterTeam} />
         </div>
       )}
 
@@ -917,12 +946,6 @@ function SharedLeaguePage({ league, isDark }) {
                 active={filter === chip.id} isDark={isDark}
                 onClick={() => setFilter(chip.id)} />
             ))}
-          </div>
-          <div style={{ position: 'relative', marginTop: tokens.spaceXs, maxWidth: 340 }}>
-            <Search size={14} strokeWidth={2} color={t.textMuted} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search players…"
-              aria-label="Search players"
-              style={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill, padding: '7px 12px 7px 31px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit', outline: 'none' }} />
           </div>
         </div>
         {body}

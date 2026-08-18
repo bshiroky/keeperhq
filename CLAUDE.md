@@ -676,6 +676,37 @@ Yahoo work off 47%, not off the optimistic reading.
   facts the data itself knows**; when no completed run is on record the card
   says exactly that instead of printing "unknown" beside a healthy count.
 
+- **Shared-page: one flat list, kept pinned + marked (this branch's PR,
+  follow-up):** three fixes for the page as it goes out to the league.
+  (1) **Team chips are alphabetical everywhere the strip appears** —
+  `sortTeamsByName` (`src/lib/teamOrder.js`) is now the one place that order is
+  decided, used by the shared rail, the Set-keepers selector and the Last Draft
+  chips. Diagnosis first: the sort had **never landed anywhere** (no commit in
+  history, both strips mapped `league.teams` directly), so this wasn't a
+  shared-page regression — it was missing on every surface. Display order only;
+  teams are addressed by id, so a click resolves the same either way.
+  (2) **The search moved into the list it filters** — it was floating between
+  the chip rail and the table, belonging to neither. It's now a `ListSearch`
+  header strip INSIDE the table card (and directly above the mobile list), with
+  a live row count; on hockey it attaches to the skaters table only, not both.
+  Print hides it alongside the rail (`.kh-share-search`).
+  (3) **"Eligible, not protected" is gone — one flat list, kept pinned and
+  marked in place.** The label only existed to explain an absence. Now
+  `keepersFirst` (pure, stable) lifts declared keepers to the top of whatever
+  view is showing — that team's keepers on a team tab, the whole league's on
+  "All players" (where the Kept by column names the holder) — and the ROW
+  carries the meaning: success tint + border, plus a check glyph in the Kept-by
+  pill. Same treatment as the commissioner's Eligible Pool, which marks
+  selected players in place rather than sectioning them off. The dim on
+  non-keepers went with it (highlight-only reads better and keeps the returning
+  pool legible). Sticky-cell rule still holds: the tint is LAYERED over cardBg
+  on the sticky cells (`rowBg(row)`) and set on the `<tr>` for the scrolling
+  cells, never as a transparent background, or scrolled stat columns ghost
+  through. Clicking a stat header re-sorts within the kept block and the
+  eligible block rather than mixing them. **Partially addresses Open item #28**:
+  post-deadline, the returning pool is simply the unhighlighted rows instead of
+  needing its own view — but #28's own pass is still owed (see the item).
+
 - **Shared-page cleanup for real league use (this branch's PR):** the page went
   out to actual leaguemates, whose job on it is deciding who to keep and who to
   trade for. Three small changes, no new surface. (1) **The "Drafted last year"
@@ -1693,7 +1724,12 @@ copy of a component drifts away from the original.
   (`row.draftedCost` from `buildSharedRows`; the desktop Contract
   column widens 100→132 for auction only so the pair fits inside the
   sticky cell). Same strings on mobile rows.
-  Print: filter rail hidden, default
+  **One flat list, never a labelled section**: declared keepers pin to the top
+  (`keepersFirst`) and are marked in place (success tint + border, check glyph
+  in the Kept-by pill) — the highlight carries the meaning, matching the
+  Eligible Pool. The player search is the table card's header strip
+  (`ListSearch`), not a floating control. Team chips are alphabetical
+  (`sortTeamsByName`). Print: filter rail + search hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   mascot empty state is the page's one mascot-*speech* surface and
   renders ONLY when there is nothing else to show (no rows at all);
@@ -2472,6 +2508,12 @@ buttons, no member login until (B)'s trigger is hit.
     against an imported league before sizing the work.
 
 28. **Shared page, post-deadline state: the returning pool is invisible.**
+    **PARTIALLY ADDRESSED** by the flat-list change: keepers are highlighted in
+    place, so post-lock the returning pool is readable as "the rows without a
+    highlight" rather than needing a separate view. What's still owed is the
+    post-lock pass itself — the default view still NARROWS to declared keepers
+    once locked, so the unkept players aren't on the page at all to be read.
+    Original note follows.
     Once keepers lock, the default view narrows to declared keepers — which
     answers "who was kept" but not "who's going back into the draft", and the
     second question is the one that matters for draft prep. The page should
