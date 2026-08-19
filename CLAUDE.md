@@ -2686,6 +2686,37 @@ already (PR #1 was merged earlier). After they merge, future commits
 should still go to the same branch and PR/merge from there — don't
 push directly to `main`.
 
+### VERIFY BEFORE CALLING ANYTHING LANDED
+
+**Never report work as shipped/landed/merged without checking `main` first.**
+A push succeeding only proves the branch moved; it says nothing about whether
+`main` has the work. Real case: two commits were pushed to a branch minutes
+after its PR was squash-merged, so they sat on a closed branch looking shipped
+while `main` never had them (recovered in PR #41).
+
+```sh
+git fetch origin main
+git merge-base --is-ancestor <sha> origin/main   # exit 0 = literally on main
+git diff --stat <sha> origin/main                # empty = main HAS this content
+```
+
+**Run both, because this repo squash-merges.** A squash gives `main` a NEW
+commit, so `--is-ancestor` reports "not on main" for *every* branch commit,
+merged or not — on its own it can't tell a merged branch from a stranded one.
+The **content** diff is what settles it: `git diff --stat <branch-tip>
+origin/main` coming back empty means `main` holds that tree, whatever the SHAs
+say. (That's exactly how the #41 diagnosis worked: `main` was byte-identical to
+the branch's second-to-last commit, which located the missing two precisely.)
+
+**Say it plainly when a push is stranded** — "this is on the branch, but its PR
+is already merged, so it is NOT on main" — rather than reporting it as done.
+The recovery is: new branch off current `main`, cherry-pick the stranded
+commits in order, confirm `git diff <old-tip> HEAD` is empty (the work
+transferred exactly), and open a PR.
+
+The same check applies before saying a fix is live for the user to look at:
+deployed means merged to `main` AND built, not pushed to a branch.
+
 ## Things NOT to do
 
 - Backend / login / accounts for a **single commissioner** are now
