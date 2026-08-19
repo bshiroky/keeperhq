@@ -442,7 +442,9 @@ features have shipped through their own branches (all merged):
   "Drafted last year · eligible" / "Rostered · undrafted", the pool's
   Expired tab is snake-only (like the shared page's Expired filter),
   the shared page's "Under contract" chip relabels to "Drafted last
-  year" on auction, and the workbench tip says "drafted prices".
+  year" on auction (**superseded** — that chip is gone entirely on
+  term-less leagues; see the shared-page cleanup bullet), and the
+  workbench tip says "drafted prices".
   (2) **Escalation math is visible wherever a keep cost renders**:
   pool rows pair `Drafted $83` with a `Keep $88` value, keeper slots
   show `Drafted $83 →` before the editable keep-cost input (via a
@@ -673,6 +675,115 @@ Yahoo work off 47%, not off the optimistic reading.
   manual, what failed). **A log row is not allowed to be load-bearing for
   facts the data itself knows**; when no completed run is on record the card
   says exactly that instead of printing "unknown" beside a healthy count.
+
+- **Member-facing rules modal + one grid on every view (this branch's PR,
+  follow-up):** three changes. (1) **The team header block is gone** — a team
+  tab showed "BEN SC. — KEEPERS DECLARED / 0 keepers", which restated the
+  selected tab and the highlighted rows. (2) **The grid renders identically on
+  every view** — `hideTeam` (which suppressed the owner name on a team tab and
+  hid the pill entirely on eligible rows) is removed, so All players and a team
+  tab differ ONLY in which rows are in the table. Every row names its holder on
+  every view; kept rows keep the accent + check. (3) **A "Rules" button beside
+  the league name** opens `LeagueRulesModal` — one modal, sections within.
+  **Derived half** (`src/lib/rulesSummary.js`, pure + tested): a card grid
+  built from the keeper config — slots and whether they must be filled, what
+  keeping costs (auction: last year's price + $N/yr, plus the undrafted floor;
+  picks: the drafted round or top picks, escalation, waiver round; slot: a
+  roster slot), term or no limit, rookie rules when enabled, draft format.
+  Cards not prose, and it **cannot drift from the rules the app applies**
+  because it reads the same keys the cost math does. **Written half**:
+  `league.sharedRulesNote` / `league.sharedPayoutsNote`, free text in the
+  existing `data` blob — **no table change** — edited from a "Rules your league
+  sees" card in Settings (which renders the same `RulesGrid` so the
+  commissioner sees exactly what members see) and omitted from the modal
+  entirely when blank. Payouts is free text ONLY: the structured `payouts` /
+  `payoutNote` stay unprojected, so nothing written for the commissioner's own
+  eyes is exposed — the new key is authored deliberately for members.
+  **`006_shared_league_rules.sql` must be run** or none of this reaches the
+  page: `get_shared_league` is an explicit field-list projection, so the new
+  config keys (`keeperCostModel`, `termModel`, `termYears`, `pickRules`,
+  `rookieRules`, `mustFillSlots`) AND the two note fields have to be named in
+  it. Without it the modal falls back to the legacy shim and a slot- or
+  pick-cost league would be described wrongly.
+
+- **Rules button wiring fix + two shared-page bugs (this branch's PR,
+  follow-up):** the Rules button did nothing — pointer cursor, no modal, no
+  console error. **Cause:** the trigger and its `useState` were in
+  `SharedLeaguePage` while the modal's render had landed in `InvalidLinkPage`
+  (the edit that inserted it matched the FIRST `<FooterMark />` in the file,
+  which belongs to the invalid-link state). Clicking flipped state in a
+  component that rendered no modal; nothing threw because the orphaned render
+  sits on a page that only appears for a dead link — where it *would* have
+  thrown a ReferenceError on `rulesOpen`. **The tests passed because they
+  rendered the button and the modal SEPARATELY and never the wiring between
+  them** — a whole-page render can't click, so "the trigger exists" and "the
+  modal renders" both held while the connection was missing. Fix is structural:
+  `RulesButton` (`LeagueRulesModal.jsx`) owns the trigger, the state and the
+  modal, so they cannot be separated again, and takes `defaultOpen` purely so
+  a server render can exercise the OPEN state — that test is the one that would
+  have caught it. Two more, both from the same session: the trigger got a real
+  touch target (34px desktop / **44px mobile** via `.kh-share-rules-btn`; it
+  had shipped as a ~22px pill), and **the search bar no longer disappears with
+  its own results** — it's a filter control, so the empty state renders it
+  inside a card above the "No players match" message, and on hockey the toolbar
+  now rides whichever of the skaters/goalies tables actually renders (a search
+  matching only goalies used to empty the skaters table and take the search
+  with it).
+
+- **Shared-page: one flat list, kept pinned + marked (this branch's PR,
+  follow-up):** three fixes for the page as it goes out to the league.
+  (1) **Team chips are alphabetical everywhere the strip appears** —
+  `sortTeamsByName` (`src/lib/teamOrder.js`) is now the one place that order is
+  decided, used by the shared rail, the Set-keepers selector and the Last Draft
+  chips. Diagnosis first: the sort had **never landed anywhere** (no commit in
+  history, both strips mapped `league.teams` directly), so this wasn't a
+  shared-page regression — it was missing on every surface. Display order only;
+  teams are addressed by id, so a click resolves the same either way.
+  (2) **The search moved into the list it filters** — it was floating between
+  the chip rail and the table, belonging to neither. It's now a `ListSearch`
+  header strip INSIDE the table card (and directly above the mobile list), with
+  a live row count; on hockey it attaches to the skaters table only, not both.
+  Print hides it alongside the rail (`.kh-share-search`).
+  (3) **"Eligible, not protected" is gone — one flat list, kept pinned and
+  marked in place.** The label only existed to explain an absence. Now
+  `keepersFirst` (pure, stable) lifts declared keepers to the top of whatever
+  view is showing — that team's keepers on a team tab, the whole league's on
+  "All players" (where the Kept by column names the holder) — and the ROW
+  carries the meaning: success tint + border, plus a check glyph in the Kept-by
+  pill. Same treatment as the commissioner's Eligible Pool, which marks
+  selected players in place rather than sectioning them off. The dim on
+  non-keepers went with it (highlight-only reads better and keeps the returning
+  pool legible). Sticky-cell rule still holds: the tint is LAYERED over cardBg
+  on the sticky cells (`rowBg(row)`) and set on the `<tr>` for the scrolling
+  cells, never as a transparent background, or scrolled stat columns ghost
+  through. Clicking a stat header re-sorts within the kept block and the
+  eligible block rather than mixing them. **Partially addresses Open item #28**:
+  post-deadline, the returning pool is simply the unhighlighted rows instead of
+  needing its own view — but #28's own pass is still owed (see the item).
+
+- **Shared-page cleanup for real league use (this branch's PR):** the page went
+  out to actual leaguemates, whose job on it is deciding who to keep and who to
+  trade for. Three small changes, no new surface. (1) **The "Drafted last year"
+  chip is gone on term-less leagues** — its row set (declared keepers + anyone
+  carrying a prior price) is very nearly the whole league, so it duplicated
+  "All players" while implying a distinction that doesn't exist where keeping
+  costs dollars and nothing else. **Term leagues keep "Under contract"**, where
+  being under contract IS a distinct state. Rail rules moved into
+  `sharedFilterChips` (pure, tested) so the page no longer inlines them.
+  (2) **Column headers say what the cells hold**: Status → **"Kept by"**
+  everywhere, and Contract → **"Cost to keep"** on dollar-cost leagues only
+  (`costColumnLabel`) — a termed league's cell holds `Y1/3`, so calling that a
+  cost would be wrong. Widths are untouched: the longer label only lands in the
+  auction column, which is already 132px for the `Keep for $X` / `Drafted $Y`
+  pair. (3) **"All players" was already the trade view and stays as-is** —
+  verified rather than changed: `buildSharedRows` covers every team's
+  `priorKeepers` + `roster` (deduped by name, strongest state winning), each row
+  carries the escalated keep cost (or the undrafted floor) and the holding team,
+  and `sortRowsDefault` sorts cost desc for auction with cost-less rows last but
+  never dropped. **Caveat worth remembering: that view is only as complete as
+  the imported rosters** — a team whose roster was never pasted contributes only
+  its drafted players. And the cost-desc sort is the STATS-LESS path; hockey
+  still sorts by last-season points (`sortRowsDefault` branches on sport first).
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -1635,9 +1746,10 @@ copy of a component drifts away from the original.
   11:59 PM; days granularity; hours/minutes ticking inside 48h; quiet
   "🔒 Keepers locked" past deadline; no countdown when no deadline
   set), sticky countdown pill (IntersectionObserver on the band),
-  filter rail (Keepable/All players · Under contract · Expired
-  (snake, only when expired players exist) · team chips; default
-  relabels to "Final keepers" post-lock), mobile card rows
+  filter rail (`sharedFilterChips`: Keepable/All players · Under contract
+  (**term leagues only**) · Expired (snake, only when expired players
+  exist) · team chips; default relabels to "Final keepers" post-lock),
+  mobile card rows
   (**two deliberate layouts, not one minus content**: hockey =
   headshot + two-line card with stat line + stacked contract/status;
   stats-less leagues (no directory sport) = a COMPACT single-line row,
@@ -1666,13 +1778,34 @@ copy of a component drifts away from the original.
   (`row.draftedCost` from `buildSharedRows`; the desktop Contract
   column widens 100→132 for auction only so the pair fits inside the
   sticky cell). Same strings on mobile rows.
-  Print: filter rail hidden, default
+  **One flat list, never a labelled section**: declared keepers pin to the top
+  (`keepersFirst`) and are marked in place (success tint + border, check glyph
+  in the Kept-by pill) — the highlight carries the meaning, matching the
+  Eligible Pool. The player search is the table card's header strip
+  (`ListSearch`), not a floating control. Team chips are alphabetical
+  (`sortTeamsByName`). The grid renders IDENTICALLY on every view — no
+  team-tab special casing, no per-view header block; only the row set changes.
+  A **Rules** button beside the league name opens `LeagueRulesModal`. Print: filter rail + search hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   mascot empty state is the page's one mascot-*speech* surface and
   renders ONLY when there is nothing else to show (no rows at all);
   a populated list with zero declared keepers gets a one-line quiet
   notice instead ("No keepers declared yet — everyone below is still
   eligible.") — mascot speech = waiting surfaces only.
+- `src/LeagueRulesModal.jsx` — the member-facing rules modal. **`RulesButton`
+  is the only way it should be mounted** — trigger + open state + modal in one
+  component, so the render can't drift away from the button that opens it
+  (it did once, silently). (`RulesGrid` is
+  exported separately so the commissioner's Settings card shows the same cards,
+  not a lookalike). Derived facts + the commissioner's free-text sections;
+  blank sections are absent, never a bare heading.
+- `src/lib/rulesSummary.js` — `keeperRuleFacts(league)` (pure: config → the
+  card list) and `ruleNotes` / `hasRuleNotes` for the free text. Derived from
+  the same keys the keeper math reads, so member-facing rules can't drift from
+  applied rules. Anything the config doesn't model belongs in the notes.
+- `supabase/migrations/006_shared_league_rules.sql` — replaces
+  `get_shared_league` to project the cost/term config keys + the two note
+  fields. No table change. `payouts` / `payoutNote` stay unprojected.
 - `src/lib/sharedLeague.js` — data layer for the shared page:
   `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
   with no session), `buildSharedRows(league)` (one deduped row per
@@ -2443,6 +2576,33 @@ buttons, no member login until (B)'s trigger is hit.
     `search_key` name matching), not a pure join. The open question is only
     how much of the second tier real rosters actually hit — measure that
     against an imported league before sizing the work.
+
+28. **Shared page, post-deadline state: the returning pool is invisible.**
+    **PARTIALLY ADDRESSED** by the flat-list change: keepers are highlighted in
+    place, so post-lock the returning pool is readable as "the rows without a
+    highlight" rather than needing a separate view. What's still owed is the
+    post-lock pass itself — the default view still NARROWS to declared keepers
+    once locked, so the unkept players aren't on the page at all to be read.
+    Original note follows.
+    Once keepers lock, the default view narrows to declared keepers — which
+    answers "who was kept" but not "who's going back into the draft", and the
+    second question is the one that matters for draft prep. The page should
+    show both, as separate views: final keepers, and the pool returning to the
+    draft (everyone rostered who wasn't kept, plus expired contracts on term
+    leagues). Related to Open item #23's "draft-prep window" phase-2 note,
+    which describes the same gap from the design-handoff side. Not built.
+
+29. **Shared page: the returning pool has no ranking signal.** Players heading
+    back to the draft have no keep cost by definition, so the cost-desc sort
+    that orders the keeper view can't order them — they'd land alphabetically,
+    which is useless for draft prep. Two candidate signals: last year's drafted
+    price (**already in the data** — `priorKeepers[].keptFor`, and already
+    threaded to the page as `row.draftedCost`), or last season's fantasy points
+    (needs a stats source that isn't wired for football/basketball — the NFL
+    directory stores no stats, and `STAT_CATEGORIES` is hockey-only today).
+    The first is free and available now; the second is better but is its own
+    arc. Decide which before building #28, since the ranking is what makes that
+    view usable. User will pick the direction.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's

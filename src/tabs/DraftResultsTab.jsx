@@ -5,6 +5,7 @@ import { makeTheme, tokens, Button, Headshot, HScrollRow } from '../components.j
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { isNflSport } from '../lib/nflDirectory.js';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
 import { DraftImportFlow } from './ImportTab.jsx';
 
@@ -329,7 +330,7 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
 
       {/* Team filter chips — the Set-keepers chip pattern */}
       <HScrollRow isDark={isDark} t={t}>
-        {[{ id: 'all', name: 'All teams' }, ...teamsWithDraft].map(tm => {
+        {[{ id: 'all', name: 'All teams' }, ...sortTeamsByName(teamsWithDraft)].map(tm => {
           const active = teamFilter === tm.id;
           return (
             <button key={tm.id} onClick={() => setTeamFilter(tm.id)} style={{

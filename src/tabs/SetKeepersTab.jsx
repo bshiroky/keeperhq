@@ -5,6 +5,7 @@ import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
 import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -487,9 +488,10 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
         }
       `}</style>
 
-      {/* Team chip selector */}
+      {/* Team chip selector — alphabetical (display order only; teams are
+          addressed by id, so the click target is unaffected). */}
       <HScrollRow isDark={isDark} t={t}>
-        {teams.map(tm => {
+        {sortTeamsByName(teams).map(tm => {
           const count = (tm.keepers || []).length;
           const active = tm.id === team.id;
           const complete = slots > 0 && count >= slots;

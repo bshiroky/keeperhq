@@ -11,6 +11,7 @@ import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
 import { isNflSport } from './lib/nflDirectory.js';
+import { RulesGrid } from './LeagueRulesModal.jsx';
 import { startNewSeason } from './lib/season.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
@@ -561,6 +562,93 @@ function EditableCard({ title, t, isDark, accentColor, viewRows, editRows, onSav
   );
 }
 
+// ── Member-facing rules card (Settings) ─────────────────────────────────────
+// What the league sees behind the "Rules" button on the shared page. Two
+// halves, matching the modal: the DERIVED facts (read-only here too — they
+// come from the keeper config, so editing them means editing the rules above,
+// not retyping them) and the commissioner's free text for anything the config
+// doesn't model. Blank notes are simply absent from the member's modal.
+function MemberRulesCard({ league, isDark, accentColor, onUpdateLeague, onSaved }) {
+  const t = makeTheme(isDark);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState({
+    sharedRulesNote: league.sharedRulesNote || '',
+    sharedPayoutsNote: league.sharedPayoutsNote || '',
+  });
+
+  function startEdit() {
+    setDraft({
+      sharedRulesNote: league.sharedRulesNote || '',
+      sharedPayoutsNote: league.sharedPayoutsNote || '',
+    });
+    setIsEditing(true);
+  }
+  function save() {
+    onUpdateLeague({
+      ...league,
+      sharedRulesNote: draft.sharedRulesNote.trim(),
+      sharedPayoutsNote: draft.sharedPayoutsNote.trim(),
+    });
+    setIsEditing(false);
+    onSaved?.();
+  }
+
+  const noteStyle = {
+    width: '100%', boxSizing: 'border-box', minHeight: 84, resize: 'vertical',
+    background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd,
+    padding: '8px 10px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit', outline: 'none',
+  };
+
+  const sections = [
+    { key: 'sharedRulesNote', title: 'House rules', placeholder: 'Anything the settings above don\'t cover — trade deadline, waiver order, disputes…' },
+    { key: 'sharedPayoutsNote', title: 'Payouts', placeholder: 'Buy-in and what each place pays. Free text — nothing here is calculated.' },
+  ];
+
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Rules your league sees</div>
+        {isEditing ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button variant="secondary" size="sm" isDark={isDark} onClick={() => setIsEditing(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={save}>Save</Button>
+          </div>
+        ) : (
+          <Button variant="secondary" size="sm" isDark={isDark} onClick={startEdit}>Edit</Button>
+        )}
+      </div>
+      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.45 }}>
+          Members open this from the <strong>Rules</strong> button on the shared league page.
+        </div>
+        <RulesGrid league={league} isDark={isDark} />
+        {sections.map(sec => {
+          const value = (isEditing ? draft[sec.key] : league[sec.key] || '').trim();
+          if (!isEditing && !value) return null;
+          return (
+            <div key={sec.key}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 6 }}>
+                {sec.title}
+              </div>
+              {isEditing ? (
+                <textarea value={draft[sec.key]} placeholder={sec.placeholder} style={noteStyle}
+                  onChange={e => setDraft(d => ({ ...d, [sec.key]: e.target.value }))} />
+              ) : (
+                <div style={{ ...tokens.typeBody, color: t.textBody, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{value}</div>
+              )}
+            </div>
+          );
+        })}
+        {!isEditing && !((league.sharedRulesNote || '').trim() || (league.sharedPayoutsNote || '').trim()) && (
+          <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
+            No written notes yet — members see just the settings above. Add house rules or payouts with Edit.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Share league page card (Settings) ────────────────────────────────────────
 // Commissioner-side control for the public shared page at /l/:token. Shows
 // the tokenized URL + Copy, and a Regenerate action behind an inline danger
@@ -940,6 +1028,9 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
         <EditableCard title="Teams" t={t} isDark={isDark} accentColor={accentColor}
           viewRows={teamsView} initialDraft={teamsDraftInitial} editRows={teamsEdit} onSave={saveTeams} onSaved={onSaved} />
       )}
+
+      <MemberRulesCard league={league} isDark={isDark} accentColor={accentColor}
+        onUpdateLeague={onUpdateLeague} onSaved={onSaved} />
 
       <ShareLeagueCard league={league} isDark={isDark} accentColor={accentColor} />
 
