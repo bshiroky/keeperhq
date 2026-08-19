@@ -2729,26 +2729,40 @@ A push succeeding only proves the branch moved; it says nothing about whether
 after its PR was squash-merged, so they sat on a closed branch looking shipped
 while `main` never had them (recovered in PR #41).
 
+**The check that always works: look for the change itself on `main`.**
+
 ```sh
 git fetch origin main
-git merge-base --is-ancestor <sha> origin/main   # exit 0 = literally on main
-git diff --stat <sha> origin/main                # empty = main HAS this content
+git show origin/main:<file> | grep '<a distinctive string from the change>'
 ```
 
-**Run both, because this repo squash-merges.** A squash gives `main` a NEW
-commit, so `--is-ancestor` reports "not on main" for *every* branch commit,
-merged or not — on its own it can't tell a merged branch from a stranded one.
-The **content** diff is what settles it: `git diff --stat <branch-tip>
-origin/main` coming back empty means `main` holds that tree, whatever the SHAs
-say. **But the reverse does NOT hold** — a non-empty diff only means the trees
-differ, which is also true when `main` has simply moved on with later work.
-(Hit live: `git diff 20faf6a origin/main` was non-empty and briefly read as
-"#41 never landed", when in fact #41 HAD merged and #42 had landed on top.)
-When the diff is non-empty, check the specific files
-(`git diff <sha> origin/main -- <paths>`) or look for the squash commit
-(`git log --oneline origin/main | head`) before concluding anything is
-missing. (That's exactly how the #41 diagnosis worked: `main` was byte-identical to
-the branch's second-to-last commit, which located the missing two precisely.)
+Present = it landed. Absent = it did not. This is immune to both traps below —
+it doesn't care how the merge was performed or how far `main` has moved since.
+
+The two commit-level checks are useful but each proves only one direction, and
+**both gave a false "not landed" in this session**:
+
+```sh
+git merge-base --is-ancestor <sha> origin/main   # exit 0 PROVES landed
+git diff --stat <sha> origin/main                # empty PROVES landed
+```
+
+- `--is-ancestor` — a "yes" is conclusive. A **"no" means nothing here**,
+  because this repo squash-merges: a squash puts a NEW commit on `main`, so
+  every branch commit reports "not on main" whether its PR merged or not.
+- `git diff` — an **empty** diff is conclusive: `main` holds exactly that tree.
+  A **non-empty** diff means nothing on its own, because it is equally true
+  when `main` has simply moved on with later work. (Hit live: `git diff
+  20faf6a origin/main` came back non-empty and briefly read as "#41 never
+  landed" — #41 had in fact merged, with #42 stacked on top.)
+
+So: **treat a negative from either commit-level check as inconclusive** and go
+look for the change itself before telling anyone something is missing. A
+positive from either is enough on its own.
+
+(The empty-diff form is what cracked the original #41 case: `main` came back
+byte-identical to the branch's second-to-last commit, which located the two
+stranded commits precisely.)
 
 **Say it plainly when a push is stranded** — "this is on the branch, but its PR
 is already merged, so it is NOT on main" — rather than reporting it as done.
