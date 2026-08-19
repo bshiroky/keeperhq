@@ -1,9 +1,10 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader, Search, Check } from 'lucide-react';
+import { Loader, Search, Check, BookOpen } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
+import { LeagueRulesModal } from './LeagueRulesModal.jsx';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
   sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst,
@@ -32,7 +33,7 @@ const SHARE_STYLES = `
   .kh-share-rail-scroll { scrollbar-width: none; -ms-overflow-style: none; }
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
   @media print {
-    .kh-share-rail, .kh-share-search { display: none !important; }
+    .kh-share-rail, .kh-share-search, .kh-share-rules-btn { display: none !important; }
     .kh-share-row, .kh-share-tr { break-inside: avoid; }
     .kh-share-pill-wrap { position: static !important; height: auto !important; visibility: visible !important; }
   }
@@ -218,12 +219,12 @@ function ContractText({ row, league, isDark }) {
 // Keeper-accent tint (blue snake / orange auction) for declared keepers AND
 // players under contract; a readable neutral grey for rostered-but-
 // uncontracted players; "was {team}" keeps the Expired danger tint. On a
-// team-filter view the name drops (it's the team's own page): declared
-// keepers show a plain "Keeper" pill, eligible rows show no pill at all —
-// the row's highlight already says which is which. A declared keeper's pill
-// carries a check, the same in-place marking the commissioner's Eligible Pool
-// uses for a selected player.
-function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
+// Every row names its holder, on every view — the grid renders identically
+// whichever tab is selected, so the only difference between "All players" and
+// a team tab is which rows are in it. A declared keeper's pill carries a
+// check, the same in-place marking the commissioner's Eligible Pool uses for
+// a selected player.
+function RowStatusPill({ row, league, isDark, maxWidth }) {
   const t = makeTheme(isDark);
   const auction = isAuctionCost(league);
   const accent = auction
@@ -233,10 +234,6 @@ function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
   if (row.kind === 'expired') {
     bg = tokens.dangerBg; border = tokens.dangerBorder; color = tokens.danger;
     label = `was ${row.teamName}`;
-  } else if (hideTeam) {
-    if (row.kind !== 'keeper') return null;
-    ({ bg, border, color } = accent);
-    label = 'Keeper';
   } else if (row.kind === 'keeper' || row.kind === 'contract') {
     ({ bg, border, color } = accent);
     label = row.teamName;
@@ -266,7 +263,7 @@ function RowStatusPill({ row, league, hideTeam, isDark, maxWidth }) {
 // - Stats-less leagues (no directory): a COMPACT single-line row — name+pos
 //   left, price/status inline right, tighter padding, no reserved headshot or
 //   stat-line space. "Other sports look intentional, not broken."
-function PlayerRow({ row, league, rec, isDark, hideTeam, kept }) {
+function PlayerRow({ row, league, rec, isDark, kept }) {
   const t = makeTheme(isDark);
   const isHockey = league.sport === 'hockey';
   const expired = row.kind === 'expired';
@@ -286,7 +283,7 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, kept }) {
           {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, marginLeft: 6, fontWeight: 500 }}>{pos}</span>}
         </span>
         <ContractText row={row} league={league} isDark={isDark} />
-        <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} maxWidth={150} />
+        <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />
       </div>
     );
   }
@@ -314,7 +311,7 @@ function PlayerRow({ row, league, rec, isDark, hideTeam, kept }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0, minWidth: 0 }}>
         <ContractText row={row} league={league} isDark={isDark} />
-        <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} maxWidth={190} />
+        <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={190} />
       </div>
     </div>
   );
@@ -350,13 +347,13 @@ function ListSearch({ value, onChange, count, isDark }) {
   );
 }
 
-function RowList({ rows, league, playerMap, isDark, hideTeam }) {
+function RowList({ rows, league, playerMap, isDark }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
       {rows.map(row => (
         <PlayerRow key={`${row.teamId}-${row.player}`} row={row} league={league}
           rec={playerMap?.get(normalizeName(row.player))} isDark={isDark}
-          hideTeam={hideTeam} kept={row.kind === 'keeper'} />
+          kept={row.kind === 'keeper'} />
       ))}
     </div>
   );
@@ -379,7 +376,7 @@ const STAT_W = 64;
 const CONTRACT_W = 100;
 const STATUS_W = 116;
 
-function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, toolbar, defaultSortKey }) {
+function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defaultSortKey }) {
   const t = makeTheme(isDark);
   // Stats-less leagues (no directory sport) get this same table with cats=[]
   // — no stat columns, no headshots, single-line player cells. The hockey
@@ -591,7 +588,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, hideTeam, too
                         </td>
                         <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
-                            <RowStatusPill row={row} league={league} hideTeam={hideTeam} isDark={isDark} />
+                            <RowStatusPill row={row} league={league} isDark={isDark} />
                           </span>
                         </td>
                       </tr>
@@ -613,19 +610,19 @@ function isGoalieRow(row, playerMap) {
   return String(row.pos || '').toUpperCase() === 'G';
 }
 
-function StatTables({ rows, league, playerMap, isDark, hideTeam, toolbar }) {
+function StatTables({ rows, league, playerMap, isDark, toolbar }) {
   const skaters = rows.filter(r => !isGoalieRow(r, playerMap));
   const goalies = rows.filter(r => isGoalieRow(r, playerMap));
   return (
     <>
       {skaters.length > 0 && (
         <StatTable title="Skaters" rows={skaters} cats={statCategoriesFor(league, 'skater')}
-          league={league} playerMap={playerMap} isDark={isDark} hideTeam={hideTeam}
+          league={league} playerMap={playerMap} isDark={isDark}
           toolbar={toolbar} defaultSortKey="p" />
       )}
       {goalies.length > 0 && (
         <StatTable title="Goalies" rows={goalies} cats={statCategoriesFor(league, 'goalie')}
-          league={league} playerMap={playerMap} isDark={isDark} hideTeam={hideTeam}
+          league={league} playerMap={playerMap} isDark={isDark}
           defaultSortKey="svPct" />
       )}
     </>
@@ -693,6 +690,10 @@ function InvalidLinkPage({ isDark }) {
           </p>
         </div>
       </div>
+      {rulesOpen && (
+        <LeagueRulesModal league={league} isDark={isDark} onClose={() => setRulesOpen(false)} />
+      )}
+
       <FooterMark isDark={isDark} />
     </div>
   );
@@ -741,6 +742,9 @@ function SharedLeaguePage({ league, isDark }) {
   // same normalized matching the commissioner Eligible Pool search uses
   // (trade-talk use case: "what would it cost to get X?").
   const [search, setSearch] = React.useState('');
+  // League rules, on demand: members can check the rules without asking the
+  // commissioner. Derived from config, so it can't disagree with the app.
+  const [rulesOpen, setRulesOpen] = React.useState(false);
   const teamFilterId = filter.startsWith('team:') ? filter.slice(5) : null;
   const filterTeam = teamFilterId ? teams.find(tm => tm.id === teamFilterId) : null;
 
@@ -791,9 +795,6 @@ function SharedLeaguePage({ league, isDark }) {
 
   const chips = sharedFilterChips({ league, locked, termed, hasExpired, teams });
 
-  const teamKeeperCount = filterTeam
-    ? allRows.filter(r => r.kind === 'keeper' && r.teamId === filterTeam.id).length
-    : 0;
   const teamHasExpired = filterTeam
     ? allRows.some(r => r.kind === 'expired' && r.teamId === filterTeam.id)
     : false;
@@ -815,13 +816,6 @@ function SharedLeaguePage({ league, isDark }) {
       {filter === 'expired' && (
         <ViewHeader title="Expired contracts" subtitle="not keepable — re-enter the draft" danger isDark={isDark} />
       )}
-      {filterTeam && (
-        <ViewHeader
-          title={`${filterTeam.name} — keepers declared`}
-          subtitle={`${teamKeeperCount} keeper${teamKeeperCount === 1 ? '' : 's'}${league.contractsRequired ? '' : ' · slots optional'}`}
-          isDark={isDark}
-        />
-      )}
       {/* Mascot speech is for WAITING surfaces only — it renders solely when
           there is nothing else to show. A populated list with zero declared
           keepers gets a one-line quiet notice instead. */}
@@ -842,15 +836,15 @@ function SharedLeaguePage({ league, isDark }) {
       ) : useTable ? (
         isHockey ? (
           <StatTables rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
-            hideTeam={!!filterTeam} toolbar={searchBar} />
+            toolbar={searchBar} />
         ) : (
           <StatTable rows={sortedRows} cats={[]} league={league} playerMap={playerMap} isDark={isDark}
-            hideTeam={!!filterTeam} toolbar={searchBar} />
+            toolbar={searchBar} />
         )
       ) : (
         <div>
           <div style={{ marginBottom: tokens.spaceXs }}>{searchBar}</div>
-          <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark} hideTeam={!!filterTeam} />
+          <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark} />
         </div>
       )}
 
@@ -882,8 +876,21 @@ function SharedLeaguePage({ league, isDark }) {
               <img src={sport.logo} alt="" height={34} style={{ height: 34, width: 'auto', imageRendering: 'pixelated', display: 'block' }} />
             </span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ ...LEAGUE_NAME_TYPE, color: t.textPrimary, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {league.name}
+              <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0 }}>
+                <span style={{ ...LEAGUE_NAME_TYPE, color: t.textPrimary, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {league.name}
+                </span>
+                <button className="kh-share-rules-btn" onClick={() => setRulesOpen(true)}
+                  aria-label="League rules" title="League rules"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                    background: 'transparent', border: `1px solid ${t.border}`,
+                    borderRadius: tokens.radiusPill, padding: '3px 9px', cursor: 'pointer',
+                    color: t.textSecondary, ...tokens.typePill, fontFamily: 'inherit',
+                  }}>
+                  <BookOpen size={12} strokeWidth={2} />
+                  Rules
+                </button>
               </div>
               <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
                 {sport.label} · {COST_LABEL[keeperCostModelOf(league)]} · {termLabel(termOf(league))}

@@ -676,6 +676,36 @@ Yahoo work off 47%, not off the optimistic reading.
   facts the data itself knows**; when no completed run is on record the card
   says exactly that instead of printing "unknown" beside a healthy count.
 
+- **Member-facing rules modal + one grid on every view (this branch's PR,
+  follow-up):** three changes. (1) **The team header block is gone** — a team
+  tab showed "BEN SC. — KEEPERS DECLARED / 0 keepers", which restated the
+  selected tab and the highlighted rows. (2) **The grid renders identically on
+  every view** — `hideTeam` (which suppressed the owner name on a team tab and
+  hid the pill entirely on eligible rows) is removed, so All players and a team
+  tab differ ONLY in which rows are in the table. Every row names its holder on
+  every view; kept rows keep the accent + check. (3) **A "Rules" button beside
+  the league name** opens `LeagueRulesModal` — one modal, sections within.
+  **Derived half** (`src/lib/rulesSummary.js`, pure + tested): a card grid
+  built from the keeper config — slots and whether they must be filled, what
+  keeping costs (auction: last year's price + $N/yr, plus the undrafted floor;
+  picks: the drafted round or top picks, escalation, waiver round; slot: a
+  roster slot), term or no limit, rookie rules when enabled, draft format.
+  Cards not prose, and it **cannot drift from the rules the app applies**
+  because it reads the same keys the cost math does. **Written half**:
+  `league.sharedRulesNote` / `league.sharedPayoutsNote`, free text in the
+  existing `data` blob — **no table change** — edited from a "Rules your league
+  sees" card in Settings (which renders the same `RulesGrid` so the
+  commissioner sees exactly what members see) and omitted from the modal
+  entirely when blank. Payouts is free text ONLY: the structured `payouts` /
+  `payoutNote` stay unprojected, so nothing written for the commissioner's own
+  eyes is exposed — the new key is authored deliberately for members.
+  **`006_shared_league_rules.sql` must be run** or none of this reaches the
+  page: `get_shared_league` is an explicit field-list projection, so the new
+  config keys (`keeperCostModel`, `termModel`, `termYears`, `pickRules`,
+  `rookieRules`, `mustFillSlots`) AND the two note fields have to be named in
+  it. Without it the modal falls back to the legacy shim and a slot- or
+  pick-cost league would be described wrongly.
+
 - **Shared-page: one flat list, kept pinned + marked (this branch's PR,
   follow-up):** three fixes for the page as it goes out to the league.
   (1) **Team chips are alphabetical everywhere the strip appears** —
@@ -1729,13 +1759,26 @@ copy of a component drifts away from the original.
   in the Kept-by pill) — the highlight carries the meaning, matching the
   Eligible Pool. The player search is the table card's header strip
   (`ListSearch`), not a floating control. Team chips are alphabetical
-  (`sortTeamsByName`). Print: filter rail + search hidden, default
+  (`sortTeamsByName`). The grid renders IDENTICALLY on every view — no
+  team-tab special casing, no per-view header block; only the row set changes.
+  A **Rules** button beside the league name opens `LeagueRulesModal`. Print: filter rail + search hidden, default
   view forced via `beforeprint`, rows `break-inside: avoid`. The
   mascot empty state is the page's one mascot-*speech* surface and
   renders ONLY when there is nothing else to show (no rows at all);
   a populated list with zero declared keepers gets a one-line quiet
   notice instead ("No keepers declared yet — everyone below is still
   eligible.") — mascot speech = waiting surfaces only.
+- `src/LeagueRulesModal.jsx` — the member-facing rules modal (`RulesGrid` is
+  exported separately so the commissioner's Settings card shows the same cards,
+  not a lookalike). Derived facts + the commissioner's free-text sections;
+  blank sections are absent, never a bare heading.
+- `src/lib/rulesSummary.js` — `keeperRuleFacts(league)` (pure: config → the
+  card list) and `ruleNotes` / `hasRuleNotes` for the free text. Derived from
+  the same keys the keeper math reads, so member-facing rules can't drift from
+  applied rules. Anything the config doesn't model belongs in the notes.
+- `supabase/migrations/006_shared_league_rules.sql` — replaces
+  `get_shared_league` to project the cost/term config keys + the two note
+  fields. No table change. `payouts` / `payoutNote` stay unprojected.
 - `src/lib/sharedLeague.js` — data layer for the shared page:
   `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
   with no session), `buildSharedRows(league)` (one deduped row per

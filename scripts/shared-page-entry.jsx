@@ -7,3 +7,5 @@ export {
 } from '../src/lib/sharedLeague.js';
 export { sortTeamsByName } from '../src/lib/teamOrder.js';
 export { SharedLeaguePage } from '../src/SharedLeaguePage.jsx';
+export { keeperRuleFacts, ruleNotes, hasRuleNotes } from '../src/lib/rulesSummary.js';
+export { LeagueRulesModal, RulesGrid } from '../src/LeagueRulesModal.jsx';

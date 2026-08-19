@@ -25,6 +25,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage,
+  keeperRuleFacts, ruleNotes, LeagueRulesModal,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -238,6 +239,86 @@ test('page renders for a termed league too (hockey path untouched)', () => {
   assert.ok(html.length > 500);
   assert.ok(!/Eligible, not protected/i.test(html));
   assert.ok(html.includes('Contract'), 'termed leagues keep the Contract header');
+});
+
+// ── Rules modal ─────────────────────────────────────────────────────────────
+// The facts are DERIVED from the same config the app computes costs from, so
+// the rules a member reads can't drift from the rules the app applies.
+
+const factMap = (league) => new Map(keeperRuleFacts(league).map(f => [f.key, f]));
+
+test('rules: an auction league states its escalation and undrafted floor', () => {
+  const f = factMap(AUCTION);
+  assert.equal(f.get('cost').value, 'Auction dollars');
+  assert.match(f.get('cost').detail, /\$5 each year/);
+  assert.equal(f.get('undrafted').value, '$5');
+  assert.equal(f.get('term').value, 'No limit');
+  assert.equal(f.get('slots').value, '4');
+});
+
+test('rules: escalation copy follows the config, including zero', () => {
+  const flat = { ...AUCTION, auctionRules: { costIncreasePerYear: 0, undraftedStartCost: 12 } };
+  const f = factMap(flat);
+  assert.match(f.get('cost').detail, /no escalation/i);
+  assert.equal(f.get('undrafted').value, '$12');
+});
+
+test('rules: a termed league says how long and what happens after', () => {
+  const f = factMap(TERMED);
+  assert.equal(f.get('term').value, '3 years');
+  assert.match(f.get('term').detail, /back into the draft/i);
+  assert.equal(f.get('cost').value, 'A roster slot');
+});
+
+test('rules: a pick-cost league states the pick, escalation and waiver round', () => {
+  const picks = {
+    ...TERMED, keeperCostModel: 'picks', termModel: 'none', termYears: null, contractYears: null,
+    pickRules: { subModel: 'draftedRound', escalationPerYear: 1, waiverRound: 'last' },
+  };
+  const f = factMap(picks);
+  assert.equal(f.get('cost').value, 'A draft pick');
+  assert.match(f.get('cost').detail, /round he was drafted/i);
+  assert.equal(f.get('escalation').value, '−1 round');
+  assert.equal(f.get('waiver').value, 'Last round');
+});
+
+test('rules: slot counts say whether every slot must be filled', () => {
+  assert.match(factMap({ ...AUCTION, mustFillSlots: true }).get('slots').detail, /must be filled/i);
+  assert.match(factMap(AUCTION).get('slots').detail, /fewer is fine/i);
+});
+
+test('rules: rookie rules appear only when enabled', () => {
+  assert.ok(!factMap(AUCTION).has('rookies'));
+  const withRookies = { ...AUCTION, rookieRules: { enabled: true, extraYears: 1, freeFirstYear: true } };
+  assert.ok(factMap(withRookies).has('rookies'));
+});
+
+test('rules: notes are omitted when blank, and preserved when written', () => {
+  assert.deepEqual(ruleNotes(AUCTION), []);
+  assert.deepEqual(ruleNotes({ ...AUCTION, sharedRulesNote: '   ' }), [], 'whitespace is not content');
+  const notes = ruleNotes({ ...AUCTION, sharedRulesNote: 'No trades after week 12.', sharedPayoutsNote: '1st $500' });
+  assert.deepEqual(notes.map(n => n.title), ['House rules', 'Payouts']);
+  assert.equal(notes[0].body, 'No trades after week 12.');
+});
+
+test('rules modal renders derived facts, and written notes only when present', () => {
+  const bare = renderToStaticMarkup(React.createElement(LeagueRulesModal,
+    { league: AUCTION, isDark: false, onClose() {} }));
+  assert.ok(bare.includes('Auction dollars'), 'derived facts render');
+  assert.ok(!/House rules/.test(bare), 'no empty note headings');
+
+  const withNotes = renderToStaticMarkup(React.createElement(LeagueRulesModal,
+    { league: { ...AUCTION, sharedRulesNote: 'Trade deadline is week 12.' }, isDark: true, onClose() {} }));
+  assert.ok(withNotes.includes('House rules'));
+  assert.ok(withNotes.includes('Trade deadline is week 12.'));
+});
+
+// ── One grid on every view ──────────────────────────────────────────────────
+
+test('page: the team header block is gone, and the grid is identical on both views', () => {
+  const html = renderPage(AUCTION, false);
+  assert.ok(!/keepers declared/i.test(html), 'the team header block is removed');
+  assert.ok(html.includes('Rules'), 'the rules trigger is beside the league name');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);
