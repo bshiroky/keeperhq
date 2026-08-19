@@ -113,13 +113,16 @@ export function buildSharedRows(league) {
 //
 // There is deliberately NO "drafted last year" chip on a league with no term:
 // its row set (declared keepers + players carrying a prior price) is very
-// nearly the whole league, so it duplicated "All players" while implying a
+// nearly the whole league, so it duplicated the default view while implying a
 // distinction that doesn't exist where keeping costs dollars and nothing else.
 // Where a TERM exists, being under contract is a real, separate state, so the
 // chip stays there.
 export function sharedFilterChips({ league, locked, termed, hasExpired, teams = [] }) {
   return [
-    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'All players') },
+    // "Rostered", not "All players" (it isn't everyone) and not "Eligible" (a
+    // keeper-eligibility cutoff is coming, so eligibility becomes something a
+    // ROW shows rather than something the tab claims).
+    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'Rostered') },
     ...(termed ? [{ id: 'contracts', label: 'Under contract' }] : []),
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     // Alphabetical: the strip is a lookup ("where's my team?"), and stored
@@ -135,10 +138,14 @@ export function costColumnLabel(league) {
   return isAuctionCost(league) ? 'Cost to keep' : 'Contract';
 }
 
-export const OWNER_COLUMN_LABEL = 'Kept by';
+// Whose roster the player is on. NOT "Kept by": before the deadline nobody has
+// kept anyone, and post-deadline the row highlight already marks who's kept, so
+// the column never needs to carry that claim. It also degrades correctly — if
+// free agents ever appear here, "on team" is legitimately blank for them.
+export const OWNER_COLUMN_LABEL = 'On team';
 
 // Kept players pin to the top of whatever list they're in — on a team tab
-// that's the team's keepers, on "All players" it's every declared keeper in
+// that's the team's keepers, on the default view it's every declared keeper in
 // the league. The highlight on the row carries the meaning, so the list stays
 // FLAT: no section headers, and nothing labelled by its absence ("Eligible,
 // not protected" only existed to explain why the rest were listed below).

@@ -681,7 +681,7 @@ Yahoo work off 47%, not off the optimistic reading.
   tab showed "BEN SC. — KEEPERS DECLARED / 0 keepers", which restated the
   selected tab and the highlighted rows. (2) **The grid renders identically on
   every view** — `hideTeam` (which suppressed the owner name on a team tab and
-  hid the pill entirely on eligible rows) is removed, so All players and a team
+  hid the pill entirely on eligible rows) is removed, so the default view and a team
   tab differ ONLY in which rows are in the table. Every row names its holder on
   every view; kept rows keep the accent + check. (3) **A "Rules" button beside
   the league name** opens `LeagueRulesModal` — one modal, sections within.
@@ -705,6 +705,24 @@ Yahoo work off 47%, not off the optimistic reading.
   `rookieRules`, `mustFillSlots`) AND the two note fields have to be named in
   it. Without it the modal falls back to the legacy shim and a slot- or
   pick-cost league would be described wrongly.
+
+- **Shared-page label truth pass (this branch's PR, follow-up):** two copy
+  changes, no logic, both correcting labels that claimed more than the data
+  supports. (1) **"Kept by" → "On team"** — pre-deadline nobody has kept
+  anyone, so the column was reading as a claim about last year's keeper
+  decisions when it actually holds whose roster the player is on. "On team" is
+  true in both states, and it degrades correctly: if free agents ever join the
+  page it is legitimately blank for them, where "Kept by" would be nonsense.
+  Post-deadline the row highlight already marks who's kept, so the column never
+  needed to carry that meaning. (2) **"All players" → "Rostered"** — the view
+  holds players who were on a roster at the end of last season, not a universe
+  of all players. **"Rostered" not "Eligible" deliberately**: a keeper-
+  eligibility cutoff is coming (players picked up after the fantasy regular
+  season can't be kept), and "Rostered" stays true under whatever eligibility
+  rules land — **eligibility becomes something a ROW shows, never something a
+  tab claims.** Apply that test to any future label here. Note the termed
+  path still reads "Keepable", which is the same class of claim; left alone
+  because it wasn't asked for, and flagged as the next candidate.
 
 - **Rules button wiring fix + two shared-page bugs (this branch's PR,
   follow-up):** the Rules button did nothing — pointer cursor, no modal, no
@@ -748,8 +766,8 @@ Yahoo work off 47%, not off the optimistic reading.
   marked in place.** The label only existed to explain an absence. Now
   `keepersFirst` (pure, stable) lifts declared keepers to the top of whatever
   view is showing — that team's keepers on a team tab, the whole league's on
-  "All players" (where the Kept by column names the holder) — and the ROW
-  carries the meaning: success tint + border, plus a check glyph in the Kept-by
+  the default view (where the On-team column names the holder) — and the ROW
+  carries the meaning: success tint + border, plus a check glyph in the On-team
   pill. Same treatment as the commissioner's Eligible Pool, which marks
   selected players in place rather than sectioning them off. The dim on
   non-keepers went with it (highlight-only reads better and keeps the returning
@@ -766,16 +784,17 @@ Yahoo work off 47%, not off the optimistic reading.
   trade for. Three small changes, no new surface. (1) **The "Drafted last year"
   chip is gone on term-less leagues** — its row set (declared keepers + anyone
   carrying a prior price) is very nearly the whole league, so it duplicated
-  "All players" while implying a distinction that doesn't exist where keeping
+  the default view while implying a distinction that doesn't exist where keeping
   costs dollars and nothing else. **Term leagues keep "Under contract"**, where
   being under contract IS a distinct state. Rail rules moved into
   `sharedFilterChips` (pure, tested) so the page no longer inlines them.
   (2) **Column headers say what the cells hold**: Status → **"Kept by"**
+  (**superseded** — now "On team"; see the label-truth bullet)
   everywhere, and Contract → **"Cost to keep"** on dollar-cost leagues only
   (`costColumnLabel`) — a termed league's cell holds `Y1/3`, so calling that a
   cost would be wrong. Widths are untouched: the longer label only lands in the
   auction column, which is already 132px for the `Keep for $X` / `Drafted $Y`
-  pair. (3) **"All players" was already the trade view and stays as-is** —
+  pair. (3) **The default view was already the trade view and stays as-is** —
   verified rather than changed: `buildSharedRows` covers every team's
   `priorKeepers` + `roster` (deduped by name, strongest state winning), each row
   carries the escalated keep cost (or the undrafted floor) and the holding team,
@@ -1746,7 +1765,7 @@ copy of a component drifts away from the original.
   11:59 PM; days granularity; hours/minutes ticking inside 48h; quiet
   "🔒 Keepers locked" past deadline; no countdown when no deadline
   set), sticky countdown pill (IntersectionObserver on the band),
-  filter rail (`sharedFilterChips`: Keepable/All players · Under contract
+  filter rail (`sharedFilterChips`: Keepable (termed) / **Rostered** · Under contract
   (**term leagues only**) · Expired (snake, only when expired players
   exist) · team chips; default relabels to "Final keepers" post-lock),
   mobile card rows
@@ -1780,7 +1799,7 @@ copy of a component drifts away from the original.
   sticky cell). Same strings on mobile rows.
   **One flat list, never a labelled section**: declared keepers pin to the top
   (`keepersFirst`) and are marked in place (success tint + border, check glyph
-  in the Kept-by pill) — the highlight carries the meaning, matching the
+  in the On-team pill) — the highlight carries the meaning, matching the
   Eligible Pool. The player search is the table card's header strip
   (`ListSearch`), not a floating control. Team chips are alphabetical
   (`sortTeamsByName`). The grid renders IDENTICALLY on every view — no

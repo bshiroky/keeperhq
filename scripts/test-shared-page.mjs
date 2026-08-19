@@ -2,7 +2,7 @@
 // `npm run test:shared`. Plain node over an esbuild bundle (see the entry
 // file); no rendering.
 //
-// The load-bearing claim these protect: the default "All players" view is the
+// The load-bearing claim these protect: the default "Rostered" view is the
 // trade-and-keeper-decision view — EVERY rostered player across EVERY team,
 // with what they'd cost to keep and who holds them, sorted by cost desc, and a
 // player with no cost still appears rather than disappearing.
@@ -129,9 +129,10 @@ test('rail: no "drafted last year" chip where keeping costs dollars and nothing 
   const chips = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: AUCTION.teams });
   assert.ok(!chips.some(c => c.id === 'contracts'), 'the redundant chip is gone');
   assert.ok(!chips.some(c => /drafted last year/i.test(c.label)));
-  assert.equal(chips[0].label, 'All players');
+  assert.equal(chips[0].label, 'Rostered',
+    'the default view names what it holds — last season\'s rosters, not "all players"');
   assert.deepEqual(chips.slice(1).map(c => c.label), ['Alpha', 'Beta', 'Gamma'],
-    'all players + per-team chips is the whole rail');
+    'the default view + per-team chips is the whole rail');
 });
 
 test('rail: a league WITH a term keeps its "under contract" chip', () => {
@@ -155,8 +156,10 @@ test('columns: the cost column names a price only where keeping costs money', ()
     'a termed league\'s cell holds "Y1/3" — calling that a cost would be wrong');
 });
 
-test('columns: the owner column says who holds the player', () => {
-  assert.equal(OWNER_COLUMN_LABEL, 'Kept by');
+test('columns: the owner column says whose roster the player is on', () => {
+  // Not "Kept by": pre-deadline nobody has kept anyone, and the row highlight
+  // carries the kept state on its own once they have.
+  assert.equal(OWNER_COLUMN_LABEL, 'On team');
 });
 
 // ── Team chip order ─────────────────────────────────────────────────────────
@@ -206,7 +209,7 @@ test('keepersFirst is stable and works on wrapped rows', () => {
   assert.deepEqual(keepersFirst(wrapped, x => x.row).map(x => x.row.player), ['B', 'A', 'C']);
 });
 
-test('all-players view pins league-wide keepers above everyone else', () => {
+test('rostered view pins league-wide keepers above everyone else', () => {
   const sorted = keepersFirst(sortRowsDefault(buildSharedRows(AUCTION), null, AUCTION));
   const firstNonKeeper = sorted.findIndex(r => r.kind !== 'keeper');
   const lastKeeper = sorted.map(r => r.kind).lastIndexOf('keeper');
@@ -229,7 +232,7 @@ test('page renders on both themes with no section labels left', () => {
     const html = renderPage(AUCTION, isDark);
     assert.ok(html.length > 500, 'page rendered');
     assert.ok(!/Eligible, not protected/i.test(html), 'the section label is gone');
-    assert.ok(html.includes('Cost to keep') && html.includes('Kept by'), 'renamed headers present');
+    assert.ok(html.includes('Cost to keep') && html.includes('On team'), 'renamed headers present');
     assert.ok(/Search players/.test(html), 'search still on the page');
   }
 });
