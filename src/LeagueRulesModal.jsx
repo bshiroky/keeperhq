@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { X, BookOpen } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG } from './components.jsx';
 import { keeperRuleFacts, ruleNotes } from './lib/rulesSummary.js';
 
@@ -112,5 +112,38 @@ export function LeagueRulesModal({ league, isDark, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// Trigger + modal + open state as ONE component.
+//
+// They were separate: the button and its useState lived in SharedLeaguePage
+// while the modal render landed in InvalidLinkPage (a text replacement hit the
+// wrong <FooterMark />). Clicking flipped state in a component that rendered
+// no modal, so the button silently did nothing — and nothing threw, because
+// the orphaned render sat on a page that only appears for a dead link. Keeping
+// the three together makes that class of bug impossible.
+//
+// `defaultOpen` exists so a server render can exercise the OPEN state; the
+// earlier tests rendered the button and the modal separately and both passed
+// while the wiring between them was broken.
+export function RulesButton({ league, isDark, defaultOpen = false }) {
+  const t = makeTheme(isDark);
+  const [open, setOpen] = React.useState(defaultOpen);
+  return (
+    <>
+      <button className="kh-share-rules-btn" onClick={() => setOpen(true)}
+        aria-label="League rules" aria-haspopup="dialog" title="League rules"
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          flexShrink: 0, background: 'transparent', border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusPill, cursor: 'pointer', color: t.textSecondary,
+          ...tokens.typeBody, fontWeight: 600, fontFamily: 'inherit',
+        }}>
+        <BookOpen size={14} strokeWidth={2} />
+        Rules
+      </button>
+      {open && <LeagueRulesModal league={league} isDark={isDark} onClose={() => setOpen(false)} />}
+    </>
   );
 }

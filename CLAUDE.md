@@ -706,6 +706,30 @@ Yahoo work off 47%, not off the optimistic reading.
   it. Without it the modal falls back to the legacy shim and a slot- or
   pick-cost league would be described wrongly.
 
+- **Rules button wiring fix + two shared-page bugs (this branch's PR,
+  follow-up):** the Rules button did nothing — pointer cursor, no modal, no
+  console error. **Cause:** the trigger and its `useState` were in
+  `SharedLeaguePage` while the modal's render had landed in `InvalidLinkPage`
+  (the edit that inserted it matched the FIRST `<FooterMark />` in the file,
+  which belongs to the invalid-link state). Clicking flipped state in a
+  component that rendered no modal; nothing threw because the orphaned render
+  sits on a page that only appears for a dead link — where it *would* have
+  thrown a ReferenceError on `rulesOpen`. **The tests passed because they
+  rendered the button and the modal SEPARATELY and never the wiring between
+  them** — a whole-page render can't click, so "the trigger exists" and "the
+  modal renders" both held while the connection was missing. Fix is structural:
+  `RulesButton` (`LeagueRulesModal.jsx`) owns the trigger, the state and the
+  modal, so they cannot be separated again, and takes `defaultOpen` purely so
+  a server render can exercise the OPEN state — that test is the one that would
+  have caught it. Two more, both from the same session: the trigger got a real
+  touch target (34px desktop / **44px mobile** via `.kh-share-rules-btn`; it
+  had shipped as a ~22px pill), and **the search bar no longer disappears with
+  its own results** — it's a filter control, so the empty state renders it
+  inside a card above the "No players match" message, and on hockey the toolbar
+  now rides whichever of the skaters/goalies tables actually renders (a search
+  matching only goalies used to empty the skaters table and take the search
+  with it).
+
 - **Shared-page: one flat list, kept pinned + marked (this branch's PR,
   follow-up):** three fixes for the page as it goes out to the league.
   (1) **Team chips are alphabetical everywhere the strip appears** —
@@ -1768,7 +1792,10 @@ copy of a component drifts away from the original.
   a populated list with zero declared keepers gets a one-line quiet
   notice instead ("No keepers declared yet — everyone below is still
   eligible.") — mascot speech = waiting surfaces only.
-- `src/LeagueRulesModal.jsx` — the member-facing rules modal (`RulesGrid` is
+- `src/LeagueRulesModal.jsx` — the member-facing rules modal. **`RulesButton`
+  is the only way it should be mounted** — trigger + open state + modal in one
+  component, so the render can't drift away from the button that opens it
+  (it did once, silently). (`RulesGrid` is
   exported separately so the commissioner's Settings card shows the same cards,
   not a lookalike). Derived facts + the commissioner's free-text sections;
   blank sections are absent, never a bare heading.

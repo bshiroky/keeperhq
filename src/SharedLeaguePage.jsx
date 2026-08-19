@@ -1,10 +1,10 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader, Search, Check, BookOpen } from 'lucide-react';
+import { Loader, Search, Check } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
-import { LeagueRulesModal } from './LeagueRulesModal.jsx';
+import { RulesButton } from './LeagueRulesModal.jsx';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
   sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst,
@@ -31,6 +31,12 @@ const SHARE_STYLES = `
   @keyframes kh-spin { to { transform: rotate(360deg); } }
   .kh-spin { animation: kh-spin 1s linear infinite; transform-origin: center; }
   .kh-share-rail-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+  /* The rules trigger is a primary affordance for members — it gets a real
+     touch target, not the pill-sized one it shipped with. */
+  .kh-share-rules-btn { min-height: 34px; padding: 0 14px; }
+  @media (max-width: 640px) {
+    .kh-share-rules-btn { min-height: 44px; padding: 0 16px; }
+  }
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
   @media print {
     .kh-share-rail, .kh-share-search, .kh-share-rules-btn { display: none !important; }
@@ -613,6 +619,10 @@ function isGoalieRow(row, playerMap) {
 function StatTables({ rows, league, playerMap, isDark, toolbar }) {
   const skaters = rows.filter(r => !isGoalieRow(r, playerMap));
   const goalies = rows.filter(r => isGoalieRow(r, playerMap));
+  // The toolbar rides on whichever table actually renders — a search matching
+  // only goalies empties the skaters table, and the search control must not
+  // leave with it.
+  const toolbarOnSkaters = skaters.length > 0;
   return (
     <>
       {skaters.length > 0 && (
@@ -623,6 +633,7 @@ function StatTables({ rows, league, playerMap, isDark, toolbar }) {
       {goalies.length > 0 && (
         <StatTable title="Goalies" rows={goalies} cats={statCategoriesFor(league, 'goalie')}
           league={league} playerMap={playerMap} isDark={isDark}
+          toolbar={toolbarOnSkaters ? null : toolbar}
           defaultSortKey="svPct" />
       )}
     </>
@@ -690,10 +701,6 @@ function InvalidLinkPage({ isDark }) {
           </p>
         </div>
       </div>
-      {rulesOpen && (
-        <LeagueRulesModal league={league} isDark={isDark} onClose={() => setRulesOpen(false)} />
-      )}
-
       <FooterMark isDark={isDark} />
     </div>
   );
@@ -742,9 +749,6 @@ function SharedLeaguePage({ league, isDark }) {
   // same normalized matching the commissioner Eligible Pool search uses
   // (trade-talk use case: "what would it cost to get X?").
   const [search, setSearch] = React.useState('');
-  // League rules, on demand: members can check the rules without asking the
-  // commissioner. Derived from config, so it can't disagree with the app.
-  const [rulesOpen, setRulesOpen] = React.useState(false);
   const teamFilterId = filter.startsWith('team:') ? filter.slice(5) : null;
   const filterTeam = teamFilterId ? teams.find(tm => tm.id === teamFilterId) : null;
 
@@ -830,8 +834,14 @@ function SharedLeaguePage({ league, isDark }) {
       )}
 
       {sortedRows.length === 0 ? (
-        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceLg}px 0`, textAlign: 'center' }}>
-          {search.trim() ? `No players match “${search.trim()}”.` : 'Nothing here yet.'}
+        <div style={{
+          background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
+          boxShadow: t.cardShadow, overflow: 'hidden',
+        }}>
+          {searchBar}
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceLg}px 0`, textAlign: 'center' }}>
+            {search.trim() ? `No players match “${search.trim()}”.` : 'Nothing here yet.'}
+          </div>
         </div>
       ) : useTable ? (
         isHockey ? (
@@ -880,17 +890,7 @@ function SharedLeaguePage({ league, isDark }) {
                 <span style={{ ...LEAGUE_NAME_TYPE, color: t.textPrimary, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {league.name}
                 </span>
-                <button className="kh-share-rules-btn" onClick={() => setRulesOpen(true)}
-                  aria-label="League rules" title="League rules"
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-                    background: 'transparent', border: `1px solid ${t.border}`,
-                    borderRadius: tokens.radiusPill, padding: '3px 9px', cursor: 'pointer',
-                    color: t.textSecondary, ...tokens.typePill, fontFamily: 'inherit',
-                  }}>
-                  <BookOpen size={12} strokeWidth={2} />
-                  Rules
-                </button>
+                <RulesButton league={league} isDark={isDark} />
               </div>
               <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
                 {sport.label} · {COST_LABEL[keeperCostModelOf(league)]} · {termLabel(termOf(league))}
@@ -995,4 +995,4 @@ function SharedLeagueRoute({ isDark }) {
   return <SharedLeaguePage league={state.league} isDark={isDark} />;
 }
 
-export { SharedLeagueRoute, SharedLeaguePage };
+export { SharedLeagueRoute, SharedLeaguePage, InvalidLinkPage };

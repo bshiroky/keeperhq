@@ -25,7 +25,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage,
-  keeperRuleFacts, ruleNotes, LeagueRulesModal,
+  keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -319,6 +319,56 @@ test('page: the team header block is gone, and the grid is identical on both vie
   const html = renderPage(AUCTION, false);
   assert.ok(!/keepers declared/i.test(html), 'the team header block is removed');
   assert.ok(html.includes('Rules'), 'the rules trigger is beside the league name');
+});
+
+// ── The Rules button actually opens something ───────────────────────────────
+// Regression: the trigger and its state lived on the page while the modal
+// render had landed in InvalidLinkPage, so clicking did nothing and nothing
+// threw. The old tests passed because they rendered the button and the modal
+// SEPARATELY — never the wiring between them. These render the trigger in its
+// open state, which is the thing that was broken.
+
+test('rules button: open state renders the modal, not just the trigger', () => {
+  const closed = renderToStaticMarkup(React.createElement(RulesButton,
+    { league: AUCTION, isDark: false }));
+  assert.ok(closed.includes('Rules'), 'the trigger renders');
+  // The closed trigger carries aria-label="League rules", so the dialog role
+  // is the only honest marker of "a modal is on screen".
+  assert.ok(!closed.includes('role="dialog"'), 'nothing is open yet');
+
+  const open = renderToStaticMarkup(React.createElement(RulesButton,
+    { league: AUCTION, isDark: false, defaultOpen: true }));
+  assert.ok(open.includes('role="dialog"'), 'the modal renders from the trigger itself');
+  assert.ok(open.includes('Auction dollars'), 'and it carries the derived facts');
+});
+
+test('invalid-link page renders on its own — no stray rules wiring', () => {
+  const html = renderToStaticMarkup(React.createElement(InvalidLinkPage, { isDark: false }));
+  assert.ok(/no longer valid/i.test(html), 'the invalid-link state still renders');
+  assert.ok(!/League rules/.test(html), 'and carries no orphaned modal');
+});
+
+// ── The search survives its own filter ──────────────────────────────────────
+
+test('search bar persists when the search matches nothing', () => {
+  // Without this, a member who mistypes has no way to clear the box short of
+  // reloading: the input was inside the table, and the table was gone.
+  const noMatch = { ...AUCTION, teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [], keepers: [] }] };
+  const html = renderPage(noMatch, false);
+  assert.ok(/Search players/.test(html), 'the filter control outlives the results');
+  assert.ok(/Nothing here yet|No players match/.test(html), 'and the empty message shows');
+});
+
+test('search bar survives on a hockey view where only goalies match', () => {
+  // The toolbar rode on the skaters table; an all-goalie result set emptied
+  // that table and took the search with it.
+  const goaliesOnly = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], keepers: [], roster: [{ player: 'Igor Shesterkin', pos: 'G' }] }],
+  };
+  const html = renderPage(goaliesOnly, false);
+  assert.ok(/Search players/.test(html), 'search renders even with no skaters');
+  assert.ok(/Igor Shesterkin/.test(html), 'and the goalie table still renders');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);
