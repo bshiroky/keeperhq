@@ -119,10 +119,13 @@ export function buildSharedRows(league) {
 // chip stays there.
 export function sharedFilterChips({ league, locked, termed, hasExpired, teams = [] }) {
   return [
-    // "Rostered", not "All players" (it isn't everyone) and not "Eligible" (a
-    // keeper-eligibility cutoff is coming, so eligibility becomes something a
-    // ROW shows rather than something the tab claims).
-    { id: 'keepable', label: locked ? 'Final keepers' : (termed ? 'Keepable' : 'Rostered') },
+    // "Rostered", not "All players" (it isn't everyone) and not "Eligible" /
+    // "Keepable" (a keeper-eligibility cutoff is coming, so eligibility becomes
+    // something a ROW shows rather than something the tab claims). One label
+    // for every league type on purpose: a termed league's default view holds
+    // the same thing an auction league's does — last season's rosters — and
+    // the cutoff rule will contradict an eligibility claim in either.
+    { id: 'keepable', label: locked ? 'Final keepers' : 'Rostered' },
     ...(termed ? [{ id: 'contracts', label: 'Under contract' }] : []),
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     // Alphabetical: the strip is a lookup ("where's my team?"), and stored
