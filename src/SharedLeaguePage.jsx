@@ -219,14 +219,14 @@ function ContractText({ row, league, isDark }) {
   );
 }
 
-// "Kept by" pill — the OWNER NAME only; color carries the state, and a check
+// "On team" pill — the OWNER NAME only; color carries the state, and a check
 // glyph marks a declared keeper in place (the same in-list marking the
 // commissioner's Eligible Pool uses for a selected player).
 // Keeper-accent tint (blue snake / orange auction) for declared keepers AND
 // players under contract; a readable neutral grey for rostered-but-
 // uncontracted players; "was {team}" keeps the Expired danger tint. On a
 // Every row names its holder, on every view — the grid renders identically
-// whichever tab is selected, so the only difference between "All players" and
+// whichever tab is selected, so the only difference between the default view and
 // a team tab is which rows are in it. A declared keeper's pill carries a
 // check, the same in-place marking the commissioner's Eligible Pool uses for
 // a selected player.
@@ -789,7 +789,7 @@ function SharedLeaguePage({ league, isDark }) {
     rows = rows.filter(r => normalizeName(r.player).includes(q));
   }
   // Kept players pin to the top of every view — the team tabs (that team's
-  // keepers) and "All players" (every declared keeper in the league). The
+  // keepers) and the Rostered view (every declared keeper in the league). The
   // row highlight carries the meaning, so the list stays flat.
   const sortedRows = React.useMemo(
     () => keepersFirst(sortRowsDefault(rows, playerMap, league)),
