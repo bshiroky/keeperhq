@@ -1619,6 +1619,39 @@ If one of these is unavoidable, the next step is *add a token*, not
 - **`mascot-celebrate`**: not yet wired — earmarked for season-complete
   banner
 
+## Ownership: the roster decides, the draft prices
+
+**Where the roster import and the draft import disagree about who has a
+player, the ROSTER wins.** The roster is who finished the season on which
+team; the draft import only records who paid what. They disagree for every
+traded or dropped player.
+
+This was live for a real league (fixed in the ownership PR). `buildTeamPool`
+treated a team's whole `priorKeepers` list as that team's pool, so a player
+drafted by A and rostered by B appeared as A's to keep — and B, who actually
+had him, saw him as an undrafted pickup at the `$5` floor instead of his real
+`drafted + $N/yr` cost. **A money bug, not just a display bug**, and one root
+cause behind three surfaces: the shared page, the Eligible Pool / Set Keepers,
+and `buildStatusIndex`.
+
+The rules, all enforced in `buildTeamPool` (`SetKeepersTab.jsx`) so every
+surface that reads it inherits them:
+
+- A team's pool is built from **its roster**; each rostered player's price
+  comes from his prior draft record **on whichever team drafted him**.
+- A player rostered by another team is **not** in this team's pool.
+- A player on **no** roster stays with the team that drafted him — rosters can
+  be mid-import, and silently dropping him is worse than showing him.
+- A league with **no rosters imported at all** behaves exactly as before, or
+  every pool would empty out.
+- A **declared keeper** (`team.keepers`) always wins: that's a deliberate
+  commissioner action, not an import artifact.
+
+`buildSharedRows`'s `KIND_PRIORITY` dedupe (keeper > contract > rostered) is
+about which STATE to show, never about which team owns the player — ownership
+is settled upstream in the pool. Any new surface that composes rosters with
+draft records goes through `buildTeamPool`; don't re-derive this.
+
 ## Build constraints — reuse, don't rebuild
 
 Standing rules for building new surfaces. They exist because a parallel
@@ -1894,7 +1927,9 @@ copy of a component drifts away from the original.
   signed out — reads work signed out, writes don't).
 - `src/lib/players.js` — `loadPlayers(sport)`, `normalizeName`,
   `buildStatusIndex(league)` — **the** util for matching league
-  rosters to the player directory. `normalizeName` treats diacritics,
+  rosters to the player directory. Honors the ownership rule below: a
+  `priorKeepers` record never reattributes a player who is on ANOTHER team's
+  roster (a declared `keepers` entry still does — that's an explicit act). `normalizeName` treats diacritics,
   punctuation, AND spacing as noise (strips everything non-alphanumeric
   after NFD de-diacriticing) so "A.J."/"AJ"/"A. J.", "O'Reilly"/
   "OReilly", "Pierre-Luc"/"Pierre Luc", "Stützle"/"Stutzle" all
@@ -2694,19 +2729,40 @@ A push succeeding only proves the branch moved; it says nothing about whether
 after its PR was squash-merged, so they sat on a closed branch looking shipped
 while `main` never had them (recovered in PR #41).
 
+**The check that always works: look for the change itself on `main`.**
+
 ```sh
 git fetch origin main
-git merge-base --is-ancestor <sha> origin/main   # exit 0 = literally on main
-git diff --stat <sha> origin/main                # empty = main HAS this content
+git show origin/main:<file> | grep '<a distinctive string from the change>'
 ```
 
-**Run both, because this repo squash-merges.** A squash gives `main` a NEW
-commit, so `--is-ancestor` reports "not on main" for *every* branch commit,
-merged or not — on its own it can't tell a merged branch from a stranded one.
-The **content** diff is what settles it: `git diff --stat <branch-tip>
-origin/main` coming back empty means `main` holds that tree, whatever the SHAs
-say. (That's exactly how the #41 diagnosis worked: `main` was byte-identical to
-the branch's second-to-last commit, which located the missing two precisely.)
+Present = it landed. Absent = it did not. This is immune to both traps below —
+it doesn't care how the merge was performed or how far `main` has moved since.
+
+The two commit-level checks are useful but each proves only one direction, and
+**both gave a false "not landed" in this session**:
+
+```sh
+git merge-base --is-ancestor <sha> origin/main   # exit 0 PROVES landed
+git diff --stat <sha> origin/main                # empty PROVES landed
+```
+
+- `--is-ancestor` — a "yes" is conclusive. A **"no" means nothing here**,
+  because this repo squash-merges: a squash puts a NEW commit on `main`, so
+  every branch commit reports "not on main" whether its PR merged or not.
+- `git diff` — an **empty** diff is conclusive: `main` holds exactly that tree.
+  A **non-empty** diff means nothing on its own, because it is equally true
+  when `main` has simply moved on with later work. (Hit live: `git diff
+  20faf6a origin/main` came back non-empty and briefly read as "#41 never
+  landed" — #41 had in fact merged, with #42 stacked on top.)
+
+So: **treat a negative from either commit-level check as inconclusive** and go
+look for the change itself before telling anyone something is missing. A
+positive from either is enough on its own.
+
+(The empty-diff form is what cracked the original #41 case: `main` came back
+byte-identical to the branch's second-to-last commit, which located the two
+stranded commits precisely.)
 
 **Say it plainly when a push is stranded** — "this is on the branch, but its PR
 is already merged, so it is NOT on main" — rather than reporting it as done.

@@ -26,6 +26,7 @@ const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
+  buildTeamPool, buildStatusIndex,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -387,6 +388,108 @@ test('search bar survives on a hockey view where only goalies match', () => {
   const html = renderPage(goaliesOnly, false);
   assert.ok(/Search players/.test(html), 'search renders even with no skaters');
   assert.ok(/Igor Shesterkin/.test(html), 'and the goalie table still renders');
+});
+
+// ── Ownership: roster wins, draft supplies the price ────────────────────────
+// The reported bug: a commissioner imported last year's draft, then the
+// rosters. Every traded or dropped player then showed under the team that
+// DRAFTED him instead of the team that finished the season with him — and the
+// team that actually had him saw him as an undrafted pickup at the floor
+// price. One root cause, three surfaces.
+
+const TRADED = {
+  id: 'football-2', name: 'Traded', sport: 'football', draftType: 'auction',
+  keeperCostModel: 'auction', termModel: 'none', keeperSlots: 4,
+  auctionRules: { costIncreasePerYear: 5, undraftedStartCost: 5 },
+  teams: [
+    {
+      id: 'alpha', name: 'Alpha', keepers: [],
+      // Alpha DRAFTED Caleb for $40 and no longer has him.
+      priorKeepers: [{ player: 'Caleb Williams', keptFor: 40 }],
+      roster: [{ player: 'Alpha Own Guy' }],
+    },
+    {
+      id: 'beta', name: 'Beta', keepers: [], priorKeepers: [],
+      // Beta finished the season with him.
+      roster: [{ player: 'Caleb Williams' }, { player: 'Beta Own Guy' }],
+    },
+  ],
+};
+
+test('ownership: a drafted-by-A, rostered-by-B player belongs to B on the shared page', () => {
+  const row = buildSharedRows(TRADED).find(r => r.player === 'Caleb Williams');
+  assert.ok(row, 'the player must still appear');
+  assert.equal(row.teamName, 'Beta', 'the roster decides ownership, not the draft');
+  assert.equal(row.draftedCost, 40, "and carries A's drafted price");
+  assert.equal(row.cost, 45, 'so the keep cost escalates off that price, not the floor');
+  assert.equal(buildSharedRows(TRADED).filter(r => r.player === 'Caleb Williams').length, 1,
+    'exactly one row — not one per source');
+});
+
+test('ownership: the keeper pool moves him too, at the right price', () => {
+  const alpha = buildTeamPool(TRADED, TRADED.teams[0]);
+  const beta = buildTeamPool(TRADED, TRADED.teams[1]);
+  const inPool = (pool) => [...pool.onContract, ...pool.rosteredNoContract]
+    .find(e => e.player === 'Caleb Williams');
+
+  assert.equal(inPool(alpha), undefined, 'Alpha cannot keep a player they no longer roster');
+  const held = inPool(beta);
+  assert.ok(held, 'Beta can');
+  assert.equal(held.kind, 'contract', 'as a contract, not an undrafted pickup');
+  assert.equal(held.nextCost, 45, 'at $40 + $5/yr — NOT the $5 undrafted floor');
+  assert.equal(held.wasCost, 40);
+});
+
+test('ownership: the status index names the roster team, not the drafting team', () => {
+  const entry = buildStatusIndex(TRADED).get('calebwilliams');
+  assert.equal(entry.teamName, 'Beta');
+});
+
+test('ownership: a declared keeper still wins — that is an explicit act', () => {
+  // Alpha DECLARED him a keeper. That is a commissioner decision, not an
+  // import artifact, so it is not overridden by roster data.
+  const declared = {
+    ...TRADED,
+    teams: [
+      { ...TRADED.teams[0], keepers: [{ player: 'Caleb Williams', keptFor: 45 }] },
+      TRADED.teams[1],
+    ],
+  };
+  const row = buildSharedRows(declared).find(r => r.player === 'Caleb Williams');
+  assert.equal(row.kind, 'keeper');
+  assert.equal(row.teamName, 'Alpha', 'a declared keeper is deliberate and stands');
+});
+
+test('ownership: a drafted player on NOBODY\'s roster stays with the drafting team', () => {
+  // Rosters can be incomplete mid-import. Dropping him silently would be
+  // worse than showing him under the team that paid for him.
+  const cut = {
+    ...TRADED,
+    teams: [TRADED.teams[0], { ...TRADED.teams[1], roster: [{ player: 'Beta Own Guy' }] }],
+  };
+  const row = buildSharedRows(cut).find(r => r.player === 'Caleb Williams');
+  assert.ok(row, 'not dropped');
+  assert.equal(row.teamName, 'Alpha');
+});
+
+test('ownership: a draft-only league (no rosters imported) is unaffected', () => {
+  const draftOnly = {
+    ...TRADED,
+    teams: TRADED.teams.map(t => ({ ...t, roster: [] })),
+  };
+  const pool = buildTeamPool(draftOnly, draftOnly.teams[0]);
+  assert.equal(pool.onContract.length, 1, 'the drafting team keeps its whole pool');
+  assert.equal(pool.onContract[0].player, 'Caleb Williams');
+});
+
+test('ownership: rosters and draft agreeing is unchanged', () => {
+  // The ordinary case — same team in both sources — must be untouched.
+  const pool = buildTeamPool(AUCTION, AUCTION.teams[0]);
+  const chase = pool.onContract.find(e => e.player === "Ja'Marr Chase");
+  assert.ok(chase, 'still on contract to the team that drafted AND rosters him');
+  assert.equal(chase.nextCost, 88);
+  assert.equal(pool.rosteredNoContract.length, 1, 'and his teammate is still an undrafted row');
+  assert.equal(pool.rosteredNoContract[0].player, 'Undrafted Rookie');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);

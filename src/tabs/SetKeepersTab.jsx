@@ -55,6 +55,44 @@ function buildTeamPool(league, team) {
   const roster = team?.roster || [];
   const priorByName = new Map(priors.map(p => [normalizeName(p.player), p]));
 
+  // OWNERSHIP COMES FROM THE ROSTER, PRICE COMES FROM THE DRAFT.
+  //
+  // The imported roster is who finished the season on which team; the draft
+  // import only says who paid what. They disagree for every traded or dropped
+  // player, and this used to resolve the wrong way: a team's whole
+  // priorKeepers list was treated as that team's pool, so a player drafted by
+  // A and rostered by B showed as A's to keep — while B saw him as an
+  // undrafted pickup at the floor price. Both halves were wrong, and the
+  // second one is a real money bug (a $40 player keepable for $5).
+  //
+  // League-wide indexes make the two sources resolvable: who rosters a player
+  // decides whose he is, and his prior record supplies the price no matter
+  // which team drafted him.
+  const allTeams = league?.teams || [];
+  const rosterOwnerByName = new Map();
+  const priorAnywhereByName = new Map();
+  for (const tm of allTeams) {
+    for (const r of tm.roster || []) {
+      const k = normalizeName(r.player);
+      if (k && !rosterOwnerByName.has(k)) rosterOwnerByName.set(k, tm.id);
+    }
+    for (const p of tm.priorKeepers || []) {
+      const k = normalizeName(p.player);
+      if (k && !priorAnywhereByName.has(k)) priorAnywhereByName.set(k, p);
+    }
+  }
+  // A league with no rosters imported yet (draft-only) must keep working
+  // exactly as before — otherwise every pool would empty out.
+  const rostersExist = rosterOwnerByName.size > 0;
+  // Rostered by someone else = not this team's to keep. A player on NO roster
+  // stays with the team that drafted him: the rosters may simply be
+  // incomplete, and dropping him silently is worse than showing him.
+  const ownedElsewhere = (name) => {
+    if (!rostersExist) return false;
+    const owner = rosterOwnerByName.get(normalizeName(name));
+    return !!owner && owner !== team?.id;
+  };
+
   // Expiry belongs to the term, not the draft format — a term-less league
   // never expires anyone, and an auction league with a term does.
   const isExpired = (p) => !!(p.expired || (termed && (p.contractYear || 0) + 1 > (p.contractLength || len)));
@@ -69,34 +107,67 @@ function buildTeamPool(league, team) {
     return out;
   };
 
+  // A prior draft record → the on-contract entry (price, contract year, etc).
+  // `source` is the roster row when we have one, so the roster's position and
+  // any acquisition metadata ride along.
+  const contractEntry = (prior, source) => {
+    const entry = {
+      player: source?.player || prior.player,
+      pos: source?.pos || prior.pos,
+      kind: 'contract',
+      ...acqCarry(source || {}), ...acqCarry(prior),
+    };
+    if (dollars) {
+      entry.nextCost = prior.keptFor != null ? prior.keptFor + bump : base;
+      entry.wasCost = prior.keptFor;
+      entry.yearsKept = (prior.yearsKept || 0) + 1;
+    }
+    if (termed) {
+      entry.nextYear = (prior.contractYear || 0) + 1;
+      entry.length = prior.contractLength || len;
+      entry.final = entry.nextYear >= entry.length;
+    }
+    return entry;
+  };
+
   const onContract = [];
   const expired = [];
+  const rosteredNoContract = [];
+  const claimed = new Set();
+
+  // This team's roster is the spine of its pool.
+  roster.forEach(r => {
+    const key = normalizeName(r.player);
+    if (key) claimed.add(key);
+    // The prior record may belong to whichever team DRAFTED him — the price
+    // follows the player, not the team that paid it.
+    const prior = priorAnywhereByName.get(key);
+    if (!prior) {
+      const entry = { player: r.player, pos: r.pos, kind: 'rostered', ...acqCarry(r) };
+      if (dollars) { entry.nextCost = base; entry.yearsKept = 1; }
+      if (termed) { entry.nextYear = 1; entry.length = len; entry.final = 1 >= len; }
+      rosteredNoContract.push(entry);
+      return;
+    }
+    if (isExpired(prior)) {
+      expired.push({ player: r.player, pos: r.pos || prior.pos, kind: 'expired' });
+      return;
+    }
+    onContract.push(contractEntry(prior, r));
+  });
+
+  // Players this team drafted who are on NO roster at all — kept here because
+  // the roster import may be incomplete. Anyone rostered by another team is
+  // that team's now and is skipped.
   priors.forEach(p => {
+    const key = normalizeName(p.player);
+    if (claimed.has(key) || ownedElsewhere(p.player)) return;
+    if (rostersExist && rosterOwnerByName.has(key)) return;
     if (isExpired(p)) {
       expired.push({ player: p.player, pos: p.pos, kind: 'expired' });
       return;
     }
-    const entry = { player: p.player, pos: p.pos, kind: 'contract', ...acqCarry(p) };
-    if (dollars) {
-      entry.nextCost = p.keptFor != null ? p.keptFor + bump : base;
-      entry.wasCost = p.keptFor;
-      entry.yearsKept = (p.yearsKept || 0) + 1;
-    }
-    if (termed) {
-      entry.nextYear = (p.contractYear || 0) + 1;
-      entry.length = p.contractLength || len;
-      entry.final = entry.nextYear >= entry.length;
-    }
-    onContract.push(entry);
-  });
-
-  const rosteredNoContract = [];
-  roster.forEach(r => {
-    if (priorByName.has(normalizeName(r.player))) return;
-    const entry = { player: r.player, pos: r.pos, kind: 'rostered', ...acqCarry(r) };
-    if (dollars) { entry.nextCost = base; entry.yearsKept = 1; }
-    if (termed) { entry.nextYear = 1; entry.length = len; entry.final = 1 >= len; }
-    rosteredNoContract.push(entry);
+    onContract.push(contractEntry(p, null));
   });
 
   return { onContract, rosteredNoContract, expired };
