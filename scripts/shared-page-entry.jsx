@@ -6,6 +6,8 @@ export {
   keepersFirst,
 } from '../src/lib/sharedLeague.js';
 export { sortTeamsByName } from '../src/lib/teamOrder.js';
+export { buildTeamPool } from '../src/tabs/SetKeepersTab.jsx';
+export { buildStatusIndex } from '../src/lib/players.js';
 export { SharedLeaguePage } from '../src/SharedLeaguePage.jsx';
 export { keeperRuleFacts, ruleNotes, hasRuleNotes } from '../src/lib/rulesSummary.js';
 export { LeagueRulesModal, RulesGrid, RulesButton } from '../src/LeagueRulesModal.jsx';

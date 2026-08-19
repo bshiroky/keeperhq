@@ -82,10 +82,16 @@ export function buildStatusIndex(league) {
     }
   }
 
+  // Who rosters a player is the ownership truth (see buildTeamPool). Keep a
+  // separate index of it so the priorKeepers pass below can't reattribute a
+  // player to the team that merely DRAFTED him.
+  const rosterOwner = new Map();
   for (const t of teams) {
     (t.roster || []).forEach((r, ri) => {
       const k = normalizeName(r.player);
-      if (k && !idx.has(k)) idx.set(k, {
+      if (!k) return;
+      if (!rosterOwner.has(k)) rosterOwner.set(k, t.id);
+      if (!idx.has(k)) idx.set(k, {
         teamId: t.id, teamName: t.name, status: 'rostered',
         rosterIdx: ri,
       });
@@ -101,6 +107,12 @@ export function buildStatusIndex(league) {
         if (kp.expired) return;
         const key = normalizeName(kp.player);
         if (!key) return;
+        // A prior DRAFT record on another team's books doesn't make the player
+        // theirs — if someone else's roster has him, that team owns him and
+        // this record only supplies his price. A declared keeper is different:
+        // it's an explicit commissioner action, so it still wins.
+        const rosteredBy = rosterOwner.get(key);
+        if (list === 'priorKeepers' && rosteredBy && rosteredBy !== t.id) return;
         const entry = {
           teamId: t.id, teamName: t.name, status: 'keeper',
           keeperList: list, keeperIdx: ki,

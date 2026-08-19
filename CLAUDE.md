@@ -1619,6 +1619,39 @@ If one of these is unavoidable, the next step is *add a token*, not
 - **`mascot-celebrate`**: not yet wired — earmarked for season-complete
   banner
 
+## Ownership: the roster decides, the draft prices
+
+**Where the roster import and the draft import disagree about who has a
+player, the ROSTER wins.** The roster is who finished the season on which
+team; the draft import only records who paid what. They disagree for every
+traded or dropped player.
+
+This was live for a real league (fixed in the ownership PR). `buildTeamPool`
+treated a team's whole `priorKeepers` list as that team's pool, so a player
+drafted by A and rostered by B appeared as A's to keep — and B, who actually
+had him, saw him as an undrafted pickup at the `$5` floor instead of his real
+`drafted + $N/yr` cost. **A money bug, not just a display bug**, and one root
+cause behind three surfaces: the shared page, the Eligible Pool / Set Keepers,
+and `buildStatusIndex`.
+
+The rules, all enforced in `buildTeamPool` (`SetKeepersTab.jsx`) so every
+surface that reads it inherits them:
+
+- A team's pool is built from **its roster**; each rostered player's price
+  comes from his prior draft record **on whichever team drafted him**.
+- A player rostered by another team is **not** in this team's pool.
+- A player on **no** roster stays with the team that drafted him — rosters can
+  be mid-import, and silently dropping him is worse than showing him.
+- A league with **no rosters imported at all** behaves exactly as before, or
+  every pool would empty out.
+- A **declared keeper** (`team.keepers`) always wins: that's a deliberate
+  commissioner action, not an import artifact.
+
+`buildSharedRows`'s `KIND_PRIORITY` dedupe (keeper > contract > rostered) is
+about which STATE to show, never about which team owns the player — ownership
+is settled upstream in the pool. Any new surface that composes rosters with
+draft records goes through `buildTeamPool`; don't re-derive this.
+
 ## Build constraints — reuse, don't rebuild
 
 Standing rules for building new surfaces. They exist because a parallel
@@ -1894,7 +1927,9 @@ copy of a component drifts away from the original.
   signed out — reads work signed out, writes don't).
 - `src/lib/players.js` — `loadPlayers(sport)`, `normalizeName`,
   `buildStatusIndex(league)` — **the** util for matching league
-  rosters to the player directory. `normalizeName` treats diacritics,
+  rosters to the player directory. Honors the ownership rule below: a
+  `priorKeepers` record never reattributes a player who is on ANOTHER team's
+  roster (a declared `keepers` entry still does — that's an explicit act). `normalizeName` treats diacritics,
   punctuation, AND spacing as noise (strips everything non-alphanumeric
   after NFD de-diacriticing) so "A.J."/"AJ"/"A. J.", "O'Reilly"/
   "OReilly", "Pierre-Luc"/"Pierre Luc", "Stützle"/"Stutzle" all
@@ -2705,7 +2740,14 @@ commit, so `--is-ancestor` reports "not on main" for *every* branch commit,
 merged or not — on its own it can't tell a merged branch from a stranded one.
 The **content** diff is what settles it: `git diff --stat <branch-tip>
 origin/main` coming back empty means `main` holds that tree, whatever the SHAs
-say. (That's exactly how the #41 diagnosis worked: `main` was byte-identical to
+say. **But the reverse does NOT hold** — a non-empty diff only means the trees
+differ, which is also true when `main` has simply moved on with later work.
+(Hit live: `git diff 20faf6a origin/main` was non-empty and briefly read as
+"#41 never landed", when in fact #41 HAD merged and #42 had landed on top.)
+When the diff is non-empty, check the specific files
+(`git diff <sha> origin/main -- <paths>`) or look for the squash commit
+(`git log --oneline origin/main | head`) before concluding anything is
+missing. (That's exactly how the #41 diagnosis worked: `main` was byte-identical to
 the branch's second-to-last commit, which located the missing two precisely.)
 
 **Say it plainly when a push is stranded** — "this is on the branch, but its PR
