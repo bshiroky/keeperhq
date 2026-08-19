@@ -141,6 +141,21 @@ test('rail: a league WITH a term keeps its "under contract" chip', () => {
     'being under contract is a real state where terms exist');
 });
 
+test('rail: the default chip reads the same on every league type', () => {
+  // One label across sports and cost models. A termed league's default view
+  // holds last season's rosters exactly like an auction league's, and the
+  // coming eligibility cutoff would contradict "Keepable" in either.
+  const auction = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: [] });
+  const termed = sharedFilterChips({ league: TERMED, locked: false, termed: true, hasExpired: false, teams: [] });
+  assert.equal(auction[0].label, 'Rostered');
+  assert.equal(termed[0].label, 'Rostered', 'no per-sport variant to re-fix when the cutoff ships');
+
+  const lockedAuction = sharedFilterChips({ league: AUCTION, locked: true, termed: false, hasExpired: false, teams: [] });
+  const lockedTermed = sharedFilterChips({ league: TERMED, locked: true, termed: true, hasExpired: false, teams: [] });
+  assert.equal(lockedAuction[0].label, 'Final keepers');
+  assert.equal(lockedTermed[0].label, 'Final keepers', 'and post-lock too');
+});
+
 test('rail: post-lock the default view relabels, expired stays conditional', () => {
   const locked = sharedFilterChips({ league: AUCTION, locked: true, termed: false, hasExpired: false, teams: [] });
   assert.equal(locked[0].label, 'Final keepers');

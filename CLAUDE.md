@@ -720,9 +720,11 @@ Yahoo work off 47%, not off the optimistic reading.
   eligibility cutoff is coming (players picked up after the fantasy regular
   season can't be kept), and "Rostered" stays true under whatever eligibility
   rules land — **eligibility becomes something a ROW shows, never something a
-  tab claims.** Apply that test to any future label here. Note the termed
-  path still reads "Keepable", which is the same class of claim; left alone
-  because it wasn't asked for, and flagged as the next candidate.
+  tab claims.** Apply that test to any future label here. The termed path's
+  "Keepable" went with it in the same pass (same class of claim), so the chip
+  is now `locked ? 'Final keepers' : 'Rostered'` for **every** league type —
+  one label across sports and cost models, so the cutoff rule doesn't have to
+  re-fix a per-sport variant later.
 
 - **Rules button wiring fix + two shared-page bugs (this branch's PR,
   follow-up):** the Rules button did nothing — pointer cursor, no modal, no
@@ -1765,7 +1767,8 @@ copy of a component drifts away from the original.
   11:59 PM; days granularity; hours/minutes ticking inside 48h; quiet
   "🔒 Keepers locked" past deadline; no countdown when no deadline
   set), sticky countdown pill (IntersectionObserver on the band),
-  filter rail (`sharedFilterChips`: Keepable (termed) / **Rostered** · Under contract
+  filter rail (`sharedFilterChips`: **Rostered** (all league types; "Final
+  keepers" post-lock) · Under contract
   (**term leagues only**) · Expired (snake, only when expired players
   exist) · team chips; default relabels to "Final keepers" post-lock),
   mobile card rows
