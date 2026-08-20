@@ -13,6 +13,8 @@ import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
 import { isNflSport } from './lib/nflDirectory.js';
 import { RulesGrid } from './LeagueRulesModal.jsx';
 import { startNewSeason } from './lib/season.js';
+import { changeLogOf, describeChange, formatChangeTime, CHANGE_LOG_LIMIT } from './lib/changeLog.js';
+import { overriddenPricesIn } from './lib/priceProvenance.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
@@ -815,6 +817,78 @@ function DeleteLeagueCard({ league, isDark, onDeleteLeague }) {
   );
 }
 
+// ── Change log card (Settings) ───────────────────────────────────────────────
+// The record of what the commissioner changed by hand and what an import
+// replaced — the answer to "did I set that price, or did the paste?", which
+// nothing in the app could answer before.
+//
+// Deliberately a LOG, not history: it says what happened, it does not hold the
+// state before it happened, and nothing here restores anything. Undo/snapshots
+// are a separate, bigger piece of work (see the follow-ups in CLAUDE.md).
+function ChangeLogCard({ league, isDark }) {
+  const t = makeTheme(isDark);
+  const [expanded, setExpanded] = React.useState(false);
+  const log = changeLogOf(league);
+  const SHORT = 8;
+  const shown = expanded ? log : log.slice(0, SHORT);
+  // Standing state, not history: which prices are hand-set RIGHT NOW. It's the
+  // question the log can't answer (an edit could have been reset since) and
+  // the one that says what a re-import will preserve.
+  const handSet = overriddenPricesIn(league);
+
+  return (
+    <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Change Log</div>
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
+          {log.length === 0 ? 'nothing yet' : `${log.length}${log.length >= CHANGE_LOG_LIMIT ? '+' : ''} recorded`}
+        </div>
+      </div>
+      <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {handSet.length > 0 && (
+          <div style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '9px 11px', ...tokens.typeBodyMeta, color: t.textBody, lineHeight: 1.5 }}>
+            <strong style={{ color: t.textPrimary }}>{handSet.length} price{handSet.length === 1 ? ' is' : 's are'} set by hand</strong> right now
+            {' '}({handSet.slice(0, 4).map(o => o.player).join(', ')}{handSet.length > 4 ? `, +${handSet.length - 4} more` : ''}).
+            {' '}They're marked wherever they appear, and a re-import refreshes the calculated price underneath without replacing them.
+          </div>
+        )}
+        {log.length === 0 ? (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5 }}>
+            Price edits, term changes, and imports are recorded here as you make them.
+          </div>
+        ) : (
+          <>
+            {shown.map((entry, i) => {
+              const d = describeChange(entry);
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '7px 0', borderBottom: i < shown.length - 1 ? `1px solid ${t.dividerFaint}` : 'none', flexWrap: 'wrap' }}>
+                  <span style={{ ...tokens.typeBody, fontWeight: 700, color: t.textPrimary }}>{d.subject}</span>
+                  <span style={{ ...tokens.typeBodyMeta, color: t.textSecondary }}>{d.action}</span>
+                  {d.detail && <span style={{ ...tokens.typeBodyMeta, fontWeight: 700, color: t.textPrimary }}>{d.detail}</span>}
+                  {d.where && <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>· {d.where}</span>}
+                  <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{formatChangeTime(entry.at)}</span>
+                </div>
+              );
+            })}
+            {log.length > SHORT && (
+              <button onClick={() => setExpanded(!expanded)} style={{
+                alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 600, color: t.textSecondary, textDecoration: 'underline',
+              }}>
+                {expanded ? 'Show recent only' : `Show all ${log.length}`}
+              </button>
+            )}
+            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5, marginTop: 2 }}>
+              Records what changed, not the data before it — nothing here restores anything.
+              {log.length >= CHANGE_LOG_LIMIT && ` Only the most recent ${CHANGE_LOG_LIMIT} changes are kept.`}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Settings panel — league rules + season rollover ──────────────────────────
 // (Roster / draft imports live in ImportPanel, reached from the Import door.)
 function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, onDeleteLeague }) {
@@ -1033,6 +1107,8 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
         onUpdateLeague={onUpdateLeague} onSaved={onSaved} />
 
       <ShareLeagueCard league={league} isDark={isDark} accentColor={accentColor} />
+
+      <ChangeLogCard league={league} isDark={isDark} />
 
       {/* Season rollover */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>

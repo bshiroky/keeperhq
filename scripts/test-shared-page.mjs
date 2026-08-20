@@ -492,4 +492,43 @@ test('ownership: rosters and draft agreeing is unchanged', () => {
   assert.equal(pool.rosteredNoContract[0].player, 'Undrafted Rookie');
 });
 
+// ── Price provenance reaching the public page ───────────────────────────────
+// The commissioner can now type over a calculated keep cost. keptFor is
+// deliberately the field that holds the value IN FORCE (the calculated one
+// moves to keptForComputed), precisely so this page — which reads through a
+// SQL projection naming keptFor and nothing else — shows the price actually in
+// force with no migration. If that ever inverts, leaguemates start seeing
+// pre-edit prices, so it gets a test here rather than only in the app.
+
+test('an overridden keep cost is what the shared page shows', () => {
+  const edited = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      keepers: (t.keepers || []).map(k => ({ ...k, keptFor: 120, keptForComputed: 88, keptForOverridden: true })),
+    })),
+  };
+  const keeperRows = buildSharedRows(edited).filter(r => r.kind === 'keeper');
+  assert.ok(keeperRows.length > 0, 'fixture has at least one declared keeper');
+  keeperRows.forEach(r => assert.equal(r.cost, 120, 'the page shows the price in force, not the calculated one'));
+});
+
+test('an overridden DRAFTED price flows into the calculated keep cost', () => {
+  // The escalation reads the prior record's keptFor, so correcting a bad
+  // imported price has to change what the page quotes.
+  const before = buildSharedRows(AUCTION).find(r => r.player === "Ja'Marr Chase");
+  const corrected = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      priorKeepers: (t.priorKeepers || []).map(p => p.player === "Ja'Marr Chase"
+        ? { ...p, keptFor: 100, keptForComputed: 83, keptForOverridden: true }
+        : p),
+    })),
+  };
+  const after = buildSharedRows(corrected).find(r => r.player === "Ja'Marr Chase");
+  assert.notEqual(after.cost, before.cost, 'the quoted keep cost moves with the corrected price');
+  assert.equal(after.draftedCost, 100, 'and the "drafted" line shows the corrected price');
+});
+
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);

@@ -1,10 +1,14 @@
 import React from 'react';
 import { draftFormatOf, hasTerm, termOf } from '../lib/keeperRules.js';
-import { makeTheme } from '../components.jsx';
+import { makeTheme, ConfirmBody } from '../components.jsx';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
 import { parseDraftResults } from '../lib/draftParse.js';
 import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '../lib/nflDirectory.js';
 import { lookupByNames } from '../lib/nflDirectoryStore.js';
+import { normalizeName } from '../lib/players.js';
+import { refreshComputedPrice, isPriceOverridden } from '../lib/priceProvenance.js';
+import { appendChanges, changeEntry } from '../lib/changeLog.js';
+import { draftImportImpact, draftGuardLines } from '../lib/importGuard.js';
 
 // Import Last Year's Draft — the paste flow over lib/draftParse.js, which
 // handles BOTH Yahoo Draft Results views (team-by-team blocks and the flat
@@ -58,6 +62,9 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
   const [entryYears, setEntryYears] = React.useState({});
   const [expandedTeams, setExpandedTeams] = React.useState({}); // {teamName: bool}
   const [error, setError] = React.useState(null);
+  // Set to a draftImportImpact when a re-import would replace existing rows —
+  // the confirm dialog reads it and Cancel just clears it (nothing written).
+  const [guard, setGuard] = React.useState(null);
   // NFL only: resolve every parsed name against the stored Sleeper directory
   // so the import writes player IDs, not just names. The parse already
   // carries each row's pro team and positions, which is what separates two
@@ -131,11 +138,28 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
 
   function doImport() {
     if (!preview) return;
+    // Re-importing REPLACES priorKeepers for every mapped team. Ask first when
+    // there's something on file to lose, naming the counts; a first import has
+    // nothing at stake and shouldn't nag.
+    const impact = draftImportImpact(league, mapping, preview);
+    if (impact.hasImpact) { setGuard(impact); return; }
+    applyImport();
+  }
+
+  function applyImport() {
+    if (!preview) return;
+    setGuard(null);
     // Build new teams array with priorKeepers populated
     const summary = [];
     const newTeams = league.teams.map(tm => {
       const fromParsed = preview.find(p => mapping[p.name] === tm.id);
       if (!fromParsed) return tm;
+      // Hand-set prices are the one thing that survives the replace: the row
+      // is rebuilt from the paste, then the commissioner's override is carried
+      // back on top of the refreshed imported value (refreshComputedPrice).
+      const existingByName = new Map(
+        (tm.priorKeepers || []).map(p => [normalizeName(p.player), p])
+      );
       const priorKeepers = fromParsed.players.map(p => {
         // NFL: attach the resolved Sleeper id + the string the paste actually
         // carried. An unresolved row imports name-only rather than being
@@ -155,15 +179,28 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
           acquisitionMethod: 'draft',
           rookieAtAcquisition: false,
         };
+        const existing = existingByName.get(normalizeName(p.player));
+        const priced = refreshComputedPrice(existing, p.draftedFor);
         if (termed) {
           // priorKeepers.contractYear stores years already served (data.js
           // convention: 0 = drafted last year, entering Y1 if kept), so the
           // pool advances an "entering Y2" import to exactly Y2.
-          return { ...base, contractYear: entryYearFor(fromParsed.name, p) - 1, contractLength: contractLen };
+          //
+          // The drafted price is INDEPENDENT of the term. This used to be an
+          // either/or, so an auction-cost league that also has a term imported
+          // its draft with every price silently dropped — the one combination
+          // the cost/term split made reachable. Written only when there's
+          // actually a price to write, so a plain snake paste is unchanged.
+          return {
+            ...base,
+            contractYear: entryYearFor(fromParsed.name, p) - 1,
+            contractLength: contractLen,
+            ...(p.draftedFor != null || isPriceOverridden(existing) ? priced : {}),
+          };
         }
         return {
           ...base,
-          keptFor: p.draftedFor,
+          ...priced,
           yearsKept: p.isKeeper ? 1 : 0, // if marked as keeper in last year's draft, they were already kept once
         };
       });
@@ -181,18 +218,42 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
     });
     // Persist the confirmed Yahoo-name → team mappings so the next import
     // (even after a Yahoo rename on either side) resolves without asking.
-    onImport(rememberYahooTeams({ ...league, teams: newTeams }, mapping));
+    const withTeams = rememberYahooTeams({ ...league, teams: newTeams }, mapping);
+    const total = summary.reduce((s, tm) => s + tm.players, 0);
+    onImport(appendChanges(withTeams, changeEntry({
+      kind: 'import', field: 'priorKeepers',
+      note: `${total} player${total === 1 ? '' : 's'} across ${summary.length} team${summary.length === 1 ? '' : 's'} (${summary.map(s => s.name).join(', ')})`,
+    })));
     onComplete({ teams: summary });
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Two steps, swapped in place with a Back affordance — never a second
-          overlay. The step line makes the flow's shape explicit. */}
+      {/* Steps swapped in place with a Back affordance — never a second
+          overlay. That includes the overwrite confirm: this flow renders
+          inside a modal on the dormant wizard path, where an overlay would
+          break the one-modal-max rule. */}
       <div style={{ fontSize: 12, color: t.textMuted }}>
-        {preview ? 'Step 2 of 2 · Match teams & confirm' : 'Step 1 of 2 · Paste the full team-by-team draft results from your fantasy site.'}
+        {guard ? 'Confirm · This replaces the draft data on file'
+          : preview ? 'Step 2 of 2 · Match teams & confirm'
+          : 'Step 1 of 2 · Paste the full team-by-team draft results from your fantasy site.'}
       </div>
-      {!preview && (
+
+      {guard && (
+        <ConfirmBody
+          isDark={isDark} accentColor={accentColor} danger
+          title="Replace the draft on file?"
+          intro={`This paste replaces last season's draft for ${guard.teams.length} team${guard.teams.length === 1 ? '' : 's'}. There's no undo.`}
+          lines={draftGuardLines(guard)}
+          note="Cancel leaves everything as it is — your paste stays on the mapping step."
+          confirmLabel="Replace draft data"
+          cancelLabel="← Back to mapping"
+          onConfirm={applyImport}
+          onCancel={() => setGuard(null)}
+        />
+      )}
+
+      {!guard && !preview && (
         <>
           <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
             Copy either view of your fantasy site's Draft Results page — the <strong>team-by-team</strong> view (team name on its own line, then rows like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>{draftSampleRow(league.sport, isSnake)}</code>) or the flat <strong>Picks</strong> list (every selection on one line, ending with the fantasy team). Players kept from prior years (marked with K) will be flagged{termed ? ', and you can set each player’s current term year on the preview step' : ''}.
@@ -214,7 +275,7 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
         </>
       )}
 
-      {preview && (() => {
+      {!guard && preview && (() => {
         // Duplicate guard: the auto-resolver (saved map + similarity) can map
         // two parsed names onto one league team; manual picks steal instead
         // (see the select's onChange), but auto-created duplicates must be

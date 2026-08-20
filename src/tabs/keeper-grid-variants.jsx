@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pencil, ArrowLeftRight } from 'lucide-react';
-import { makeTheme, Tooltip, tokens } from '../components.jsx';
+import { makeTheme, Tooltip, tokens, EditedMark } from '../components.jsx';
 import { keeperValueText, isFinalYear } from '../lib/keeperRules.js';
+import { isPriceOverridden, computedPriceOf } from '../lib/priceProvenance.js';
 
 // The single keeper-cell renderer shared by the Overview grid (interactive)
 // and the Create-League wizard's Step-2 sample (static). Extracted verbatim
@@ -73,6 +74,12 @@ function SampleKeeperCell({
         }}>
           {valueText}
         </span>
+        {/* A hand-set keep cost is marked wherever the cost renders. Compact
+            glyph only, and inline-flex like the Final-yr pill so its line box
+            can't inflate line 2 — every cell state shares one height. */}
+        {isPriceOverridden(slot) && (
+          <EditedMark computed={computedPriceOf(slot)} isDark={isDark} compact />
+        )}
         {expiring && (
           <Tooltip isDark={isDark} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center' }}
             content={`${slot.player} · final year of his term, returns to the draft after this season`}>

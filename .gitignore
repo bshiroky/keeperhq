@@ -9,3 +9,4 @@ dist
 .tmp-wizard-bundle.mjs
 .tmp-nfl-bundle.mjs
 .tmp-shared-bundle.mjs
+.tmp-provenance-bundle.mjs

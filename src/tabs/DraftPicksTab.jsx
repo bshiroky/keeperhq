@@ -1,8 +1,9 @@
 import React from 'react';
 import { ArrowRight, ClipboardList, X } from 'lucide-react';
-import { makeTheme, tokens, NumberInput, Button } from '../components.jsx';
+import { makeTheme, tokens, NumberInput, Button, ConfirmBody } from '../components.jsx';
 import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPicks } from '../lib/draftPicks.js';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
+import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
 
 // ── Draft Picks panel (the Picks door) ───────────────────────────────────────
 // Commissioner-only round × team grid of pick OWNERSHIP for the upcoming
@@ -82,6 +83,9 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
   const [parsed, setParsed] = React.useState(null); // { picks } | null
   const [mapping, setMapping] = React.useState({}); // { yahooName: teamId }
   const [error, setError] = React.useState(null);
+  // A picksImportImpact while the overwrite confirm is showing (a step inside
+  // this modal, never a second overlay).
+  const [guard, setGuard] = React.useState(null);
 
   const teamName = (id) => teams.find(tm => tm.id === id)?.name || '?';
 
@@ -111,8 +115,24 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
     setParsed(result);
   }
 
+  // Resolved to ids so the guard can compare the paste against what's already
+  // recorded. Rows whose names haven't been mapped yet are simply absent.
+  const resolvedTrades = trades
+    .map(p => ({ round: p.round, originalTeamId: mapping[p.originalName], ownerTeamId: mapping[p.ownerName] }))
+    .filter(p => p.originalTeamId && p.ownerTeamId);
+
   function doImport() {
     if (unresolved.length > 0) return;
+    // This paste writes ownership pick by pick, so the only thing it can
+    // destroy is a trade the commissioner already recorded that the paste
+    // contradicts. Ask only when that's actually the case.
+    const impact = picksImportImpact(league, resolvedTrades);
+    if (impact.hasImpact) { setGuard(impact); return; }
+    applyImport();
+  }
+
+  function applyImport() {
+    setGuard(null);
     let next = league;
     let maxRound = 0;
     trades.forEach(p => {
@@ -153,7 +173,22 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
         </div>
 
         <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {!parsed && (
+          {/* Overwrite confirm is a STEP inside this modal (one-modal-max
+              rule); Back returns to the mapping with the parse intact. */}
+          {guard && (
+            <ConfirmBody
+              isDark={isDark} accentColor={accentColor} danger
+              title="Overwrite pick trades you already recorded?"
+              intro="This paste disagrees with pick ownership already on the grid."
+              lines={picksGuardLines(guard)}
+              note="Cancel leaves the grid as it is — your paste stays on the mapping step."
+              confirmLabel="Apply the paste"
+              cancelLabel="← Back to mapping"
+              onConfirm={applyImport}
+              onCancel={() => setGuard(null)}
+            />
+          )}
+          {!guard && !parsed && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
                 On Yahoo, open the league's draft-picks page, select everything, copy, and paste here. Each team's name is followed by its picks — plain rounds like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>Round 3</code> stay put; annotated ones like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>Round 2 (from Duck Duck Goose)</code> become trades.
@@ -175,7 +210,7 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
             </>
           )}
 
-          {parsed && (
+          {!guard && parsed && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary }}>
                 Found <strong>{trades.length}</strong> traded pick{trades.length === 1 ? '' : 's'}
