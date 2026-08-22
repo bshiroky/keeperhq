@@ -703,6 +703,40 @@ function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edite
   );
 }
 
+// ── "Set by commissioner" marker (member-facing) ────────────────────────────
+// The public shared page's counterpart to EditedMark, and deliberately NOT the
+// same component — they answer to different rules.
+//
+// EditedMark is a working control: it names the calculated value and offers
+// the way back to it. This one says only THAT a price was set by hand. It
+// shows no old→new pair and no timestamp, because the page is not a diff and
+// the change log that holds those stays commissioner-only.
+//
+// It exists at all because the inconsistency is already on screen without it:
+// the page prints "Drafted $83" beside "Keep for $95" while the rules modal
+// states the escalation rule, so a member doing the arithmetic already sees a
+// number that doesn't add up. Unlabelled, that reads as a bug in the tool;
+// labelled, it reads as a commissioner decision. "Set by commissioner" rather
+// than "Overridden"/"Edited" for the same reason — most of these are paste
+// corrections, not favours.
+function CommissionerSetMark({ isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <Tooltip isDark={isDark} style={{ display: 'inline-flex', alignItems: 'center' }}
+      content="Your commissioner set this price directly rather than taking the one the keeper rules calculate.">
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, lineHeight: 1,
+        ...tokens.typeStatMeta, fontWeight: 700, color: t.textMuted,
+        background: t.sectionBg, border: `1px solid ${t.border}`,
+        borderRadius: tokens.radiusSm, padding: '1px 5px', whiteSpace: 'nowrap',
+        cursor: 'default',
+      }}>
+        <Pencil size={9} strokeWidth={2} /> Set by commissioner
+      </span>
+    </Tooltip>
+  );
+}
+
 function nextAction(league) {
   const teams = league.teams || [];
   const teamCount = league.teamCount || teams.length;
@@ -1589,7 +1623,7 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
-  MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal, EditedMark,
+  MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal, EditedMark, CommissionerSetMark,
   nextAction, leagueFlavor, leagueVoiceColor,
   KeepersCelebration,
 };

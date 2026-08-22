@@ -889,6 +889,39 @@ Yahoo work off 47%, not off the optimistic reading.
   convenience rather than the last line of defence. Until then a guard's copy
   must never imply recoverability — the dialogs say "There's no undo."
 
+- **Member-facing price provenance (this branch's PR, follow-up):** the second
+  half of the override work, held back one round because it needs a projection
+  change and the shared page is a public surface. **The decision was to mark
+  it, quietly.** The decisive argument isn't a trust-vs-argument tradeoff: the
+  discrepancy is **already visible**. The page prints `Drafted $83` beside
+  `Keep for $95` and the rules modal states the escalation rule, so a member
+  doing the arithmetic already sees a number that doesn't add up. The only
+  choice is whether that reads as a commissioner decision or as a bug in the
+  tool — and unexplained-and-wrong is worse for trust than
+  explained-and-arguable. It does invite argument over individual edits, but
+  that argument happens anyway when someone notices, on worse terms.
+  Framing carries the mitigation: the label is **"Set by commissioner"**, not
+  "Overridden"/"Edited" (most of these are paste corrections, not favours),
+  and the page shows the marker ONLY — never the old→new pair, never a
+  timestamp. **The page is not a diff**; the change log that holds those stays
+  commissioner-only. `CommissionerSetMark` is deliberately NOT `EditedMark`
+  (which names the calculated value and offers the way back) — two components,
+  because they answer to different information rules, documented together in
+  `components.jsx`. **Only a hand-set KEEP COST is marked, never a corrected
+  DRAFTED price**: the keep cost still comes out of the escalation in that
+  case, so there's no inconsistency to explain — only an edit to argue about.
+  That's the standing test for anything else this page might mark: *does the
+  number contradict a rule the page itself states?* The rules modal gains one
+  card on dollar-cost leagues ("Price adjustments — Commissioner can set one"),
+  stated as a rule rather than as current state, so it holds whether or not an
+  override exists yet. **`007_shared_price_provenance.sql` must be run** or
+  none of it appears. It projects `keepers.keptForOverridden` (the boolean
+  only — `keptForComputed` stays private) and, folded into the same trip, a
+  pre-existing gap: **`priorKeepers.acquisitionRound` has never been
+  projected**, so `sortRowsDefault`'s round ordering for stats-less snake
+  leagues has silently fallen back to alphabetical on the shared page since it
+  shipped. Both now have regression tests in `scripts/test-shared-page.mjs`.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1969,6 +2002,11 @@ copy of a component drifts away from the original.
 - `supabase/migrations/006_shared_league_rules.sql` — replaces
   `get_shared_league` to project the cost/term config keys + the two note
   fields. No table change. `payouts` / `payoutNote` stay unprojected.
+- `supabase/migrations/007_shared_price_provenance.sql` — replaces
+  `get_shared_league` again for `keepers.keptForOverridden` (the marker
+  boolean; `keptForComputed` stays private — the page is not a diff) and
+  `priorKeepers.acquisitionRound` (never projected, which is why the shared
+  page's round sort never worked). No table change. Run after 006.
 - `src/lib/sharedLeague.js` — data layer for the shared page:
   `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
   with no session), `buildSharedRows(league)` (one deduped row per
@@ -2812,28 +2850,11 @@ buttons, no member login until (B)'s trigger is hit.
     changed, not the state before it.
 
 32. **Shared page: should a hand-set price be marked to members? — DECIDED
-    (yes), NOT BUILT, needs migration 007.** The commissioner-side marking
-    shipped; the member-facing half is held because it needs a projection
-    change. **Recommendation: yes, quietly.** The decisive argument is that the
-    discrepancy is *already visible* — the page shows `Drafted $83` beside
-    `Keep for $88`, and the rules modal states the league's escalation rule, so
-    a member who does the arithmetic on an overridden row already sees a number
-    that doesn't add up. The only choice is whether it reads as a commissioner
-    decision or as a bug in the tool, and unexplained-and-wrong is worse for
-    trust than explained-and-arguable. It does invite argument over individual
-    edits — but that argument happens anyway when someone notices, on worse
-    terms (a bug accusation, or a favouritism one). Mitigate with framing, not
-    absence: label it **"Set by commissioner"**, not "Overridden"/"Edited";
-    show the marker only, never the old→new values or a timestamp (the change
-    log stays commissioner-only — the page is not a diff); and add one line to
-    the rules modal saying the commissioner can set a price directly.
-    **What it needs:** `007_shared_price_provenance.sql` — no table change,
-    `CREATE OR REPLACE get_shared_league` to project `keptForOverridden` on
-    keepers and priorKeepers. **Fold in the same trip:** `acquisitionRound` is
-    read by `buildSharedRows` (`row.round`) and used by `sortRowsDefault` for
-    stats-less snake leagues, but has **never been projected** — so that sort
-    silently falls back to alphabetical on the shared page today. Pre-existing,
-    same one-line class of fix, same migration.
+    (yes) and SHIPPED.** See the "Member-facing price provenance" bullet in
+    Recent shipped work for what landed and why. **`007_shared_price_provenance.sql`
+    must be run** in the Supabase SQL Editor or the marker never appears (and
+    the round sort stays broken); the price itself was already correct without
+    it, which is the whole point of the price-field rule.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's
