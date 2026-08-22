@@ -1,6 +1,6 @@
 import React from 'react';
 import { ArrowLeftRight, Check, Plus, Search, X } from 'lucide-react';
-import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot, EditedMark } from '../components.jsx';
+import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot, EditedMark, PriceMarkSlot } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
@@ -258,17 +258,20 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
             <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
             {/* Typing here overrides the calculated keep cost. The calculated
                 value is preserved underneath (priceProvenance), so the mark
-                can name it and the reset can go back to it. */}
+                can name it and the reset can go back to it.
+                flexShrink 0: the field's width is fixed, never something the
+                row can borrow from mid-edit. */}
             <input type="number" min="1" value={priceOf(keeper) ?? 0} onChange={e => onSetPrice(parseInt(e.target.value) || 1)}
               style={{
-                width: 54, background: t.cardBg,
+                width: 54, flexShrink: 0, background: t.cardBg,
                 border: `1px solid ${isPriceOverridden(keeper) ? t.textMuted : t.border}`,
                 borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent,
                 fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center',
               }} />
-            {isPriceOverridden(keeper) && (
-              <EditedMark computed={computedPriceOf(keeper)} isDark={isDark} compact onReset={onResetPrice} />
-            )}
+            {/* Always rendered, invisible until the price is overridden — the
+                mark must never appear mid-edit and shift the field. */}
+            <PriceMarkSlot overridden={isPriceOverridden(keeper)} computed={computedPriceOf(keeper)}
+              isDark={isDark} onReset={onResetPrice} />
           </div>
         )}
         {termed && (

@@ -841,7 +841,14 @@ Yahoo work off 47%, not off the optimistic reading.
   `↺` reset on every editing surface: Set-keepers keeper slot, Last Draft price
   cell, the Eligible Pool's `Drafted $X` status, the Overview team cards, the
   keeper grid cell, and `KeeperEditModal` (unrouted, wired so it can't bypass
-  provenance if revived). Typing the calculated value back clears the override
+  provenance if revived). **Wherever the price is EDITABLE the mark's slot is
+  reserved, not conditional** (`PriceMarkSlot`): the three editable fields
+  (Set-keepers slot, Last Draft cell, KeeperEditModal) always render it and
+  merely hide it, because mounting it on the first keystroke stole width from
+  the row and moved the field under the cursor — the same fault as the
+  wizard's option-strip reserves, and the standing rule now in Build
+  constraints. Read-only surfaces stay conditional; nothing there is typed
+  into. Typing the calculated value back clears the override
   rather than pinning a badge to a row nobody changed. **The season rollover
   clears provenance** (`advanceKeeper`): the escalated price is again something
   the app calculated, and carrying "edited" forward would mark the row forever
@@ -1855,6 +1862,17 @@ copy of a component drifts away from the original.
   overlay depth rule applies to confirms too: a page or sheet may put up
   `ConfirmModal`; a flow already inside a modal renders `ConfirmBody` in place
   of its own content with a "← Back" cancel. Same component underneath.
+- **A control that mounts on state change must have its space reserved.**
+  Anything that appears next to an input when state flips — the "Edited" mark
+  and its reset beside a price field, the wizard's revealed option control —
+  steals width from its row when it mounts and moves the thing the user is
+  currently typing into. Render it UNCONDITIONALLY and hide it
+  (`visibility: hidden` + `aria-hidden` + `tabIndex -1`), never mount it
+  conditionally. Prefer hiding the real element over a hand-measured spacer:
+  the reserved box is then the real box by construction and can't drift when
+  the control's content changes — that's why `PriceMarkSlot` needs no measured
+  reserve table while the wizard's text block does. Pin the input itself with
+  `flexShrink: 0` too, or the row can still borrow width from it.
 - **Never write a price field directly from a UI surface.** Go through
   `src/lib/priceProvenance.js` (`setPrice` / `resetPrice` /
   `refreshComputedPrice`), or the calculated value gets stranded and the

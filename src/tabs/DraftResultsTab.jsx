@@ -1,7 +1,7 @@
 import React from 'react';
 import { ClipboardList, X } from 'lucide-react';
 import { isAuctionCost } from '../lib/keeperRules.js';
-import { makeTheme, tokens, Button, Headshot, HScrollRow, EditedMark } from '../components.jsx';
+import { makeTheme, tokens, Button, Headshot, HScrollRow, PriceMarkSlot } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { isNflSport } from '../lib/nflDirectory.js';
@@ -78,13 +78,17 @@ function PriceCell({ entry, gridAccent, isDark, onCommit, onReset }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
       <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
       {/* Typing over an imported price keeps the imported one underneath, so a
-          re-import can refresh it without discarding the correction. */}
+          re-import can refresh it without discarding the correction.
+          flexShrink 0: the field's width is fixed, never something the row can
+          borrow from mid-edit. */}
       <input type="number" min="0" value={draft} placeholder="—" aria-label="Drafted price"
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        style={{ width: 50, background: t.cardBg, border: `1px solid ${overridden ? t.textMuted : t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
-      {overridden && <EditedMark computed={computedPriceOf(entry)} isDark={isDark} compact onReset={onReset} />}
+        style={{ width: 50, flexShrink: 0, background: t.cardBg, border: `1px solid ${overridden ? t.textMuted : t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+      {/* Always rendered, invisible until overridden — the mark must never
+          appear mid-edit and shift the field. */}
+      <PriceMarkSlot overridden={overridden} computed={computedPriceOf(entry)} isDark={isDark} onReset={onReset} />
     </span>
   );
 }

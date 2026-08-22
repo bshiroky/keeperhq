@@ -45,6 +45,14 @@ function excludes(html, needle) {
   assert(!html.includes(needle), `expected rendered output NOT to contain ${JSON.stringify(needle)}`);
 }
 
+// The reserved marker slots beside each editable price input. Counting the
+// rendered spans (and how many are hidden) is how "reserved unconditionally"
+// is asserted: the total must not depend on how many prices are overridden.
+function priceMarks(html) {
+  const tags = html.match(/<span class="kh-price-mark"[^>]*>/g) || [];
+  return { total: tags.length, hidden: tags.filter(tag => /visibility:hidden/.test(tag)).length };
+}
+
 const render = el => renderToStaticMarkup(el);
 
 // An auction league mid-keeper-season: one keeper whose keep cost the
@@ -71,6 +79,17 @@ const auction = {
     },
     { id: 't2', name: 'Blake', roster: [], keepers: [], priorKeepers: [] },
   ],
+};
+
+// The same league with no hand-set prices anywhere — the control case for the
+// reserved-slot assertions.
+const cleanAuction = {
+  ...auction,
+  teams: auction.teams.map(t => ({
+    ...t,
+    keepers: (t.keepers || []).map(({ keptForComputed, keptForOverridden, ...k }) => k),
+    priorKeepers: (t.priorKeepers || []).map(({ keptForComputed, keptForOverridden, ...p }) => p),
+  })),
 };
 
 const noop = () => {};
@@ -160,6 +179,50 @@ for (const isDark of [false, true]) {
     includes(html, 'roster re-imported');
     includes(html, '14 players imported');
     excludes(html, 'nothing yet');
+  });
+
+  // ── Reserved marker slots ────────────────────────────────────────────────
+  // The mark and its reset sit in the same flex row as the price input, so if
+  // they mounted only when a price is overridden they would steal width from
+  // the row and move the field under the cursor mid-edit. Same fault the
+  // wizard's option-strip reserves fixed. The slot is therefore always
+  // rendered and merely hidden — these assert the COUNT doesn't move.
+
+  test(`set-keepers reserves a marker slot per keeper, edited or not (${theme})`, () => {
+    const mixed = priceMarks(s.workbench());
+    assert(mixed.total === 3, `expected 3 reserved slots (one per filled keeper), got ${mixed.total}`);
+    assert(mixed.hidden === 2, `expected 2 of them hidden (only Jokic is edited), got ${mixed.hidden}`);
+
+    // The same league with nothing overridden must render the SAME number of
+    // slots — all hidden. If it renders fewer, the reservation is gone and the
+    // field will jump the moment a price is edited.
+    const clean = priceMarks(render(React.createElement(SetKeepersWorkbench, {
+      league: cleanAuction, accentColor: '#e8832a', isDark, onUpdateLeague: noop,
+      selectedTeamId: 't1', onSelectTeam: noop,
+    })));
+    assert(clean.total === mixed.total, `slot count changed with provenance: ${clean.total} vs ${mixed.total}`);
+    assert(clean.hidden === clean.total, `expected every slot hidden on a clean league, got ${clean.hidden}/${clean.total}`);
+  });
+
+  test(`last draft reserves a marker slot per price row, edited or not (${theme})`, () => {
+    const mixed = priceMarks(s.lastDraft());
+    assert(mixed.total === 3, `expected 3 reserved slots (one per draft row), got ${mixed.total}`);
+    assert(mixed.hidden === 2, `expected 2 hidden (only Doncic's price was corrected), got ${mixed.hidden}`);
+
+    const clean = priceMarks(render(React.createElement(LastDraftPanel, {
+      league: cleanAuction, isDark, accentColor: '#e8832a', onUpdateLeague: noop,
+    })));
+    assert(clean.total === mixed.total, `slot count changed with provenance: ${clean.total} vs ${mixed.total}`);
+    assert(clean.hidden === clean.total, `expected every slot hidden on a clean league, got ${clean.hidden}/${clean.total}`);
+  });
+
+  test(`a hidden marker slot is inert — no label, no tab stop (${theme})`, () => {
+    const html = render(React.createElement(SetKeepersWorkbench, {
+      league: cleanAuction, accentColor: '#e8832a', isDark, onUpdateLeague: noop,
+      selectedTeamId: 't1', onSelectTeam: noop,
+    }));
+    excludes(html, 'Reset to calculated value');   // nothing announced or tooltipped
+    includes(html, 'tabindex="-1"');               // and nothing tabbable
   });
 
   test(`the roster guard renders its real counts (${theme})`, () => {
