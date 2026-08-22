@@ -2,6 +2,7 @@ import { supabase } from './supabase.js';
 import { normalizeName } from './players.js';
 import { buildTeamPool } from '../tabs/SetKeepersTab.jsx';
 import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
+import { isPriceOverridden } from './priceProvenance.js';
 import { sortTeamsByName } from './teamOrder.js';
 
 // Data layer for the public shared league page (/l/:token).
@@ -64,6 +65,14 @@ export function buildSharedRows(league) {
         year: k.contractYear || 1, len,
         final: isFinalYear(league, k),
         cost: k.keptFor,
+        // Whether the commissioner set this keep cost directly instead of
+        // taking the calculated one. Only ever true on a KEEPER row: a
+        // contract row's cost is computed by buildTeamPool from the drafted
+        // price, so it always follows the league's stated rule even when that
+        // drafted price was itself corrected — nothing visible to explain.
+        // Needs migration 007; absent on an un-migrated projection, which
+        // simply means no marker (the price shown is still the right one).
+        costOverridden: isPriceOverridden(k),
         draftedCost: priorByName.get(normalizeName(k.player))?.keptFor ?? null,
         round: priorByName.get(normalizeName(k.player))?.acquisitionRound ?? null,
       });

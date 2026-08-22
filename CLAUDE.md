@@ -806,6 +806,122 @@ Yahoo work off 47%, not off the optimistic reading.
   its drafted players. And the cost-desc sort is the STATS-LESS path; hockey
   still sorts by last-season points (`sortRowsDefault` branches on sport first).
 
+- **Import guards + price provenance (this branch's PR):** two data-integrity
+  gaps with one root cause — nothing distinguished an imported/calculated value
+  from a hand-entered one, and nothing stopped one overwriting the other.
+  **(1) Every bulk import that can destroy work now confirms first, naming what
+  it will destroy.** Not a generic "are you sure": `src/lib/importGuard.js`
+  computes the impact from counts the app already has, and the dialog reads it.
+  Roster re-import: *"3 players currently on file for Ryan will be replaced —
+  including any you added or removed by hand"* plus, crucially, **which
+  declared keepers aren't in the paste** (the roster is the spine of
+  `buildTeamPool`, so a keeper missing from a re-import stays declared but
+  silently drops out of the eligible pool — that's the sharp loss, and it's
+  knowable at confirm time because the parsed names are in hand). Draft
+  re-import: rows replaced, rounds overwritten, **and what survives** (hand-set
+  prices, declared keepers' recorded costs) — a warning that only lists losses
+  gets clicked through, and the reassurance is often the reason it's safe to
+  proceed. Also guarded: the **Picks paste** (only warns when the paste
+  contradicts a pick trade already on the grid — it writes ownership pick by
+  pick, so that's the only thing it can destroy) and the dormant
+  `PrevContractsPasteModal`. **A first import never nags** — `hasImpact` is
+  false when there's nothing on file. Cancel is the safe default everywhere
+  (autofocus, Escape, scrim). Guards render as a **STEP inside** the host modal
+  (`ConfirmBody`), never as a modal over a modal — see the overlay rules.
+  **(2) A hand-set price is stored separately from the calculated one and
+  marked wherever it renders.** `src/lib/priceProvenance.js`: `keptFor` keeps
+  its meaning as **the value in force**, `keptForComputed` preserves the
+  calculated/imported value under an override, `keptForOverridden` flags it.
+  **The field ordering is deliberate and load-bearing** — see the rule below.
+  A re-import then refreshes the calculated price *underneath* while the
+  commissioner's number stays in force (`refreshComputedPrice`), which is what
+  makes a draft re-import genuinely non-destructive for prices rather than
+  merely warned-about. Marked with a neutral `EditedMark` pill (never
+  warning-coloured — an override is a legitimate action, not a problem) plus a
+  `↺` reset on every editing surface: Set-keepers keeper slot, Last Draft price
+  cell, the Eligible Pool's `Drafted $X` status, the Overview team cards, the
+  keeper grid cell, and `KeeperEditModal` (unrouted, wired so it can't bypass
+  provenance if revived). Typing the calculated value back clears the override
+  rather than pinning a badge to a row nobody changed. **The season rollover
+  clears provenance** (`advanceKeeper`): the escalated price is again something
+  the app calculated, and carrying "edited" forward would mark the row forever
+  and point its reset at a previous season's arithmetic. **(3) An append-only
+  change log** in the blob (`league.changeLog`, **no schema change**) records
+  price edits, term/round edits, imports and rollovers as
+  `{at, kind, field, teamId, teamName, player, from, to, note}`, newest first,
+  capped at 500 (an unbounded array inside a jsonb row that's rewritten whole
+  on every save). Surfaced as a **Change Log card in Settings** with a standing
+  roll-up above it — *"2 prices are set by hand right now (Jokic, Doncic)"* —
+  which is the question the log can't answer, since an edit may have been reset
+  since. **It is a LOG, not history**: it records what changed, not the state
+  before it, and nothing in it restores anything; the card says so.
+  Bundled fix found while reviewing: **the draft import dropped every price on
+  an auction-cost league that also has a term** — the price/term branch was an
+  either/or, so the one combination the cost/term split made reachable imported
+  with `keptFor` silently absent. Cost and term are independent here now too.
+  439 tests (`npm test`), including `test:provenance` (pure) and `test:guards`
+  (renders the real surfaces and asserts the numbers reach the HTML — the
+  Rules-button lesson).
+
+  **Price-field rule: `keptFor` always holds the value IN FORCE.** The
+  override goes in `keptFor`; the calculated value moves aside into
+  `keptForComputed`. The intuitive arrangement is the opposite (leave the
+  calculated value alone, put the override in the new field) and it is **wrong
+  here**, because the public shared page reads through `get_shared_league`, an
+  explicit field-list projection naming `keptFor` and nothing else: storing the
+  override in a new field would have shown leaguemates the pre-edit price until
+  that function was migrated. Both values are stored and the override is still
+  what's read — this way a reader neither module knows about shows the RIGHT
+  number and merely misses the marker, instead of confidently showing a stale
+  one. Failure modes are not symmetric; pick the one that degrades safely.
+  `scripts/test-shared-page.mjs` asserts an override reaches the page, so an
+  inversion fails the suite rather than the league.
+
+  **The real fixes are still owed — the guard is a stopgap.** Both are named
+  here rather than in Open items because they belong to this arc:
+  **(a) merge instead of replace.** Every paste import replaces the list it
+  targets. Reconciling row by row (keep what's on file, add what's new, flag
+  what conflicts) is the correct answer, and the price-override carry-forward
+  is a narrow first instance of it. **(b) snapshots / undo.** There is no
+  version history anywhere in this app, which is why "preserve, don't delete"
+  has to be a standing rule. A pre-import snapshot per league (a copy of the
+  blob, restorable from Settings) would make every one of these guards a
+  convenience rather than the last line of defence. Until then a guard's copy
+  must never imply recoverability — the dialogs say "There's no undo."
+
+- **Member-facing price provenance (this branch's PR, follow-up):** the second
+  half of the override work, held back one round because it needs a projection
+  change and the shared page is a public surface. **The decision was to mark
+  it, quietly.** The decisive argument isn't a trust-vs-argument tradeoff: the
+  discrepancy is **already visible**. The page prints `Drafted $83` beside
+  `Keep for $95` and the rules modal states the escalation rule, so a member
+  doing the arithmetic already sees a number that doesn't add up. The only
+  choice is whether that reads as a commissioner decision or as a bug in the
+  tool — and unexplained-and-wrong is worse for trust than
+  explained-and-arguable. It does invite argument over individual edits, but
+  that argument happens anyway when someone notices, on worse terms.
+  Framing carries the mitigation: the label is **"Set by commissioner"**, not
+  "Overridden"/"Edited" (most of these are paste corrections, not favours),
+  and the page shows the marker ONLY — never the old→new pair, never a
+  timestamp. **The page is not a diff**; the change log that holds those stays
+  commissioner-only. `CommissionerSetMark` is deliberately NOT `EditedMark`
+  (which names the calculated value and offers the way back) — two components,
+  because they answer to different information rules, documented together in
+  `components.jsx`. **Only a hand-set KEEP COST is marked, never a corrected
+  DRAFTED price**: the keep cost still comes out of the escalation in that
+  case, so there's no inconsistency to explain — only an edit to argue about.
+  That's the standing test for anything else this page might mark: *does the
+  number contradict a rule the page itself states?* The rules modal gains one
+  card on dollar-cost leagues ("Price adjustments — Commissioner can set one"),
+  stated as a rule rather than as current state, so it holds whether or not an
+  override exists yet. **`007_shared_price_provenance.sql` must be run** or
+  none of it appears. It projects `keepers.keptForOverridden` (the boolean
+  only — `keptForComputed` stays private) and, folded into the same trip, a
+  pre-existing gap: **`priorKeepers.acquisitionRound` has never been
+  projected**, so `sortRowsDefault`'s round ordering for stats-less snake
+  leagues has silently fallen back to alphabetical on the shared page since it
+  shipped. Both now have regression tests in `scripts/test-shared-page.mjs`.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -885,6 +1001,13 @@ headless.
 - `npm run test:nfl` — NFL directory pure helpers: the match key, the Sleeper
   row mapping, the disambiguation rules, the fill-rate summary
   (`scripts/test-nfl-directory.mjs`)
+- `npm run test:provenance` — price provenance, the change log, and every
+  import guard's impact counts, all pure (`scripts/test-provenance.mjs`)
+- `npm run test:guards` — server-renders the surfaces that must SHOW a hand-set
+  price or an overwrite confirm, on an auction AND a term league in both
+  themes, asserting the numbers reach the HTML rather than only existing in a
+  helper (`scripts/smoke-provenance-ui.mjs`; esbuild-bundles
+  `scripts/provenance-smoke-entry.jsx`, gitignored)
 - `npm run test:nfl-ui` — server-renders the four sport-branched import
   surfaces on a football AND a hockey league in both themes, and asserts the
   hockey path is untouched (`scripts/smoke-nfl-import.mjs`; esbuild-bundles
@@ -1720,6 +1843,24 @@ copy of a component drifts away from the original.
   navigates directly. Never a "← Back" link as the only way out. (On a
   full page neither sub-tab is highlighted; clicking one routes to
   `…/overview` with that view.)
+- **A destructive import asks first, and names what it will destroy.** Any
+  bulk import that REPLACES a list (roster, priorKeepers) or contradicts a
+  hand-recorded value confirms through `ConfirmBody`/`ConfirmModal` with counts
+  from `src/lib/importGuard.js` — never a generic "are you sure", which teaches
+  people to click through. State the losses AND what survives; Cancel is the
+  safe default (autofocus, Escape, scrim). **Skip the dialog entirely when
+  `hasImpact` is false** — a first import has nothing at stake. Because there's
+  no undo anywhere in the app, the copy must never imply recoverability.
+- **Confirms are `ConfirmBody`, and inside a modal they're a STEP.** The
+  overlay depth rule applies to confirms too: a page or sheet may put up
+  `ConfirmModal`; a flow already inside a modal renders `ConfirmBody` in place
+  of its own content with a "← Back" cancel. Same component underneath.
+- **Never write a price field directly from a UI surface.** Go through
+  `src/lib/priceProvenance.js` (`setPrice` / `resetPrice` /
+  `refreshComputedPrice`), or the calculated value gets stranded and the
+  "Edited" marker silently stops being true. And log the edit — every value
+  edit passes through `appendChanges` on the same `onUpdateLeague` call, so a
+  new edit path can't quietly skip the record.
 - **Imports end on a result, never in silence.** A modal import's last
   step states what it did (counts per team / match rate) with a single
   Done button (`RosterImportModal`, the dormant `DraftImportModal`);
@@ -1861,6 +2002,11 @@ copy of a component drifts away from the original.
 - `supabase/migrations/006_shared_league_rules.sql` — replaces
   `get_shared_league` to project the cost/term config keys + the two note
   fields. No table change. `payouts` / `payoutNote` stay unprojected.
+- `supabase/migrations/007_shared_price_provenance.sql` — replaces
+  `get_shared_league` again for `keepers.keptForOverridden` (the marker
+  boolean; `keptForComputed` stays private — the page is not a diff) and
+  `priorKeepers.acquisitionRound` (never projected, which is why the shared
+  page's round sort never worked). No table change. Run after 006.
 - `src/lib/sharedLeague.js` — data layer for the shared page:
   `fetchSharedLeague(token)` (supabase.rpc `get_shared_league`, works
   with no session), `buildSharedRows(league)` (one deduped row per
@@ -1964,6 +2110,27 @@ copy of a component drifts away from the original.
   `draftType === 'snake'` test almost always meant one of two DIFFERENT
   things — "shows contract years" (now `hasTerm`) or "doesn't show dollars"
   (now `!isAuctionCost`) — and they are no longer complementary.
+- `src/lib/priceProvenance.js` — the one read/write path for a dollar value the
+  commissioner may have typed over. `priceOf` (the value in force — what every
+  cost calculation and every display uses), `computedPriceOf`,
+  `isPriceOverridden`, `setPrice` / `resetPrice` (patch objects, so call sites
+  can't half-apply the three fields), `refreshComputedPrice` (what a re-imported
+  row carries: new calculated value underneath, existing override on top),
+  `countOverriddenPrices` / `overriddenPricesIn`. Pure. **Never write `keptFor`
+  directly from a UI surface** — see the price-field rule.
+- `src/lib/changeLog.js` — `league.changeLog` helpers: `appendChanges` (returns
+  a new league, identity when there's nothing to add, capped at
+  `CHANGE_LOG_LIMIT` = 500 newest-first), `changeEntry`, `describeChange` (the
+  human form, returning parts so the card can weight them), `formatChangeTime`.
+  Pure, no schema change — it rides the `data` blob.
+- `src/lib/importGuard.js` — what a bulk import is about to destroy, counted
+  before it runs: `rosterImportImpact` (rows replaced + **which declared
+  keepers the paste is missing**), `draftImportImpact` / `priorKeepersImpact`
+  (rows, rounds overwritten, hand-set prices that survive, declared keepers
+  untouched), `picksImportImpact` (only the pick trades the paste
+  contradicts), and the matching `*GuardLines` — `{tone: 'danger'|'ok', text}`
+  bullets, kept here so the wording is testable and two import surfaces can't
+  drift. `hasImpact` false = no dialog (a first import never nags). Pure.
 - `src/lib/season.js` — `startNewSeason()` (advances keepers' contract
   years, drops expired, resets keepers, etc.). `advanceKeeper` spreads
   the keeper object, so acquisition metadata survives season rollovers
@@ -2660,6 +2827,34 @@ buttons, no member login until (B)'s trigger is hit.
     The first is free and available now; the second is better but is its own
     arc. Decide which before building #28, since the ranking is what makes that
     view usable. User will pick the direction.
+
+30. **Merge instead of replace on every paste import — the real fix behind the
+    guards.** Every import replaces the list it targets; the confirm dialogs
+    (shipped) only make that visible. The right behaviour is a reconciliation:
+    keep what's on file, add what's new, and surface conflicts for a decision —
+    the same review-surface shape the Yahoo two-tier reconciliation (#27) will
+    need, which is an argument for designing them together rather than twice.
+    The price-override carry-forward (`refreshComputedPrice`) is a deliberately
+    narrow first instance: one field, merged, everything else still replaced.
+    Start from `src/lib/importGuard.js` — it already computes the diff the
+    merge would act on.
+
+31. **Snapshots / undo — the missing safety net under everything.** There is no
+    version history in this app at all, which is why "preserve, don't delete"
+    has to be a standing rule and why every destructive dialog has to say
+    "there's no undo". Shape: snapshot the league blob before any bulk import
+    or season rollover, keep the last N per league, restore from Settings.
+    Cheap because the whole league IS one jsonb blob — a snapshot is a copy of
+    a column, not a schema. That would demote every import guard from last line
+    of defence to convenience. The change log is NOT this: it records what
+    changed, not the state before it.
+
+32. **Shared page: should a hand-set price be marked to members? — DECIDED
+    (yes) and SHIPPED.** See the "Member-facing price provenance" bullet in
+    Recent shipped work for what landed and why. **`007_shared_price_provenance.sql`
+    must be run** in the Supabase SQL Editor or the marker never appears (and
+    the round sort stays broken); the price itself was already correct without
+    it, which is the whole point of the price-field rule.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's

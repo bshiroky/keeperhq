@@ -1,8 +1,9 @@
 import React from 'react';
 import { Download, DollarSign, Check } from 'lucide-react';
 import { isAuctionCost } from '../lib/keeperRules.js';
-import { makeTheme, tokens } from '../components.jsx';
+import { makeTheme, tokens, ConfirmBody } from '../components.jsx';
 import { DraftImportModal } from './ImportTab.jsx';
+import { priorKeepersImpact, draftGuardLines } from '../lib/importGuard.js';
 import { RosterImportModal } from './RosterImportTab.jsx';
 
 // Centralized "Data Sources" panel — used inside the season setup step.
@@ -16,6 +17,9 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
   const [text, setText] = React.useState('');
   const [preview, setPreview] = React.useState(null);
   const [error, setError] = React.useState(null);
+  // A priorKeepersImpact while the overwrite confirm is showing — a step
+  // inside this modal, never a second overlay.
+  const [guard, setGuard] = React.useState(null);
 
   // Parser for the "Team | Player | Contract Awarded | Expires After" format
   // (matches the user's Disney on Ice spreadsheet structure).
@@ -86,6 +90,23 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
 
   function doImport() {
     if (!preview) return;
+    // This paste REPLACES priorKeepers for every team it names, and it writes
+    // contract fields only — a drafted price on an existing row is dropped
+    // outright. Same guard as the other replace-the-list imports.
+    const impact = priorKeepersImpact(league, teamIdsInPreview());
+    if (impact.hasImpact) { setGuard(impact); return; }
+    applyImport();
+  }
+
+  // Team matching is by name here (this surface predates the yahooTeamMap
+  // path), so the guard resolves ids the same way doImport does.
+  function teamIdsInPreview() {
+    const names = new Set((preview || []).map(row => (row.team || '').toLowerCase()));
+    return (league.teams || []).filter(tm => names.has(tm.name.toLowerCase())).map(tm => tm.id);
+  }
+
+  function applyImport() {
+    setGuard(null);
     // Group by team and merge into priorKeepers
     const byTeam = {};
     preview.forEach(row => {
@@ -124,7 +145,21 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
         </div>
 
         <div style={{ padding: '16px 22px', overflow: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {!preview && (
+          {/* Overwrite confirm as a STEP inside this modal (one-modal-max). */}
+          {guard && (
+            <ConfirmBody
+              isDark={isDark} accentColor={accentColor} danger
+              title="Replace the contracts on file?"
+              intro={`This paste replaces last season's records for ${guard.teams.length} team${guard.teams.length === 1 ? '' : 's'}, and it carries no prices — any drafted price on those rows goes with them. There's no undo.`}
+              lines={draftGuardLines(guard)}
+              note="Cancel leaves everything as it is — your paste stays on the preview step."
+              confirmLabel="Replace contracts"
+              cancelLabel="← Back to preview"
+              onConfirm={applyImport}
+              onCancel={() => setGuard(null)}
+            />
+          )}
+          {!guard && !preview && (
             <>
               <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
                 placeholder={"Mark\tTim Stützle\t3 year\t2025-2026\nMark\tMatthew Tkachuk\t3 year\t2026-2027\nMark\tLane Hutson\t3 year\t2027-2028\nAmar\tConnor Hellebuyck\t3 year\t2027-2028\n..."}
@@ -140,7 +175,7 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
             </>
           )}
 
-          {preview && (() => {
+          {!guard && preview && (() => {
             const grouped = {};
             preview.forEach(r => { (grouped[r.team] = grouped[r.team] || []).push(r); });
             const teamNames = Object.keys(grouped);

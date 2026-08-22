@@ -4,6 +4,8 @@
 //   - SetupTab keeper review step (advancing prior-season keepers)
 
 import { termOf, isAuctionCost, TERM_FIXED } from './keeperRules.js';
+import { priceOf } from './priceProvenance.js';
+import { appendChanges, changeEntry } from './changeLog.js';
 
 // Bumps the season label by one year.
 //   "2026-27" -> "2027-28"
@@ -38,9 +40,17 @@ export function advanceKeeper(keeper, league) {
   let next = { ...keeper, yearsKept: (keeper.yearsKept || 0) + 1 };
 
   // Cost escalation — auction prices climb per year kept.
+  //
+  // A price the commissioner set by hand is the price that escalates (priceOf
+  // reads the value in force), and the result is a value the app calculated,
+  // so the provenance clears: carrying "edited" into the new season would mark
+  // the row forever and point its reset at a previous season's arithmetic. The
+  // original edit stays in the change log.
   if (isAuctionCost(league)) {
     const bump = league.auctionRules?.costIncreasePerYear ?? 0;
-    next.keptFor = (next.keptFor || 0) + bump;
+    next.keptFor = (priceOf(next) || 0) + bump;
+    next.keptForComputed = null;
+    next.keptForOverridden = false;
   }
 
   // Term advance — runs for ANY cost model with a fixed term, auction included.
@@ -78,11 +88,17 @@ export function startNewSeason(league) {
     };
   });
 
-  return {
+  const carried = nextTeams.reduce((s, tm) => s + tm.priorKeepers.length, 0);
+  return appendChanges({
     ...league,
     season: advanceSeasonLabel(league.season),
     status: 'pre-draft',
     draftDate: null,
     teams: nextTeams,
-  };
+  }, changeEntry({
+    kind: 'season',
+    from: league.season || null,
+    to: advanceSeasonLabel(league.season) || null,
+    note: `${carried} keeper${carried === 1 ? '' : 's'} carried forward`,
+  }));
 }

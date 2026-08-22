@@ -492,4 +492,121 @@ test('ownership: rosters and draft agreeing is unchanged', () => {
   assert.equal(pool.rosteredNoContract[0].player, 'Undrafted Rookie');
 });
 
+// ── Price provenance reaching the public page ───────────────────────────────
+// The commissioner can now type over a calculated keep cost. keptFor is
+// deliberately the field that holds the value IN FORCE (the calculated one
+// moves to keptForComputed), precisely so this page — which reads through a
+// SQL projection naming keptFor and nothing else — shows the price actually in
+// force with no migration. If that ever inverts, leaguemates start seeing
+// pre-edit prices, so it gets a test here rather than only in the app.
+
+test('an overridden keep cost is what the shared page shows', () => {
+  const edited = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      keepers: (t.keepers || []).map(k => ({ ...k, keptFor: 120, keptForComputed: 88, keptForOverridden: true })),
+    })),
+  };
+  const keeperRows = buildSharedRows(edited).filter(r => r.kind === 'keeper');
+  assert.ok(keeperRows.length > 0, 'fixture has at least one declared keeper');
+  keeperRows.forEach(r => assert.equal(r.cost, 120, 'the page shows the price in force, not the calculated one'));
+});
+
+test('a hand-set keep cost is marked to members', () => {
+  const edited = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      keepers: (t.keepers || []).map(k => ({ ...k, keptFor: 120, keptForComputed: 88, keptForOverridden: true })),
+    })),
+  };
+  const row = buildSharedRows(edited).find(r => r.kind === 'keeper');
+  assert.equal(row.costOverridden, true, 'the row carries the marker flag');
+
+  // …and it reaches the page, not just the row object.
+  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: edited }));
+  assert.ok(html.includes('Set by commissioner'), 'the marker renders');
+  assert.ok(html.includes('Keep for $120'), 'the price in force is what is shown');
+  // The page says THAT a price was set by hand, never what it was before —
+  // that's the commissioner-side EditedMark's job, and its wording must not
+  // leak here. (A bare "88" would false-match another player's cost, so the
+  // assertion is on the copy that would carry a pre-edit value.)
+  assert.ok(!/Calculated value/i.test(html), 'no pre-edit value is offered');
+  assert.ok(!/Reset to/i.test(html), 'and no reset affordance reaches members');
+});
+
+test('an un-edited keep cost is not marked', () => {
+  const rows = buildSharedRows(AUCTION);
+  rows.forEach(r => assert.ok(!r.costOverridden, `${r.player} should not be marked`));
+  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: AUCTION }));
+  assert.ok(!html.includes('Set by commissioner'), 'no marker anywhere on a clean league');
+});
+
+test('a corrected DRAFTED price is deliberately NOT marked', () => {
+  // The keep cost still comes out of the escalation, so there is no visible
+  // inconsistency for a marker to explain — only an edit to argue about.
+  const corrected = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      priorKeepers: (t.priorKeepers || []).map(p => ({ ...p, keptFor: 100, keptForComputed: 83, keptForOverridden: true })),
+    })),
+  };
+  buildSharedRows(corrected).forEach(r => assert.ok(!r.costOverridden, `${r.player} should not be marked`));
+});
+
+test('the rules modal tells members a price can be set directly', () => {
+  const facts = keeperRuleFacts(AUCTION);
+  const card = facts.find(f => f.key === 'setPrice');
+  assert.ok(card, 'auction leagues get the price-adjustment card');
+  assert.ok(/marked/.test(card.detail), 'and it says the row is marked');
+  // Not a dollar-cost league → no such rule to state.
+  assert.ok(!keeperRuleFacts(TERMED).some(f => f.key === 'setPrice'), 'slot-cost leagues have no price to adjust');
+});
+
+test('a stats-less snake league sorts by draft round', () => {
+  // This sort has existed since it shipped but never worked on the shared
+  // page: acquisitionRound was read by buildSharedRows and never projected by
+  // get_shared_league, so every row's round came back null and the sort fell
+  // through to alphabetical. Migration 007 projects it; this asserts the sort
+  // it enables, so a future projection edit that drops it fails here.
+  const SNAKE = {
+    id: 'basketball-2', name: 'Rounds', sport: 'basketball', draftType: 'snake',
+    keeperCostModel: 'slot', termModel: 'none', keeperSlots: 3,
+    teams: [{
+      id: 't1', name: 'Alpha',
+      priorKeepers: [
+        { player: 'Zeta Late', acquisitionRound: 9 },
+        { player: 'Alpha Early', acquisitionRound: 2 },
+      ],
+      roster: [{ player: 'Zeta Late' }, { player: 'Alpha Early' }, { player: 'No Round Guy' }],
+      keepers: [],
+    }],
+  };
+  const rows = buildSharedRows(SNAKE);
+  assert.equal(rows.find(r => r.player === 'Alpha Early').round, 2, 'the round reaches the row');
+  const order = sortRowsDefault(rows, null, SNAKE).map(r => r.player);
+  assert.deepEqual(order, ['Alpha Early', 'Zeta Late', 'No Round Guy'],
+    'earliest round first, round-less last — not alphabetical');
+});
+
+test('an overridden DRAFTED price flows into the calculated keep cost', () => {
+  // The escalation reads the prior record's keptFor, so correcting a bad
+  // imported price has to change what the page quotes.
+  const before = buildSharedRows(AUCTION).find(r => r.player === "Ja'Marr Chase");
+  const corrected = {
+    ...AUCTION,
+    teams: AUCTION.teams.map(t => ({
+      ...t,
+      priorKeepers: (t.priorKeepers || []).map(p => p.player === "Ja'Marr Chase"
+        ? { ...p, keptFor: 100, keptForComputed: 83, keptForOverridden: true }
+        : p),
+    })),
+  };
+  const after = buildSharedRows(corrected).find(r => r.player === "Ja'Marr Chase");
+  assert.notEqual(after.cost, before.cost, 'the quoted keep cost moves with the corrected price');
+  assert.equal(after.draftedCost, 100, 'and the "drafted" line shows the corrected price');
+});
+
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);

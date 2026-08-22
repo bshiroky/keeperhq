@@ -1,11 +1,12 @@
 import React from 'react';
 import { ArrowLeftRight, Check } from 'lucide-react';
-import { makeTheme, tokens, Button } from '../components.jsx';
+import { makeTheme, tokens, Button, EditedMark } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { normalizeName } from '../lib/players.js';
 import { ACQUISITION_METHODS, ACQUISITION_LABEL, acquisitionOf } from '../lib/acquisition.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
 import { termOf, hasTerm, isAuctionCost, TERM_FIXED } from '../lib/keeperRules.js';
+import { setPrice, priceOf, computedPriceOf, isPriceOverridden } from '../lib/priceProvenance.js';
 
 // Keepers Tab — full management with inline add/edit/remove
 
@@ -81,6 +82,14 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
       const baseYear = 2025;
       updated[i].expiresAfter = `${baseYear + remaining}-${String(baseYear + remaining + 1).slice(2)}`;
     }
+    setKeepers(updated);
+  }
+
+  // Price edits go through the provenance helper rather than writing keptFor
+  // directly, so this surface can't strand the calculated value.
+  function updateKeeperPrice(i, next) {
+    const updated = [...keepers];
+    updated[i] = { ...updated[i], ...setPrice(updated[i], next) };
     setKeepers(updated);
   }
 
@@ -229,8 +238,17 @@ function KeeperEditModal({ team, league, accentColor, isDark, onSave, onClose, a
                       <label style={{ fontSize: '10px', color: t.textMuted, fontWeight: 600 }}>KEPT FOR</label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <span style={{ fontSize: '13px', color: t.textMuted }}>$</span>
-                        <input type="number" min="1" value={k.keptFor} onChange={e => updateKeeper(i, 'keptFor', parseInt(e.target.value) || 1)}
-                          style={{ width: 64, background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: 6, padding: '7px 8px', color: accentColor, fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+                        {/* Same provenance path as the live Set-keepers panel:
+                            the typed price overrides, the calculated one is
+                            kept underneath. This modal is unrouted today, so
+                            it's wired to keep it from bypassing provenance if
+                            it's ever brought back. */}
+                        <input type="number" min="1" value={priceOf(k) ?? 0} onChange={e => updateKeeperPrice(i, parseInt(e.target.value) || 1)}
+                          style={{ width: 64, background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${isPriceOverridden(k) ? t.textMuted : t.border}`, borderRadius: 6, padding: '7px 8px', color: accentColor, fontSize: '13px', fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+                        {isPriceOverridden(k) && (
+                          <EditedMark computed={computedPriceOf(k)} isDark={isDark} compact
+                            onReset={() => updateKeeperPrice(i, computedPriceOf(k))} />
+                        )}
                       </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

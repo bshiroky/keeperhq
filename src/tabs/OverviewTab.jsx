@@ -1,11 +1,12 @@
 import React from 'react';
 import { Lock, Check, Clock, ClipboardList } from 'lucide-react';
-import { makeTheme, tokens, Button, usePlayerMap, Headshot } from '../components.jsx';
+import { makeTheme, tokens, Button, usePlayerMap, Headshot, EditedMark } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { SampleKeeperCell } from './keeper-grid-variants.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { keeperValueText, isFinalYear, hasTerm, isAuctionCost } from '../lib/keeperRules.js';
+import { isPriceOverridden, computedPriceOf } from '../lib/priceProvenance.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
@@ -503,6 +504,9 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
                   <span style={{ ...tokens.typeBody, fontWeight: 600, color: expiring ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.player}</span>
                   {expiring && <span style={{ ...tokens.typePillEmphatic, color: t.danger, flexShrink: 0 }}>Final yr</span>}
                   <span style={{ ...tokens.typePill, fontWeight: 700, color: expiring ? t.danger : gridAccent, flexShrink: 0 }}>{keeperValueText(league, k)}</span>
+                  {/* A cost the commissioner set by hand is marked wherever it
+                      renders, not only where it's editable. */}
+                  {isPriceOverridden(k) && <EditedMark computed={computedPriceOf(k)} isDark={isDark} compact />}
                 </>
               ) : (
                 <span style={{ ...tokens.typeBody, color: t.textMuted, fontStyle: 'italic', flex: 1 }}>Open slot</span>

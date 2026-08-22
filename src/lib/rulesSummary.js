@@ -56,6 +56,17 @@ export function keeperRuleFacts(league) {
       value: `$${floor}`,
       detail: 'what a player picked up off waivers costs to keep',
     });
+    // Stated as a rule, not as current state — it reads from the cost model,
+    // not from anyone's roster, so it holds whether or not a price has
+    // actually been set by hand yet. It's here because the escalation rule
+    // above is what a member checks a price against: without this line, a
+    // price that doesn't match it reads as a bug rather than a decision.
+    facts.push({
+      key: 'setPrice',
+      label: 'Price adjustments',
+      value: 'Commissioner can set one',
+      detail: 'a price set directly instead of calculated is marked on that player’s row',
+    });
   } else if (cost === COST_PICKS) {
     const rules = league.pickRules || {};
     const topSlots = rules.subModel === 'topSlots';

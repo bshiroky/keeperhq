@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader, Search, Check } from 'lucide-react';
-import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap } from './components.jsx';
+import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import { RulesButton } from './LeagueRulesModal.jsx';
@@ -198,6 +198,11 @@ function ContractText({ row, league, isDark }) {
             Drafted ${row.draftedCost}
           </span>
         )}
+        {/* Only where the number above doesn't follow the league's stated
+            rule. A corrected DRAFTED price isn't marked — the keep cost still
+            comes out of the escalation, so there's no inconsistency to
+            explain, only an edit to argue about. */}
+        {row.costOverridden && <CommissionerSetMark isDark={isDark} />}
       </span>
     );
   }

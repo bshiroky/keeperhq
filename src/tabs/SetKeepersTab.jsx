@@ -1,9 +1,11 @@
 import React from 'react';
 import { ArrowLeftRight, Check, Plus, Search, X } from 'lucide-react';
-import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot } from '../components.jsx';
+import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot, EditedMark } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
+import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } from '../lib/priceProvenance.js';
+import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
 
@@ -118,8 +120,13 @@ function buildTeamPool(league, team) {
       ...acqCarry(source || {}), ...acqCarry(prior),
     };
     if (dollars) {
+      // prior.keptFor is the drafted price IN FORCE — a commissioner override
+      // of a bad paste value flows into the escalation automatically, which is
+      // the point of storing the override in the read field.
       entry.nextCost = prior.keptFor != null ? prior.keptFor + bump : base;
       entry.wasCost = prior.keptFor;
+      entry.wasCostOverridden = isPriceOverridden(prior);
+      entry.wasCostComputed = computedPriceOf(prior);
       entry.yearsKept = (prior.yearsKept || 0) + 1;
     }
     if (termed) {
@@ -189,7 +196,7 @@ function TradeButton({ isDark }) {
 
 // One keeper slot in the left panel. Filled = editable value + trade/remove;
 // empty = a clickable "Open slot" that browses the pool (mobile opens overlay).
-function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onRemove, onBrowse, playerMap, draftedCost }) {
+function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, onUpdate, onSetPrice, onResetPrice, onRemove, onBrowse, playerMap, draftedCost }) {
   const t = makeTheme(isDark);
   const term = termOf(league);
   const termed = term.model === TERM_FIXED;
@@ -249,8 +256,19 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
               <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>Drafted ${draftedCost} →</span>
             )}
             <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
-            <input type="number" min="1" value={keeper.keptFor ?? 0} onChange={e => onUpdate({ keptFor: parseInt(e.target.value) || 1 })}
-              style={{ width: 54, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+            {/* Typing here overrides the calculated keep cost. The calculated
+                value is preserved underneath (priceProvenance), so the mark
+                can name it and the reset can go back to it. */}
+            <input type="number" min="1" value={priceOf(keeper) ?? 0} onChange={e => onSetPrice(parseInt(e.target.value) || 1)}
+              style={{
+                width: 54, background: t.cardBg,
+                border: `1px solid ${isPriceOverridden(keeper) ? t.textMuted : t.border}`,
+                borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent,
+                fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center',
+              }} />
+            {isPriceOverridden(keeper) && (
+              <EditedMark computed={computedPriceOf(keeper)} isDark={isDark} compact onReset={onResetPrice} />
+            )}
           </div>
         )}
         {termed && (
@@ -314,6 +332,9 @@ function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, dis
       )}
       <span style={{ ...tokens.typeBody, fontWeight: 600, color: blocked ? t.textMuted : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: blocked ? 'line-through' : 'none' }}>{entry.player}</span>
       {entry.statusLabel && <span style={{ ...tokens.typePill, color: entry.statusColor || t.textMuted, flexShrink: 0 }}>{entry.statusLabel}</span>}
+      {/* The drafted price this row's keep cost is calculated FROM was set by
+          hand — say so here, where the arithmetic is on screen. */}
+      {entry.wasCostOverridden && <EditedMark computed={entry.wasCostComputed} isDark={isDark} compact />}
       {valueText && <span style={{ ...tokens.typePill, fontWeight: 700, color: valueColor, flexShrink: 0 }}>{valueText}</span>}
       {btn}
     </div>
@@ -519,9 +540,11 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
     );
   }
 
-  function commit(nextKeepers) {
+  // Every write goes through commit so the change log can't be forgotten on
+  // one path — `changes` is optional and an empty list is a no-op append.
+  function commit(nextKeepers, changes = []) {
     const newTeams = teams.map(tm => tm.id === team.id ? { ...tm, keepers: nextKeepers } : tm);
-    onUpdateLeague({ ...league, teams: newTeams });
+    onUpdateLeague(appendChanges({ ...league, teams: newTeams }, changes));
   }
   function addEntry(entry) {
     if (keepers.length >= slots) return;
@@ -531,8 +554,41 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   function removeName(name) {
     commit(keepers.filter(k => normalizeName(k.player) !== normalizeName(name)));
   }
+  function patchAt(i, patch, changes) {
+    commit(keepers.map((k, idx) => idx === i ? { ...k, ...patch } : k), changes);
+  }
+  // Term edits are logged (same class of hand-entered value) but carry no
+  // stored provenance — only prices do, per the brief.
   function updateAt(i, patch) {
-    commit(keepers.map((k, idx) => idx === i ? { ...k, ...patch } : k));
+    const k = keepers[i];
+    if (!k) return;
+    const changes = Object.entries(patch)
+      .filter(([field, to]) => k[field] !== to)
+      .map(([field, to]) => changeEntry({
+        kind: 'term', field, teamId: team.id, teamName: team.name,
+        player: k.player, from: k[field] ?? null, to,
+      }));
+    patchAt(i, patch, changes);
+  }
+  function setPriceAt(i, next) {
+    const k = keepers[i];
+    if (!k || priceOf(k) === next) return;
+    const patch = setPrice(k, next);
+    patchAt(i, patch, changeEntry({
+      kind: patch.keptForOverridden ? 'price' : 'priceReset', field: 'keptFor',
+      teamId: team.id, teamName: team.name, player: k.player,
+      from: priceOf(k), to: patch.keptFor,
+    }));
+  }
+  function resetPriceAt(i) {
+    const k = keepers[i];
+    if (!k || !isPriceOverridden(k)) return;
+    const patch = resetPrice(k);
+    patchAt(i, patch, changeEntry({
+      kind: 'priceReset', field: 'keptFor',
+      teamId: team.id, teamName: team.name, player: k.player,
+      from: priceOf(k), to: patch.keptFor,
+    }));
   }
   function addManual(name) {
     const clean = (name || '').trim();
@@ -597,7 +653,9 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
             <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {Array.from({ length: slots }, (_, i) => (
                 <KeeperSlot key={i} index={i} keeper={keepers[i]} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark}
-                  onUpdate={patch => updateAt(i, patch)} onRemove={() => removeName(keepers[i].player)}
+                  onUpdate={patch => updateAt(i, patch)}
+                  onSetPrice={v => setPriceAt(i, v)} onResetPrice={() => resetPriceAt(i)}
+                  onRemove={() => removeName(keepers[i].player)}
                   onBrowse={openPool} playerMap={playerMap}
                   draftedCost={keepers[i] && draftedCostByName ? draftedCostByName.get(normalizeName(keepers[i].player)) ?? null : null} />
               ))}

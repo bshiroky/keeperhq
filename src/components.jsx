@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Check, X } from 'lucide-react';
+import { AlertTriangle, Check, Pencil, RotateCcw, X } from 'lucide-react';
 import { totalKeepers } from './lib/celebration.js';
 import { loadPlayers, normalizeName } from './lib/players.js';
 import { keeperCostModelOf, termOf, termLabel, hasTerm, isAuctionCost, COST_LABEL } from './lib/keeperRules.js';
@@ -570,6 +570,170 @@ function Toast({ trigger, message, isDark }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+// ── Confirm ─────────────────────────────────────────────────────────────────
+// The one confirm shape in the app: a question, the specific consequences as
+// bullets, an optional footnote, Cancel + the action. Cancel is the safe
+// default everywhere — it takes focus on open, and in the overlay form Escape
+// and the scrim also cancel. The action button is `danger` when it destroys
+// data.
+//
+// Consequences are {tone, text} lines rather than prose so one list can mix
+// losses (danger) with reassurances (ok) — a warning that only lists losses
+// gets clicked through, and a reassurance is often the reason it's safe to
+// proceed.
+//
+// TWO FORMS, one body, because of the standing overlay rules: `ConfirmModal`
+// is the overlay a PAGE or SHEET puts up, and `ConfirmBody` is the same
+// content rendered as a STEP inside a modal that's already open (a modal must
+// never open another modal). Same component underneath so the two can't drift.
+function ConfirmBody({ title, intro, lines = [], note, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false, isDark, accentColor, onConfirm, onCancel }) {
+  const t = makeTheme(isDark);
+  return (
+    <>
+      <h3 style={{ margin: 0, ...tokens.typeHeadingCard, color: t.textPrimary }}>{title}</h3>
+      {intro && (
+        <p style={{ margin: '10px 0 0', ...tokens.typeBody, color: t.textBody, lineHeight: 1.5 }}>{intro}</p>
+      )}
+      {lines.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: tokens.spaceMd }}>
+          {lines.map((line, i) => {
+            const ok = line.tone === 'ok';
+            return (
+              <div key={i} style={{
+                display: 'flex', gap: 8, alignItems: 'flex-start',
+                background: ok ? t.successBg : t.dangerBg,
+                border: `1px solid ${ok ? t.successBorder : t.dangerBorder}`,
+                borderRadius: tokens.radiusSm, padding: '9px 11px',
+              }}>
+                <span style={{ flexShrink: 0, lineHeight: 1, color: ok ? t.success : t.danger, marginTop: 1 }}>
+                  {ok ? <Check size={13} strokeWidth={2.5} /> : <AlertTriangle size={13} strokeWidth={2.25} />}
+                </span>
+                <span style={{ ...tokens.typeBodyMeta, color: t.textBody, lineHeight: 1.5 }}>{line.text}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {note && (
+        <p style={{ margin: '14px 0 0', ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5 }}>{note}</p>
+      )}
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: tokens.spaceLg }}>
+        {/* autoFocus, not a ref: Cancel is the safe default, so it's what Enter
+            hits the instant the confirm appears. */}
+        <Button variant="secondary" size="md" isDark={isDark} onClick={onCancel} autoFocus>{cancelLabel}</Button>
+        <Button variant={danger ? 'destructive' : 'primary'} size="md" accent={accentColor} isDark={isDark} onClick={onConfirm}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function ConfirmModal(props) {
+  const t = makeTheme(props.isDark);
+  const { onCancel } = props;
+
+  React.useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onCancel]);
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onCancel(); }}
+      style={{ position: 'fixed', inset: 0, background: t.scrim, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: tokens.spaceLg }}>
+      <div role="alertdialog" aria-label={props.title} style={{
+        background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
+        maxWidth: 520, width: '100%', maxHeight: '85vh', overflowY: 'auto', padding: tokens.spaceXl,
+        boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
+      }}>
+        <ConfirmBody {...props} />
+      </div>
+    </div>
+  );
+}
+
+// ── "Edited" marker ─────────────────────────────────────────────────────────
+// Marks a dollar value the commissioner typed rather than one the app worked
+// out, wherever that value appears. Neutral, not warning-coloured: an override
+// is a legitimate commissioner action, not a problem to fix — the point is
+// only that a reader can tell the two apart without cross-referencing the
+// source, and can get back to the calculated number.
+//
+// Two forms behind one component so an editing surface and a read-only one
+// can't drift: with `onReset` it's a pill plus a reset button; without, it's
+// the pill alone. `computed` is the value it would revert to.
+function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edited' }) {
+  const t = makeTheme(isDark);
+  const was = computed == null ? 'no value' : `$${computed}`;
+  const tip = `Set by hand. Calculated value: ${was}.${onReset ? ' Use ↺ to go back to it.' : ''}`;
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
+      <Tooltip isDark={isDark} content={tip} style={{ display: 'inline-flex', alignItems: 'center' }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 3, lineHeight: 1,
+          ...tokens.typePill, fontWeight: 700, color: t.textMuted,
+          background: t.sectionBg, border: `1px solid ${t.border}`,
+          borderRadius: tokens.radiusSm, padding: compact ? '1px 4px' : '2px 6px',
+          cursor: 'default',
+        }}>
+          <Pencil size={compact ? 9 : 10} strokeWidth={2} />
+          {!compact && label}
+        </span>
+      </Tooltip>
+      {onReset && (
+        <button type="button" onClick={onReset} aria-label={`Reset to calculated value (${was})`}
+          title={`Reset to calculated value (${was})`}
+          style={{
+            background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: t.textMuted,
+            lineHeight: 1, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.color = t.textPrimary; }}
+          onMouseLeave={e => { e.currentTarget.style.color = t.textMuted; }}>
+          <RotateCcw size={12} strokeWidth={2} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+// ── "Set by commissioner" marker (member-facing) ────────────────────────────
+// The public shared page's counterpart to EditedMark, and deliberately NOT the
+// same component — they answer to different rules.
+//
+// EditedMark is a working control: it names the calculated value and offers
+// the way back to it. This one says only THAT a price was set by hand. It
+// shows no old→new pair and no timestamp, because the page is not a diff and
+// the change log that holds those stays commissioner-only.
+//
+// It exists at all because the inconsistency is already on screen without it:
+// the page prints "Drafted $83" beside "Keep for $95" while the rules modal
+// states the escalation rule, so a member doing the arithmetic already sees a
+// number that doesn't add up. Unlabelled, that reads as a bug in the tool;
+// labelled, it reads as a commissioner decision. "Set by commissioner" rather
+// than "Overridden"/"Edited" for the same reason — most of these are paste
+// corrections, not favours.
+function CommissionerSetMark({ isDark }) {
+  const t = makeTheme(isDark);
+  return (
+    <Tooltip isDark={isDark} style={{ display: 'inline-flex', alignItems: 'center' }}
+      content="Your commissioner set this price directly rather than taking the one the keeper rules calculate.">
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3, lineHeight: 1,
+        ...tokens.typeStatMeta, fontWeight: 700, color: t.textMuted,
+        background: t.sectionBg, border: `1px solid ${t.border}`,
+        borderRadius: tokens.radiusSm, padding: '1px 5px', whiteSpace: 'nowrap',
+        cursor: 'default',
+      }}>
+        <Pencil size={9} strokeWidth={2} /> Set by commissioner
+      </span>
+    </Tooltip>
   );
 }
 
@@ -1459,7 +1623,7 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
-  MOTION_STYLES, SaveToast, Toast,
+  MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal, EditedMark, CommissionerSetMark,
   nextAction, leagueFlavor, leagueVoiceColor,
   KeepersCelebration,
 };

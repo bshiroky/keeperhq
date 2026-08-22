@@ -14,11 +14,13 @@
     "players:nfl:report": "node scripts/report-sleeper-nfl.mjs",
     "test:parser": "node scripts/test-draft-parser.mjs && node scripts/test-roster-parser.mjs",
     "test:nfl": "node scripts/test-nfl-directory.mjs",
+    "test:provenance": "node scripts/test-provenance.mjs",
+    "test:guards": "esbuild scripts/provenance-smoke-entry.jsx --bundle --format=esm --outfile=.tmp-provenance-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --define:import.meta.env={} --log-level=error && node scripts/smoke-provenance-ui.mjs",
     "test:nfl-ui": "esbuild scripts/nfl-smoke-entry.jsx --bundle --format=esm --outfile=.tmp-nfl-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --define:import.meta.env={} --log-level=error && node scripts/smoke-nfl-import.mjs",
     "test:shared": "esbuild scripts/shared-page-entry.jsx --bundle --format=esm --outfile=.tmp-shared-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --define:import.meta.env={} --log-level=error && node scripts/test-shared-page.mjs",
     "test:rules": "esbuild src/CreateLeagueWizard.jsx --bundle --format=esm --outfile=.tmp-wizard-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --log-level=error && node scripts/test-keeper-rules.mjs",
     "test:wizard": "esbuild src/CreateLeagueWizard.jsx --bundle --format=esm --outfile=.tmp-wizard-bundle.mjs --loader:.jsx=jsx --external:react --external:react-dom --log-level=error && node scripts/smoke-wizard.mjs",
-    "test": "npm run test:parser && npm run test:nfl && npm run test:nfl-ui && npm run test:shared && npm run test:rules && npm run test:wizard"
+    "test": "npm run test:parser && npm run test:nfl && npm run test:provenance && npm run test:guards && npm run test:nfl-ui && npm run test:shared && npm run test:rules && npm run test:wizard"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",

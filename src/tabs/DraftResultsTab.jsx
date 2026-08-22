@@ -1,12 +1,14 @@
 import React from 'react';
 import { ClipboardList, X } from 'lucide-react';
 import { isAuctionCost } from '../lib/keeperRules.js';
-import { makeTheme, tokens, Button, Headshot, HScrollRow } from '../components.jsx';
+import { makeTheme, tokens, Button, Headshot, HScrollRow, EditedMark } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { isNflSport } from '../lib/nflDirectory.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
+import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } from '../lib/priceProvenance.js';
+import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { DraftImportFlow } from './ImportTab.jsx';
 
 // ── Last Draft page (the "Last Draft" door) ──────────────────────────────────
@@ -62,8 +64,10 @@ function NameCell({ value, onCommit, league, isDark, unmatched, disabledNames })
 // Auction price cell — local draft committed on blur/Enter, NOT per
 // keystroke: rows are value-sorted, so a live commit would resort the list
 // under the cursor mid-edit.
-function PriceCell({ value, gridAccent, isDark, onCommit }) {
+function PriceCell({ entry, gridAccent, isDark, onCommit, onReset }) {
   const t = makeTheme(isDark);
+  const value = priceOf(entry);
+  const overridden = isPriceOverridden(entry);
   const [draft, setDraft] = React.useState(value ?? '');
   React.useEffect(() => { setDraft(value ?? ''); }, [value]);
   function commit() {
@@ -73,16 +77,19 @@ function PriceCell({ value, gridAccent, isDark, onCommit }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
       <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
+      {/* Typing over an imported price keeps the imported one underneath, so a
+          re-import can refresh it without discarding the correction. */}
       <input type="number" min="0" value={draft} placeholder="—" aria-label="Drafted price"
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-        style={{ width: 50, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+        style={{ width: 50, background: t.cardBg, border: `1px solid ${overridden ? t.textMuted : t.border}`, borderRadius: tokens.radiusSm, padding: '5px 6px', color: gridAccent, fontSize: 13, fontWeight: 700, fontFamily: 'inherit', textAlign: 'center' }} />
+      {overridden && <EditedMark computed={computedPriceOf(entry)} isDark={isDark} compact onReset={onReset} />}
     </span>
   );
 }
 
-function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirReady, maxRound, onUpdate, onRemove }) {
+function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirReady, maxRound, onUpdate, onSetPrice, onResetPrice, onSetRound, onRemove }) {
   const t = makeTheme(isDark);
   const isSnake = league.draftType === 'snake';
   const nfl = isNflSport(league.sport);
@@ -125,14 +132,14 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
             : { player: name })} />
         {isSnake ? (
           <select value={entry.acquisitionRound ?? ''} aria-label="Draft round"
-            onChange={e => onUpdate({ acquisitionRound: e.target.value === '' ? null : parseInt(e.target.value) })}
+            onChange={e => onSetRound(e.target.value === '' ? null : parseInt(e.target.value))}
             style={{ ...selStyle, color: entry.acquisitionRound != null ? gridAccent : t.textMuted, flexShrink: 0 }}>
             <option value="">Rd —</option>
             {Array.from({ length: maxRound }, (_, ri) => ri + 1).map(v => <option key={v} value={v}>Rd {v}</option>)}
           </select>
         ) : (
-          <PriceCell value={entry.keptFor} gridAccent={gridAccent} isDark={isDark}
-            onCommit={v => onUpdate({ keptFor: v })} />
+          <PriceCell entry={entry} gridAccent={gridAccent} isDark={isDark}
+            onCommit={onSetPrice} onReset={onResetPrice} />
         )}
         <button onClick={onRemove} aria-label="Remove row" title="Remove row"
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, lineHeight: 1, padding: 4, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit', flexShrink: 0 }}>
@@ -203,13 +210,51 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
   const [summary, setSummary] = React.useState(null); // transient success banner
   const [teamFilter, setTeamFilter] = React.useState('all');
 
-  function updateEntry(teamId, idx, patch) {
-    onUpdateLeague({
+  function updateEntry(teamId, idx, patch, changes = []) {
+    onUpdateLeague(appendChanges({
       ...league,
       teams: teams.map(tm => tm.id === teamId
         ? { ...tm, priorKeepers: (tm.priorKeepers || []).map((p, i) => i === idx ? { ...p, ...patch } : p) }
         : tm),
-    });
+    }, changes));
+  }
+
+  const entryAt = (teamId, idx) =>
+    (teams.find(tm => tm.id === teamId)?.priorKeepers || [])[idx] || null;
+  const teamNameOf = (teamId) => teams.find(tm => tm.id === teamId)?.name || '';
+
+  // Drafted price: the imported value stays underneath the commissioner's, so
+  // a later re-import refreshes it without discarding the correction.
+  function setEntryPrice(teamId, idx, next) {
+    const entry = entryAt(teamId, idx);
+    if (!entry || priceOf(entry) === next) return;
+    const patch = setPrice(entry, next);
+    updateEntry(teamId, idx, patch, changeEntry({
+      kind: patch.keptForOverridden ? 'draftPrice' : 'draftPriceReset', field: 'keptFor',
+      teamId, teamName: teamNameOf(teamId), player: entry.player,
+      from: priceOf(entry), to: patch.keptFor,
+    }));
+  }
+  function resetEntryPrice(teamId, idx) {
+    const entry = entryAt(teamId, idx);
+    if (!entry || !isPriceOverridden(entry)) return;
+    const patch = resetPrice(entry);
+    updateEntry(teamId, idx, patch, changeEntry({
+      kind: 'draftPriceReset', field: 'keptFor',
+      teamId, teamName: teamNameOf(teamId), player: entry.player,
+      from: priceOf(entry), to: patch.keptFor,
+    }));
+  }
+  // Rounds are logged but carry no stored provenance — a re-import replaces
+  // them outright, which is what the draft import's guard says.
+  function setEntryRound(teamId, idx, next) {
+    const entry = entryAt(teamId, idx);
+    if (!entry || (entry.acquisitionRound ?? null) === next) return;
+    updateEntry(teamId, idx, { acquisitionRound: next }, changeEntry({
+      kind: 'round', field: 'acquisitionRound',
+      teamId, teamName: teamNameOf(teamId), player: entry.player,
+      from: entry.acquisitionRound ?? null, to: next,
+    }));
   }
   function removeEntry(teamId, idx) {
     onUpdateLeague({
@@ -372,7 +417,11 @@ function LastDraftPanel({ league, isDark, accentColor, onUpdateLeague }) {
               .map(({ entry, i }) => (
                 <DraftRow key={`${tm.id}-${i}`} entry={entry} team={tm} idx={i} league={league} isDark={isDark}
                   gridAccent={gridAccent} dirMap={dirMap} dirReady={dirReady} maxRound={maxRound}
-                  onUpdate={patch => updateEntry(tm.id, i, patch)} onRemove={() => removeEntry(tm.id, i)} />
+                  onUpdate={patch => updateEntry(tm.id, i, patch)}
+                  onSetPrice={v => setEntryPrice(tm.id, i, v)}
+                  onResetPrice={() => resetEntryPrice(tm.id, i)}
+                  onSetRound={v => setEntryRound(tm.id, i, v)}
+                  onRemove={() => removeEntry(tm.id, i)} />
               ))}
           </div>
         </div>
