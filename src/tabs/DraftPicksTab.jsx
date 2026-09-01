@@ -31,13 +31,13 @@ const CELL_W = 92;
 // `initialText` exists so a server render can exercise the PREVIEW step —
 // the state a click normally reaches (the Rules-button lesson: a trigger and
 // a step that each render fine can still be miswired between them).
-function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose, initialText = '' }) {
+function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose, initialText = '', initialGridText = '' }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   // Parse + resolve names the same way the draft import does: saved
   // yahooTeamMap first (silent), then a similarity suggestion vs team names.
-  const previewOf = (src) => {
-    const result = parseDraftPicksText(src, { knownNames: teams.map(tm => tm.name) });
+  const previewOf = (src, gridSrc) => {
+    const result = parseDraftPicksText(src, { knownNames: teams.map(tm => tm.name), gridText: gridSrc });
     if (result.error) return { result: null, mapInit: {}, error: result.error };
     const mapInit = {};
     const names = [...new Set([...(result.teams || []), ...result.picks.flatMap(p => [p.originalName, p.ownerName])])];
@@ -47,8 +47,9 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
     });
     return { result, mapInit, error: null };
   };
-  const initial = React.useMemo(() => (initialText ? previewOf(initialText) : null), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const initial = React.useMemo(() => (initialText ? previewOf(initialText, initialGridText) : null), []); // eslint-disable-line react-hooks/exhaustive-deps
   const [text, setText] = React.useState(initialText);
+  const [gridText, setGridText] = React.useState(initialGridText);
   const [parsed, setParsed] = React.useState(initial?.result || null); // parseDraftPicksText result | null
   const [mapping, setMapping] = React.useState(initial?.mapInit || {}); // { yahooName: teamId }
   const [error, setError] = React.useState(initial?.error || null);
@@ -74,8 +75,19 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
   // column — refuse it rather than let the grid quietly disagree with Yahoo.
   const dupTeamIds = [...new Set(Object.values(mapping).filter(id => id && namesToResolve.filter(n => mapping[n] === id).length > 1))];
 
+  // Picking a team already mapped on another row STEALS it — that row
+  // visibly reverts to unmapped instead of silently double-assigning (the
+  // draft import's behaviour; two Yahoo names can't share a team).
+  function pickTeam(name, id) {
+    const next = { ...mapping };
+    if (id) Object.keys(next).forEach(k => { if (k !== name && next[k] === id) delete next[k]; });
+    if (id) next[name] = id; else delete next[name];
+    setMapping(next);
+  }
+  const mappedCount = new Set(namesToResolve.map(n => mapping[n]).filter(Boolean)).size;
+
   function doPreview() {
-    const { result, mapInit, error: err } = previewOf(text);
+    const { result, mapInit, error: err } = previewOf(text, gridText);
     setError(err);
     if (!result) return;
     setMapping(mapInit);
@@ -168,18 +180,28 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
           {!guard && !parsed && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-                On Yahoo, open the league's <strong>Draft Picks</strong> page and switch it to <strong>By Round</strong>. Select everything on the page, copy, and paste here. Each round lists every team followed by the picks it holds — the original owners' names, run together, or <code style={code}>-</code> for none.
+                On Yahoo, open the league's <strong>Draft Picks</strong> page and switch it to <strong>By Round</strong>. Select everything on the page, copy, and paste it in the first box. Each round lists every team followed by the picks it holds — the original owners' names, run together, or <code style={code}>-</code> for none.
               </div>
-              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
-                Optional check: also copy the <strong>Grid</strong> view and paste it below the By Round text. Its per-team counts are compared against what was read, round by round. The Grid on its own isn't enough — it only has counts.
-              </div>
-              <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
-                placeholder={"Round 1\nTeam\tPicks Owned\nDuck Duck Goose\nDuck Duck GooseAlex\nAlex\n-\nBlake\nBlake\n\nRound 2\n..."}
-                style={{
-                  width: '100%', minHeight: 220, background: t.sectionBg, border: `1px solid ${t.border}`,
-                  borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',
-                  outline: 'none', boxSizing: 'border-box', resize: 'vertical',
-                }} />
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>By Round <span style={{ color: t.danger }}>· required</span></span>
+                <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
+                  placeholder={"Round 1\nTeam\tPicks Owned\nDuck Duck Goose\nDuck Duck GooseAlex\nAlex\n-\nBlake\nBlake\n\nRound 2\n..."}
+                  style={{
+                    width: '100%', minHeight: 180, background: t.sectionBg, border: `1px solid ${t.border}`,
+                    borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',
+                    outline: 'none', boxSizing: 'border-box', resize: 'vertical',
+                  }} />
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>Grid <span style={{ color: t.textMuted, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· optional — pasted here, its per-team counts are checked against what was read, round by round</span></span>
+                <textarea value={gridText} onChange={e => setGridText(e.target.value)}
+                  placeholder={"Team\tRounds\n1\t2\t3\nDuck Duck Goose\t2\t1\t1\nAlex\t0\t1\t1\n..."}
+                  style={{
+                    width: '100%', minHeight: 90, background: t.sectionBg, border: `1px solid ${t.border}`,
+                    borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',
+                    outline: 'none', boxSizing: 'border-box', resize: 'vertical',
+                  }} />
+              </label>
               {error && (
                 <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>{error}</div>
               )}
@@ -259,11 +281,16 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
                   {namesToResolve.map(name => (
                     <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 8, padding: '7px 12px' }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                      <select value={mapping[name] || ''} onChange={e => setMapping({ ...mapping, [name]: e.target.value })}
+                      <select value={mapping[name] || ''} onChange={e => pickTeam(name, e.target.value)}
                         aria-label={`Match ${name}`}
                         style={{ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${mapping[name] && !dupTeamIds.includes(mapping[name]) ? accentColor : t.danger}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer', minWidth: 140 }}>
                         <option value="">— Pick a team —</option>
-                        {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                        {/* Teams mapped on OTHER rows stay listed (removing them
+                            forces menu-hopping) but carry a marker. */}
+                        {teams.map(tm => {
+                          const usedElsewhere = namesToResolve.some(n => n !== name && mapping[n] === tm.id);
+                          return <option key={tm.id} value={tm.id}>{usedElsewhere ? `${tm.name} ✓ (mapped)` : tm.name}</option>;
+                        })}
                       </select>
                     </div>
                   ))}
@@ -310,9 +337,14 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
                 <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>The grid already matches this paste — nothing to change.</div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                 <Button variant="secondary" size="md" isDark={isDark} onClick={() => { setParsed(null); setError(null); }}>← Back to paste</Button>
-                <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {namesToResolve.length > 0 && (
+                    <span style={{ ...tokens.typeBodyMeta, color: unresolved.length === 0 && dupTeamIds.length === 0 ? t.textMuted : t.danger }}>
+                      {mappedCount} of {namesToResolve.length} team{namesToResolve.length === 1 ? '' : 's'} mapped
+                    </span>
+                  )}
                   <Button variant="secondary" size="md" isDark={isDark} onClick={onClose}>Cancel</Button>
                   <Button variant="primary" size="md" accent={accentColor} isDark={isDark}
                     disabled={!canApply} onClick={doImport}>

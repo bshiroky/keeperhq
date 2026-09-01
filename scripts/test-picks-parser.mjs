@@ -130,9 +130,15 @@ function buildByRound(rounds = 17, trades = TRADES, teams = TEAMS) {
   }
   return out;
 }
-function buildGrid(rounds = 17, trades = TRADES, teams = TEAMS, { total = false } = {}) {
+// `yahoo: true` builds the header the way Yahoo's page actually copies it —
+// "Team<TAB>Rounds" on one line, "1<TAB>2<TAB>…" on the next — which is what
+// the first real paste hit (the one-line header is kept as a variant).
+function buildGrid(rounds = 17, trades = TRADES, teams = TEAMS, { total = false, yahoo = false } = {}) {
   const own = (round, original) => trades[`${round}:${original}`] || original;
-  let out = `Team\t${Array.from({ length: rounds }, (_, i) => i + 1).join('\t')}${total ? '\tTotal' : ''}\n`;
+  const nums = Array.from({ length: rounds }, (_, i) => i + 1).join('\t');
+  let out = yahoo
+    ? `Team\tRounds\n${nums}${total ? '\tTotal' : ''}\n`
+    : `Team\t${nums}${total ? '\tTotal' : ''}\n`;
   for (const owner of teams) {
     const counts = Array.from({ length: rounds }, (_, i) => teams.filter(orig => own(i + 1, orig) === owner).length);
     out += `${owner}\t${counts.join('\t')}${total ? `\t${counts.reduce((s, c) => s + c, 0)}` : ''}\n`;
@@ -220,12 +226,53 @@ test('tab-separated rows (owner<TAB>held on one line) parse the same', () => {
   assert.deepEqual(r.issues, []);
 });
 
+// The real-paste failure: Yahoo's two-line Grid header under the By Round
+// text in ONE field read as a continuation of Round 17 — "Team" and "1"
+// became teams, count rows became concatenated picks, R17 claimed 200 picks.
+test("Yahoo's two-line Grid header under By Round is the boundary, not Round 17", () => {
+  const r = parseDraftPicksText(`${buildByRound()}\n${buildGrid(17, TRADES, TEAMS, { yahoo: true })}\nTotal\t204\n`);
+  assert.equal(r.teamCount, 12);
+  assert.equal(r.totalPicks, 204);
+  assert.equal(r.tradedCount, Object.keys(TRADES).length);
+  assert.equal(r.picks.filter(p => p.round === 17).length, 12);
+  assert.ok(!r.teams.includes('Team') && !r.teams.includes('1'));
+  assert.ok(r.grid && r.grid.ok, 'the grid under the paste is read as the checksum');
+  assert.deepEqual(r.issues, []);
+});
+
+test('the Grid in its own field (gridText) is the checksum, By Round field untouched', () => {
+  const r = parseDraftPicksText(buildByRound(), { gridText: buildGrid(17, TRADES, TEAMS, { yahoo: true }) });
+  assert.equal(r.totalPicks, 204);
+  assert.equal(r.grid.ok, true);
+  assert.deepEqual(r.issues, []);
+  const bad = { ...TRADES }; delete bad[`12:${STOP}`];
+  const r2 = parseDraftPicksText(buildByRound(), { gridText: buildGrid(17, bad, TEAMS, { yahoo: true }) });
+  assert.equal(r2.grid.ok, false);
+  assert.ok(r2.issues.some(i => i.kind === 'grid' && i.round === 12 && i.team === GRIT));
+});
+
+test('an unreadable Grid field is reported and ignored, never parsed as picks', () => {
+  const r = parseDraftPicksText(buildByRound(), { gridText: 'this is not a grid\njust words\n' });
+  assert.equal(r.totalPicks, 204);
+  assert.equal(r.grid, null);
+  assert.ok(r.issues.some(i => i.kind === 'grid' && /Grid field couldn't be read/.test(i.text)));
+});
+
+test('the Grid field wins over a Grid also pasted under By Round', () => {
+  const r = parseDraftPicksText(`${buildByRound()}\n${buildGrid()}`, { gridText: buildGrid(17, TRADES, TEAMS, { yahoo: true, total: true }) });
+  assert.equal(r.totalPicks, 204);
+  assert.equal(r.grid.ok, true);
+});
+
 test('Grid alone is refused with a message that names By Round', () => {
-  const r = parseDraftPicksText(buildGrid());
+  const r = parseDraftPicksText(buildGrid(17, TRADES, TEAMS, { yahoo: true }));
   assert.equal(r.format, 'grid');
-  assert.equal(r.picks.length, 0);
-  assert.match(r.error, /Grid view/);
   assert.match(r.error, /By Round/);
+  const r1 = parseDraftPicksText(buildGrid());
+  assert.equal(r1.format, 'grid');
+  assert.equal(r1.picks.length, 0);
+  assert.match(r1.error, /Grid view/);
+  assert.match(r1.error, /By Round/);
 });
 
 test('an empty or unrelated paste says where to find By Round', () => {

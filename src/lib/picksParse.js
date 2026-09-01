@@ -107,28 +107,55 @@ export function segmentTeamNames(raw, vocab) {
 }
 
 // ── GRID view ───────────────────────────────────────────────────────────────
-// Header "Team 1 2 3 … N [Total]" then one row per team: name followed by
-// N integers. Team names may contain digits and spaces, so the counts are
-// read from the END of the row — exactly as many as the header declared, or,
-// with no header, every trailing integer (min 3, and every row must agree).
-// Returns { rounds, teams: [{ name, counts }], lineIdx: Set } or null.
-export function parsePicksGrid(text) {
-  const lines = (text || '').split(/\r?\n/);
-  let headerRounds = null, hasTotal = false, headerLine = -1;
+// Counts per team per round. Yahoo's page copies its header as TWO lines —
+//   Team	Rounds
+//   1	2	3	…	17
+// — though a one-line "Team 1 2 3 … N [Total]" is read too. Then one row per
+// team: the name followed by N integers. Team names may contain digits and
+// spaces, so the counts are read from the END of the row — exactly as many
+// as the header declared.
+//
+// The header is also the BOUNDARY when the Grid is pasted under a By Round
+// paste in one field: nothing in By Round produces it, so round parsing
+// stops there (the header line index is returned as `startLine`). Without a
+// header a grid is recognised only when `requireHeader` is off (the
+// dedicated Grid field), by rows agreeing on a width of ≥ 3 counts.
+function findGridHeader(lines) {
+  const seq = (tokens) => {
+    const t = tokens.filter(Boolean);
+    const hasTotal = /^total$/i.test(t[t.length - 1] || '');
+    const nums = (hasTotal ? t.slice(0, -1) : t).map(Number);
+    if (nums.length < 2 || !nums.every((v, k) => v === k + 1)) return null;
+    return { rounds: nums.length, hasTotal };
+  };
   for (let i = 0; i < lines.length; i++) {
     const l = collapse(lines[i]);
-    const m = l.match(/^team((?:\s+\d+)+)(\s+total)?$/i);
-    if (!m) continue;
-    const nums = m[1].trim().split(' ').map(Number);
-    if (nums.length >= 2 && nums.every((v, k) => v === k + 1)) {
-      headerRounds = nums.length; hasTotal = !!m[2]; headerLine = i; break;
+    const one = l.match(/^team\s+(.+)$/i);
+    if (one && !/^rounds?$/i.test(one[1])) {
+      const r = seq(one[1].split(' '));
+      if (r) return { line: i, rowsFrom: i + 1, ...r };
+      continue;
+    }
+    if (/^team(\s+rounds?)?$/i.test(l)) {
+      const next = lines[i + 1] == null ? null : collapse(lines[i + 1]);
+      const r = next ? seq(next.split(' ')) : null;
+      if (r) return { line: i, rowsFrom: i + 2, ...r };
     }
   }
+  return null;
+}
+
+export function parsePicksGrid(text, { requireHeader = false } = {}) {
+  const lines = (text || '').split(/\r?\n/);
+  const header = findGridHeader(lines);
+  if (!header && requireHeader) return null;
+  const headerRounds = header ? header.rounds : null;
+  const hasTotal = header ? header.hasTotal : false;
   const rows = [];
   const lineIdx = new Set();
-  if (headerLine >= 0) lineIdx.add(headerLine);
+  if (header) for (let i = header.line; i < header.rowsFrom; i++) lineIdx.add(i);
   const TRAILING = /^(.*?)((?:\s+\d+)+)$/;
-  for (let i = headerLine >= 0 ? headerLine + 1 : 0; i < lines.length; i++) {
+  for (let i = header ? header.rowsFrom : 0; i < lines.length; i++) {
     const l = collapse(lines[i]);
     if (!l || ROUND_HEADER.test(l)) continue;
     const m = l.match(TRAILING);
@@ -152,7 +179,7 @@ export function parsePicksGrid(text) {
     if (!name) continue;
     rows.push({ name, counts, line: i });
   }
-  if (headerLine < 0) {
+  if (!header) {
     // No header: rows must agree on a width to count as a grid at all.
     if (rows.length < 2) return null;
     const width = rows[0].counts.length;
@@ -164,6 +191,7 @@ export function parsePicksGrid(text) {
     rounds: headerRounds ?? rows[0].counts.length,
     teams: rows.map(({ name, counts }) => ({ name, counts })),
     lineIdx,
+    startLine: header ? header.line : Math.min(...rows.map(r => r.line)),
   };
 }
 
@@ -171,10 +199,30 @@ export function parsePicksGrid(text) {
 // opts.knownNames — the league's own team names, used as a second-tier
 // vocabulary only when the paste's own owner lines can't cover a held cell
 // (a Yahoo rename mid-paste, or a commissioner-renamed team).
+// opts.gridText — the Grid view pasted in its own field. When absent, a Grid
+// pasted UNDER the By Round text in the same field is found by its header
+// and read from there; either way round parsing never runs past it.
 export function parsePicksByRound(text, opts = {}) {
   const rawLines = (text || '').split(/\r?\n/);
-  const grid = parsePicksGrid(text);
-  const skipIdx = grid?.lineIdx || new Set();
+  const issues = [];
+  const embedded = parsePicksGrid(text, { requireHeader: true });
+  let grid = embedded;
+  if ((opts.gridText || '').trim()) {
+    grid = parsePicksGrid(opts.gridText);
+    if (!grid) issues.push({ round: null, kind: 'grid', text: "The Grid field couldn't be read as Yahoo's Grid view — expected a Team / Rounds header and one row of counts per team. It was ignored." });
+  }
+  const skipIdx = embedded?.lineIdx || new Set();
+  // A Grid UNDER the By Round text ends round parsing at its header — any
+  // trailing furniture (a Total row, page chrome) can't leak into the last
+  // round. A Grid pasted FIRST is skipped as a span instead, since rounds
+  // follow it.
+  let stopAt = rawLines.length;
+  if (embedded) {
+    const gridEnd = Math.max(...embedded.lineIdx);
+    const roundsFollow = rawLines.slice(gridEnd + 1).some(l => ROUND_HEADER.test(collapse(l)));
+    if (roundsFollow) for (let i = embedded.startLine; i <= gridEnd; i++) skipIdx.add(i);
+    else stopAt = embedded.startLine;
+  }
 
   // Pass 1 — structure: round blocks of (owner, held) pairs. Rows come either
   // as two consecutive lines (the copy the sample shows) or tab-separated on
@@ -182,7 +230,7 @@ export function parsePicksByRound(text, opts = {}) {
   const blocks = [];
   let current = null;
   let pendingOwner = null;
-  for (let i = 0; i < rawLines.length; i++) {
+  for (let i = 0; i < stopAt; i++) {
     if (skipIdx.has(i)) continue;
     const line = rawLines[i].replace(/\r/g, '');
     const flat = collapse(line);
@@ -208,7 +256,6 @@ export function parsePicksByRound(text, opts = {}) {
     pendingOwner = null;
   }
 
-  const issues = [];
   if (blocks.length === 0) return { format: 'byRound', picks: [], rounds: [], teams: [], teamCount: 0, totalPicks: 0, tradedCount: 0, issues, grid: null };
   if (pendingOwner != null) {
     issues.push({ round: current.round, kind: 'structure', text: `R${current.round}: "${pendingOwner}" has no picks line under it — the paste may be cut off.` });
@@ -350,13 +397,14 @@ export function detectPicksFormat(text) {
   const headers = lines.filter(l => ROUND_HEADER.test(l)).map(l => parseInt(l.match(ROUND_HEADER)[1], 10));
   const uniqueHeaders = new Set(headers);
   if (headers.length > 0 && uniqueHeaders.size === headers.length) return 'byRound';
+  if (parsePicksGrid(text, { requireHeader: true })) return 'grid';
   if (lines.some(l => PICK_LINE_REGEX.test(l))) return 'byTeam';
   if (parsePicksGrid(text)) return 'grid';
   return 'unknown';
 }
 
 export const PICKS_PASTE_ERRORS = {
-  grid: "This looks like Yahoo's Grid view, which only has pick COUNTS — not which picks each team holds. On the Draft Picks page switch to By Round, copy that, and paste it here (keeping the Grid below it is fine — it's used to double-check).",
+  grid: "This looks like Yahoo's Grid view, which only has pick COUNTS — not which picks each team holds. On the Draft Picks page switch to By Round, copy that, and paste it here. The Grid goes in its own field below, where it's used to double-check the counts.",
   unknown: "Couldn't find any rounds. On Yahoo's Draft Picks page choose the By Round view, select everything, copy, and paste it here.",
   empty: "Found the round headers but no picks under them — make sure the whole By Round page is selected when copying.",
 };

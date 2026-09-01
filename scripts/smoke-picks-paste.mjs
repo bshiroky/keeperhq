@@ -64,10 +64,27 @@ for (const isDark of [true, false]) {
   const theme = isDark ? 'dark' : 'light';
   const props = { league, isDark, accentColor: '#3b8ae6', onUpdateLeague() {}, onClose() {} };
 
-  test(`${theme}: the paste step renders with By Round instructions`, () => {
+  test(`${theme}: the paste step has two labelled fields — By Round required, Grid optional`, () => {
     const html = render(h(PicksPasteModal, props));
-    includes(html, 'By Round');
-    includes(html, 'Grid');
+    assert((html.match(/<textarea/g) || []).length === 2, 'expected two textareas');
+    includes(html, 'By Round <span');
+    includes(html, 'required');
+    includes(html, 'Grid <span');
+    includes(html, 'optional');
+  });
+
+  test(`${theme}: the Grid field is the checksum (two-line Yahoo header)`, () => {
+    const html = render(h(PicksPasteModal, { ...props, initialText: BY_ROUND, initialGridText: 'Team\tRounds\n1\t2\nAlex\t2\t1\nBlake\t0\t1\nCasey\t1\t1\nDrew\t1\t1\n' }));
+    includes(html, 'Grid check passed');
+    includes(html, '<strong>8</strong> pick');
+  });
+
+  test(`${theme}: a team mapped on another row is marked in the dropdown`, () => {
+    // Drew is unresolved; Alex/Blake/Casey auto-resolve. Drew's dropdown lists
+    // the three taken teams with the marker.
+    const html = render(h(PicksPasteModal, { ...props, initialText: BY_ROUND.replace(/Drew/g, 'Zzyzx Road') }));
+    includes(html, 'Alex ✓ (mapped)');
+    includes(html, '3 of 4 teams mapped');
   });
 
   test(`${theme}: preview shows totals, the trade, and the clear of a hand-recorded trade`, () => {
