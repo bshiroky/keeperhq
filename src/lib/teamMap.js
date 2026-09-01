@@ -7,10 +7,17 @@
 // rename still resolves via the previously-confirmed name. Raw names are the
 // keys; lookup normalizes both sides (case / punctuation / spacing noise).
 
-const normTeam = (s) => (s || '')
-  .toLowerCase()
-  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  .replace(/[^a-z0-9]/g, '');
+// Exported because the pick-ownership paste segments concatenated team names
+// on this same key — the two must never drift. Keeps any Unicode letter or
+// digit (Cyrillic team names are real: "ЦСКА Совки"), drops case, diacritics,
+// punctuation, emoji and spacing.
+export function normalizeTeamName(s) {
+  return (s || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '');
+}
+const normTeam = normalizeTeamName;
 
 // Saved-mapping lookup. Returns the teamId if a stored name normalizes to the
 // same key AND that team still exists; null otherwise. Last-written entry wins

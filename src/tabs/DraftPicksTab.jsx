@@ -4,6 +4,7 @@ import { makeTheme, tokens, NumberInput, Button, ConfirmBody } from '../componen
 import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPicks } from '../lib/draftPicks.js';
 import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
 import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
+import { parseDraftPicksText } from '../lib/picksParse.js';
 
 // ── Draft Picks panel (the Picks door) ───────────────────────────────────────
 // Commissioner-only round × team grid of pick OWNERSHIP for the upcoming
@@ -16,117 +17,95 @@ import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
 const ROUND_W = 44;
 const CELL_W = 92;
 
-// ── Yahoo draft-picks paste parser ───────────────────────────────────────────
-// Yahoo's draft-picks page lists each team's picks for the upcoming draft,
-// with traded picks annotated. Built tolerant of the noise patterns the other
-// Yahoo pastes have (headers, blank lines, tabs, optional year prefixes);
-// the exact live format may need iteration once a real sample lands.
-//
-// Recognized pick-line shapes (case-insensitive), inside a team-name block:
-//   "Round 2"                        → own pick (no reassignment)
-//   "Round 2 (from Duck Duck Goose)" → that team's pick, held by the block team
-//   "Round 2 (via X)" / "- from X"   → same
-//   "Round 2 (to X)"                 → block team's pick, traded away to X
-//   "2nd Round pick (from X)", "Rd 2 (from X)", "2022 Round 2 (from X)"
-// Returns { picks: [{ round, originalName, ownerName }] } — one entry per
-// (round, original team), trade-annotated entries winning over plain ones.
-
-const PICK_LINE_REGEX = /^(?:20\d{2}\s+)?(?:(?:round|rd\.?)\s*(\d+)|(\d+)(?:st|nd|rd|th)\s+round)(?:\s+pick)?\s*(?:[-–—:]\s*)?(?:\(\s*(from|via|to)\s+([^)]+)\)|(from|via|to)\s+(.+))?\s*$/i;
-const PICK_SKIP_REGEX = /^(draft picks?|traded(?:\s+draft)?\s+picks?|picks?|round|team|original(?:\s+owner)?|current(?:\s+owner)?|owner|year|notes?|20\d{2}(?:\s+season)?|.*draft results.*)$/i;
-
-function parseDraftPicksText(text) {
-  const lines = (text || '').split(/\r?\n/).map(l => l.replace(/\t+/g, ' ').replace(/\s+/g, ' ').trim());
-  const byKey = new Map(); // "round|originalName(lower)" → { round, originalName, ownerName, traded }
-  let currentTeam = null;
-
-  const record = (round, originalName, ownerName, traded) => {
-    if (!round || !originalName || !ownerName) return;
-    const key = `${round}|${originalName.toLowerCase()}`;
-    const prev = byKey.get(key);
-    // Trade-annotated entries beat plain "own pick" listings; among trades,
-    // the later line wins (Yahoo lists a traded pick under both teams).
-    if (prev && prev.traded && !traded) return;
-    byKey.set(key, { round, originalName, ownerName, traded });
-  };
-
-  for (const line of lines) {
-    if (!line) continue;
-    if (PICK_SKIP_REGEX.test(line)) continue;
-    const m = line.match(PICK_LINE_REGEX);
-    if (m) {
-      if (!currentTeam) continue; // pick line before any team header — skip
-      const round = parseInt(m[1] || m[2], 10);
-      const dir = (m[3] || m[5] || '').toLowerCase();
-      const other = (m[4] || m[6] || '').trim();
-      if (!Number.isFinite(round)) continue;
-      if (!dir || !other) record(round, currentTeam, currentTeam, false);
-      else if (dir === 'to') record(round, currentTeam, other, true);
-      else record(round, other, currentTeam, true); // from / via
-      continue;
-    }
-    // Anything else short enough is a team-name header starting a new block
-    // (same heuristic as the draft-results paste).
-    if (!/^\d/.test(line) && !/^\$/.test(line) && line.length < 80) {
-      currentTeam = line;
-    }
-  }
-  return { picks: [...byKey.values()] };
-}
-
 // ── Paste-import modal (paste → preview/mapping → confirm) ───────────────────
-// One modal, steps within — the team-name mapping renders as part of the
-// preview step (never a second stacked modal), matching the draft import.
-function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose }) {
+// Reads Yahoo's Draft Picks page in its BY ROUND view (the parser lives in
+// lib/picksParse.js). One modal, steps within — the team-name mapping and the
+// overwrite confirm render as steps inside it, never a second stacked modal.
+//
+// By Round is COMPLETE — it lists every pick in every round — so the import
+// writes every pick it resolves: a pick shown with its original owner clears
+// any trade recorded on it by hand (the guard names those before anything
+// is written). The by-team fallback format only lists what it annotates, so
+// there only its trade rows are written and need names.
+//
+// `initialText` exists so a server render can exercise the PREVIEW step —
+// the state a click normally reaches (the Rules-button lesson: a trigger and
+// a step that each render fine can still be miswired between them).
+function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose, initialText = '' }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
-  const [text, setText] = React.useState('');
-  const [parsed, setParsed] = React.useState(null); // { picks } | null
-  const [mapping, setMapping] = React.useState({}); // { yahooName: teamId }
-  const [error, setError] = React.useState(null);
+  // Parse + resolve names the same way the draft import does: saved
+  // yahooTeamMap first (silent), then a similarity suggestion vs team names.
+  const previewOf = (src) => {
+    const result = parseDraftPicksText(src, { knownNames: teams.map(tm => tm.name) });
+    if (result.error) return { result: null, mapInit: {}, error: result.error };
+    const mapInit = {};
+    const names = [...new Set([...(result.teams || []), ...result.picks.flatMap(p => [p.originalName, p.ownerName])])];
+    names.forEach(n => {
+      const match = resolveYahooTeam(league, n) || suggestTeam(league, n);
+      if (match) mapInit[n] = match;
+    });
+    return { result, mapInit, error: null };
+  };
+  const initial = React.useMemo(() => (initialText ? previewOf(initialText) : null), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [text, setText] = React.useState(initialText);
+  const [parsed, setParsed] = React.useState(initial?.result || null); // parseDraftPicksText result | null
+  const [mapping, setMapping] = React.useState(initial?.mapInit || {}); // { yahooName: teamId }
+  const [error, setError] = React.useState(initial?.error || null);
   // A picksImportImpact while the overwrite confirm is showing (a step inside
   // this modal, never a second overlay).
   const [guard, setGuard] = React.useState(null);
 
   const teamName = (id) => teams.find(tm => tm.id === id)?.name || '?';
+  const code = { background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 };
 
-  // Trade rows are the only entries that change anything; own-pick rows are
-  // listed in the paste but need no write (sparse default) and no mapping.
-  const trades = (parsed?.picks || []).filter(p => p.traded && p.originalName.toLowerCase() !== p.ownerName.toLowerCase());
-  const ownCount = (parsed?.picks || []).length - trades.length;
-  const namesToResolve = [...new Set(trades.flatMap(p => [p.originalName, p.ownerName]))];
+  const isByRound = parsed?.format === 'byRound';
+  const picks = parsed?.picks || [];
+  const trades = picks.filter(p => p.traded);
+  const ownCount = picks.length - trades.length;
+  // Rows the import writes: everything on a complete paste, trades only on the
+  // by-team fallback. Every name on a written row has to resolve.
+  const writable = isByRound ? picks : trades;
+  const namesToResolve = isByRound
+    ? (parsed.teams || [])
+    : [...new Set(trades.flatMap(p => [p.originalName, p.ownerName]))];
   const unresolved = namesToResolve.filter(n => !mapping[n]);
+  // Two Yahoo names on one app team would write two teams' picks to one
+  // column — refuse it rather than let the grid quietly disagree with Yahoo.
+  const dupTeamIds = [...new Set(Object.values(mapping).filter(id => id && namesToResolve.filter(n => mapping[n] === id).length > 1))];
 
   function doPreview() {
-    setError(null);
-    const result = parseDraftPicksText(text);
-    if (result.picks.length === 0) {
-      setError("Couldn't find any picks. Expected lines like \"Round 2\" or \"Round 2 (from Team Name)\" under each team's name — copy the whole draft-picks page and paste it here.");
-      return;
-    }
-    // Resolve names the same way the draft import does: saved yahooTeamMap
-    // first (silent), then a similarity suggestion vs team names.
-    const mapInit = {};
-    const names = [...new Set(result.picks.flatMap(p => [p.originalName, p.ownerName]))];
-    names.forEach(n => {
-      const match = resolveYahooTeam(league, n) || suggestTeam(league, n);
-      if (match) mapInit[n] = match;
-    });
+    const { result, mapInit, error: err } = previewOf(text);
+    setError(err);
+    if (!result) return;
     setMapping(mapInit);
     setParsed(result);
   }
 
   // Resolved to ids so the guard can compare the paste against what's already
   // recorded. Rows whose names haven't been mapped yet are simply absent.
-  const resolvedTrades = trades
+  const resolvedRows = writable
     .map(p => ({ round: p.round, originalTeamId: mapping[p.originalName], ownerTeamId: mapping[p.ownerName] }))
     .filter(p => p.originalTeamId && p.ownerTeamId);
+  // What actually moves on the grid — trades not yet recorded, plus hand-
+  // recorded trades the paste shows back with the original owner.
+  const changes = resolvedRows.filter(p => pickOwnerId(league, p.round, p.originalTeamId) !== p.ownerTeamId);
+  const clears = changes.filter(p => p.originalTeamId === p.ownerTeamId);
+
+  // Preview-only checks on top of the parser's own (the parser never sees the league).
+  const previewIssues = [...(parsed?.issues || [])];
+  if (isByRound && parsed.teamCount !== teams.length) {
+    previewIssues.push({ kind: 'teams', text: `The paste lists ${parsed.teamCount} team${parsed.teamCount === 1 ? '' : 's'}; this league has ${teams.length}.` });
+  }
+
+  const canApply = writable.length > 0 && unresolved.length === 0 && dupTeamIds.length === 0 && (isByRound ? changes.length > 0 : trades.length > 0);
 
   function doImport() {
-    if (unresolved.length > 0) return;
+    if (!canApply) return;
     // This paste writes ownership pick by pick, so the only thing it can
     // destroy is a trade the commissioner already recorded that the paste
     // contradicts. Ask only when that's actually the case.
-    const impact = picksImportImpact(league, resolvedTrades);
+    const impact = picksImportImpact(league, resolvedRows);
     if (impact.hasImpact) { setGuard(impact); return; }
     applyImport();
   }
@@ -135,15 +114,12 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
     setGuard(null);
     let next = league;
     let maxRound = 0;
-    trades.forEach(p => {
-      const origId = mapping[p.originalName];
-      const ownerId = mapping[p.ownerName];
-      if (!origId || !ownerId) return;
-      next = reassignPick(next, p.round, origId, origId === ownerId ? null : ownerId);
+    resolvedRows.forEach(p => {
+      next = reassignPick(next, p.round, p.originalTeamId, p.originalTeamId === p.ownerTeamId ? null : p.ownerTeamId);
       maxRound = Math.max(maxRound, p.round);
     });
-    // A traded pick deeper than the current grid must be visible — grow the
-    // explicit round count to cover it.
+    // A pick deeper than the current grid must be visible — grow the explicit
+    // round count to cover it.
     if (maxRound > getDraftRounds(next)) {
       next = { ...next, draftPicks: { ownership: {}, ...next.draftPicks, rounds: maxRound } };
     }
@@ -156,6 +132,7 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
     position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000,
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
   };
+  const pill = (color, bg, border) => ({ ...tokens.typePillEmphatic, color, background: bg, border: `1px solid ${border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0 });
 
   return (
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -166,8 +143,8 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
       }}>
         <div style={{ padding: '16px 22px', borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary }}>Import Pick Trades</div>
-            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>Paste Yahoo's draft-picks page — traded picks are detected and applied to the grid.</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: t.textPrimary }}>Import Pick Ownership</div>
+            <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>Paste Yahoo's Draft Picks page (By Round view) — who holds which pick is read off it and applied to the grid.</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 20, lineHeight: 1 }}>×</button>
         </div>
@@ -191,21 +168,24 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
           {!guard && !parsed && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
-                On Yahoo, open the league's draft-picks page, select everything, copy, and paste here. Each team's name is followed by its picks — plain rounds like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>Round 3</code> stay put; annotated ones like <code style={{ background: t.sectionBg, padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>Round 2 (from Duck Duck Goose)</code> become trades.
+                On Yahoo, open the league's <strong>Draft Picks</strong> page and switch it to <strong>By Round</strong>. Select everything on the page, copy, and paste here. Each round lists every team followed by the picks it holds — the original owners' names, run together, or <code style={code}>-</code> for none.
+              </div>
+              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.5 }}>
+                Optional check: also copy the <strong>Grid</strong> view and paste it below the By Round text. Its per-team counts are compared against what was read, round by round. The Grid on its own isn't enough — it only has counts.
               </div>
               <textarea value={text} onChange={e => setText(e.target.value)} autoFocus
-                placeholder={"Duck Duck Goose\nRound 1\nRound 2\nRound 3 (from Alex)\n\nAlex\nRound 1\nRound 2 (from Blake)\n..."}
+                placeholder={"Round 1\nTeam\tPicks Owned\nDuck Duck Goose\nDuck Duck GooseAlex\nAlex\n-\nBlake\nBlake\n\nRound 2\n..."}
                 style={{
                   width: '100%', minHeight: 220, background: t.sectionBg, border: `1px solid ${t.border}`,
                   borderRadius: 8, padding: 10, fontSize: 12, color: t.textPrimary, fontFamily: 'monospace',
                   outline: 'none', boxSizing: 'border-box', resize: 'vertical',
                 }} />
               {error && (
-                <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger }}>{error}</div>
+                <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>{error}</div>
               )}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                 <Button variant="secondary" size="md" isDark={isDark} onClick={onClose}>Cancel</Button>
-                <Button variant="primary" size="md" accent={accentColor} isDark={isDark} disabled={!text.trim()} onClick={doPreview}>Preview Trades →</Button>
+                <Button variant="primary" size="md" accent={accentColor} isDark={isDark} disabled={!text.trim()} onClick={doPreview}>Preview →</Button>
               </div>
             </>
           )}
@@ -213,13 +193,52 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
           {!guard && parsed && (
             <>
               <div style={{ fontSize: 12, color: t.textSecondary }}>
-                Found <strong>{trades.length}</strong> traded pick{trades.length === 1 ? '' : 's'}
-                {ownCount > 0 && <span style={{ color: t.textMuted }}> · {ownCount} pick{ownCount === 1 ? ' is' : 's are'} with the original owner (left unchanged)</span>}.
+                {isByRound ? (
+                  <>
+                    Read <strong>{parsed.totalPicks}</strong> pick{parsed.totalPicks === 1 ? '' : 's'} across <strong>{parsed.rounds.length}</strong> round{parsed.rounds.length === 1 ? '' : 's'} and <strong>{parsed.teamCount}</strong> team{parsed.teamCount === 1 ? '' : 's'} · <strong>{trades.length}</strong> traded
+                    <span style={{ color: t.textMuted }}> · {ownCount} with the original owner</span>.
+                  </>
+                ) : (
+                  <>
+                    Found <strong>{trades.length}</strong> traded pick{trades.length === 1 ? '' : 's'}
+                    {ownCount > 0 && <span style={{ color: t.textMuted }}> · {ownCount} pick{ownCount === 1 ? ' is' : 's are'} with the original owner (left unchanged)</span>}.
+                  </>
+                )}
               </div>
 
-              {trades.length === 0 && (
+              {/* Checks: the parser's own (round sums, unmatched chunks) plus
+                  the Grid checksum when one was pasted. Reported, never
+                  silently accepted — but not a hard block, because the fix
+                  is on Yahoo's page, not in this modal. */}
+              {isByRound && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {parsed.grid ? (
+                    parsed.grid.ok ? (
+                      <div style={{ padding: '8px 12px', background: t.successBg, border: `1px solid ${t.successBorder}`, borderRadius: 6, fontSize: 12, color: t.success }}>
+                        Grid check passed — every team's count matches in all {parsed.grid.rounds} rounds.
+                      </div>
+                    ) : (
+                      <div style={{ padding: '8px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger }}>
+                        Grid check failed on {parsed.grid.mismatches.length} team-round{parsed.grid.mismatches.length === 1 ? '' : 's'} — details below.
+                      </div>
+                    )
+                  ) : (
+                    <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>No Grid pasted — paste Yahoo's Grid view under the By Round text to double-check the counts.</div>
+                  )}
+                  {previewIssues.length > 0 && (
+                    <div style={{ padding: '10px 12px', background: t.dangerBg, border: `1px solid ${t.dangerBorder}`, borderRadius: 6, fontSize: 12, color: t.danger, lineHeight: 1.5 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Check before applying</div>
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {previewIssues.map((i, k) => <li key={k}>{i.text}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isByRound && trades.length === 0 && (
                 <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5 }}>
-                  No trade annotations found in the paste — nothing to import. If Yahoo marks traded picks differently than "(from Team)", paste a sample in the PR/chat and the parser can learn it.
+                  No trade annotations found in the paste — nothing to import. Yahoo's By Round view is the reliable source: switch to it on the Draft Picks page and paste that instead.
                 </div>
               )}
 
@@ -232,12 +251,17 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
                       Unrecognized team name{unresolved.length === 1 ? '' : 's'} — pick whose team each one is. It's remembered for future imports.
                     </div>
                   )}
+                  {dupTeamIds.length > 0 && (
+                    <div style={{ fontSize: 11, fontWeight: 600, color: t.danger }}>
+                      Two names are mapped to the same team ({dupTeamIds.map(teamName).join(', ')}) — each Yahoo team has to map to a different team here.
+                    </div>
+                  )}
                   {namesToResolve.map(name => (
                     <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 8, padding: '7px 12px' }}>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
                       <select value={mapping[name] || ''} onChange={e => setMapping({ ...mapping, [name]: e.target.value })}
                         aria-label={`Match ${name}`}
-                        style={{ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${mapping[name] ? accentColor : t.danger}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer', minWidth: 140 }}>
+                        style={{ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${mapping[name] && !dupTeamIds.includes(mapping[name]) ? accentColor : t.danger}`, borderRadius: 6, padding: '6px 10px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer', minWidth: 140 }}>
                         <option value="">— Pick a team —</option>
                         {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
                       </select>
@@ -247,17 +271,17 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
               )}
 
               {/* Resulting reassignments */}
-              {trades.length > 0 && (
+              {(trades.length > 0 || clears.length > 0) && (
                 <div style={{ border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ padding: '8px 12px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted }}>Reassignments to apply</div>
+                  <div style={{ padding: '8px 12px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted }}>Traded picks in this paste</div>
                   <div style={{ padding: '4px 12px 8px' }}>
                     {trades.map((p, i) => {
                       const origId = mapping[p.originalName];
                       const ownerId = mapping[p.ownerName];
                       const already = origId && ownerId && pickOwnerId(league, p.round, origId) === ownerId;
                       return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < trades.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
-                          <span style={{ ...tokens.typePillEmphatic, color: t.warning, background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0 }}>R{p.round}</span>
+                        <div key={`${p.round}:${p.originalName}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < trades.length - 1 || clears.length > 0 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+                          <span style={pill(t.warning, t.warningBg, t.warningBorder)}>R{p.round}</span>
                           <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             <span>{origId ? teamName(origId) : p.originalName}'s pick</span>
                             <ArrowRight size={13} strokeWidth={2} color={t.textMuted} />
@@ -267,8 +291,23 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
                         </div>
                       );
                     })}
+                    {clears.map((p, i) => (
+                      <div key={`clear:${p.round}:${p.originalTeamId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < clears.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+                        <span style={pill(t.textMuted, t.sectionBg, t.border)}>R{p.round}</span>
+                        <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span>{teamName(p.originalTeamId)}'s pick</span>
+                          <ArrowRight size={13} strokeWidth={2} color={t.textMuted} />
+                          <span style={{ fontWeight: 700, color: t.textPrimary }}>back to {teamName(p.originalTeamId)}</span>
+                        </span>
+                        <span style={{ ...tokens.typePill, color: t.textMuted, flexShrink: 0 }}>recorded as traded to {teamName(pickOwnerId(league, p.round, p.originalTeamId))}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
+              )}
+
+              {isByRound && unresolved.length === 0 && dupTeamIds.length === 0 && changes.length === 0 && (
+                <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>The grid already matches this paste — nothing to change.</div>
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
@@ -276,8 +315,10 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose 
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Button variant="secondary" size="md" isDark={isDark} onClick={onClose}>Cancel</Button>
                   <Button variant="primary" size="md" accent={accentColor} isDark={isDark}
-                    disabled={trades.length === 0 || unresolved.length > 0} onClick={doImport}>
-                    Apply {trades.length} trade{trades.length === 1 ? '' : 's'}
+                    disabled={!canApply} onClick={doImport}>
+                    {isByRound
+                      ? `Apply ${changes.length} change${changes.length === 1 ? '' : 's'}`
+                      : `Apply ${trades.length} trade${trades.length === 1 ? '' : 's'}`}
                   </Button>
                 </div>
               </div>
@@ -468,4 +509,4 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
 
 Object.assign(window, { DraftPicksPanel, parseDraftPicksText });
 
-export { DraftPicksPanel, parseDraftPicksText };
+export { DraftPicksPanel, PicksPasteModal, parseDraftPicksText };
