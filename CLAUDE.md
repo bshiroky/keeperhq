@@ -957,13 +957,32 @@ Yahoo work off 47%, not off the optimistic reading.
   those as "back to X" beside the trades; the existing `picksImportImpact`
   guard names each contradicted hand-recorded trade before anything is
   written. Every Yahoo name must map to a distinct team (two names on one
-  team disables Apply). `PicksPasteModal` takes an `initialText` seam so
+  team disables Apply). `PicksPasteModal` takes `initialText` / `initialGridText` seams so
   `npm run test:picks-ui` renders the preview step server-side (the
-  Rules-button lesson); `scripts/report-picks-paste.mjs <file>` prints the
-  same report from a saved paste. The old block format still parses as the
-  by-team fallback. **Not yet run against the real 17-round paste** — the
-  synthetic fixture uses the league's real names (204 picks, 12 teams) but
-  the user's full paste hadn't been provided when this shipped.
+  Rules-button lesson); `scripts/report-picks-paste.mjs <by-round.txt>
+  [grid.txt]` prints the same report from a saved paste. The old block
+  format still parses as the by-team fallback.
+  **First real paste (R1–R16 clean, R17 corrupted) taught three things:**
+  (1) **Two fields, not one paste** — By Round (required) and Grid
+  (optional checksum) are separate labelled textareas, because the
+  instruction to paste the Grid *below* went unread; the parser takes the
+  Grid as `opts.gridText`. (2) **Yahoo's Grid header is TWO lines**
+  (`Team<TAB>Rounds`, then `1<TAB>2…17`), not the one-line
+  `Team 1 2 … N` the first version assumed — so the Grid wasn't recognised
+  at all and its rows read as Round 17 continuation: `Team` and `1` became
+  teams and the count rows segmented into picks of team "1" (R17 claimed
+  ~200 picks). Both header shapes are read now, and the header is the
+  **boundary** when both views land in one field: nothing in By Round
+  produces it, so round parsing stops there (a Grid pasted FIRST is skipped
+  as a span instead). (3) **The mapping dropdown marks taken teams** —
+  same behaviour as the draft import: picking a team mapped on another row
+  steals it (that row reverts to red), other rows list it as `✓ (mapped)`,
+  and an "N of M teams mapped" counter sits by Apply. The regression test
+  reconstructs the real failure (the old parser yields 14 teams / junk
+  `Team`, `1`) and asserts 12 teams · 204 picks · Grid ok. **The user's
+  actual paste still hasn't been run in-session** — it was never pasted
+  into the conversation or PR; `report-picks-paste.mjs` exists for exactly
+  that.
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -1046,9 +1065,9 @@ headless.
   "back to X" clears, the unmapped-name block) in both themes
   (`scripts/smoke-picks-paste.mjs`; esbuild-bundles
   `scripts/picks-smoke-entry.jsx` to `.tmp-picks-bundle.mjs`, gitignored)
-- `node scripts/report-picks-paste.mjs <paste.txt>` — read-only: parses a
-  saved Yahoo By Round paste (Grid optional) and prints picks / traded /
-  every issue by round and team
+- `node scripts/report-picks-paste.mjs <by-round.txt> [grid.txt]` —
+  read-only: parses a saved Yahoo By Round paste (Grid in a second file, or
+  under it) and prints picks / traded / every issue by round and team
 - `npm run test:nfl` — NFL directory pure helpers: the match key, the Sleeper
   row mapping, the disambiguation rules, the fill-rate summary
   (`scripts/test-nfl-directory.mjs`)
@@ -2274,8 +2293,10 @@ copy of a component drifts away from the original.
   the paste's own owner vocabulary via `segmentTeamNames`, per-round
   one-pick-per-team checks, optional Grid checksum via `parsePicksGrid`),
   `parsePicksByTeam` (the old block format, fallback), and a refusal for
-  a Grid-only paste. Returns `{ format, picks, rounds, teams, teamCount,
-  totalPicks, tradedCount, issues, grid, error? }`. Tests:
+  a Grid-only paste. `opts.gridText` is the dedicated Grid field; a Grid
+  embedded under the By Round text is found by its (two-line or one-line)
+  header, which also ends round parsing. Returns `{ format, picks, rounds,
+  teams, teamCount, totalPicks, tradedCount, issues, grid, error? }`. Tests:
   `scripts/test-picks-parser.mjs` (parser) + `scripts/smoke-picks-paste.mjs`
   (the modal's preview step, both themes).
 - `src/tabs/OverviewTab.jsx` — exports **`KeepersOverview`** (the live
