@@ -2932,7 +2932,41 @@ Standard flow:
 User merges to `main` themselves when ready. They've done this once
 already (PR #1 was merged earlier). After they merge, future commits
 should still go to the same branch and PR/merge from there — don't
-push directly to `main`.
+push directly to `main`. **Only while that branch's PR is still open**
+— once it's merged the branch is spent; see the pre-push check below.
+
+### CHECK THE PR IS STILL OPEN — BEFORE PUSHING
+
+**A branch whose PR has already merged cannot carry new work.** Pushing to
+it moves the branch and nothing else: the commit sits on a closed PR looking
+shipped while `main` never gets it. This has now happened twice (PR #41, and
+the price-marker layout fix that should have been in #44 — recovered as a
+fresh PR).
+
+The post-push check in the next section did not prevent either one, and
+can't: **the push itself is the mistake**, and a check that runs afterwards
+can only tell you it already happened. So the check has to come first.
+
+**Before every push, confirm the branch's PR is still open:**
+
+```
+mcp__github__list_pull_requests  owner: bshiroky  repo: keeperhq
+  head: "bshiroky/<branch>"   state: "all"
+```
+
+- No PR yet → fine, push and open one.
+- Newest PR **open** → fine, push; it updates that PR.
+- Newest PR **closed or merged** → **do not push.** Restart the branch from
+  the latest `main` (`git fetch origin main && git reset --hard origin/main`,
+  keeping the branch name), cherry-pick any unmerged commits onto it, confirm
+  `git diff <old-tip> HEAD` is **empty**, force-with-lease push, and open a
+  **new** PR. The old PR is finished and never reopens.
+
+**Read `merged_at`, not `merged`.** On a squash-merged PR this repo's API
+responses come back `"merged": false` with `"merged_at"` populated — trusting
+the boolean reports a merged PR as still open, which is the exact failure this
+check exists to catch. A non-null `merged_at`, or `state: "closed"`, means the
+branch is spent.
 
 ### VERIFY BEFORE CALLING ANYTHING LANDED
 
