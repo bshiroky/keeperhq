@@ -668,7 +668,7 @@ function ConfirmModal(props) {
 // Two forms behind one component so an editing surface and a read-only one
 // can't drift: with `onReset` it's a pill plus a reset button; without, it's
 // the pill alone. `computed` is the value it would revert to.
-function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edited' }) {
+function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edited', reserved = false }) {
   const t = makeTheme(isDark);
   const was = computed == null ? 'no value' : `$${computed}`;
   const tip = `Set by hand. Calculated value: ${was}.${onReset ? ' Use ↺ to go back to it.' : ''}`;
@@ -688,8 +688,15 @@ function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edite
         </span>
       </Tooltip>
       {onReset && (
-        <button type="button" onClick={onReset} aria-label={`Reset to calculated value (${was})`}
-          title={`Reset to calculated value (${was})`}
+        // `reserved` = this copy is only holding the space open (see
+        // PriceMarkSlot). It keeps its exact layout footprint but drops every
+        // label and handler, so it can't be read out, hovered, tabbed to, or
+        // clicked — the ancestor's visibility:hidden covers the pointer and
+        // focus paths, and this covers the accessible name.
+        <button type="button" onClick={reserved ? undefined : onReset}
+          aria-label={reserved ? undefined : `Reset to calculated value (${was})`}
+          title={reserved ? undefined : `Reset to calculated value (${was})`}
+          tabIndex={reserved ? -1 : undefined}
           style={{
             background: 'none', border: 'none', padding: 2, cursor: 'pointer', color: t.textMuted,
             lineHeight: 1, fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', flexShrink: 0,
@@ -699,6 +706,40 @@ function EditedMark({ computed, isDark, onReset, compact = false, label = 'Edite
           <RotateCcw size={12} strokeWidth={2} />
         </button>
       )}
+    </span>
+  );
+}
+
+// ── The reserved marker slot beside a price input ───────────────────────────
+// Wherever a price is EDITABLE, the "Edited" mark and its reset must not mount
+// and unmount as the value changes: they sit in the same flex row as the
+// input, so appearing mid-edit steals width from the row and the field moves
+// under the cursor you're typing into.
+//
+// Same fault, same fix as the create-league wizard's option-strip reserves:
+// the slot is rendered UNCONDITIONALLY at the width it occupies when present,
+// and merely turned invisible when the price isn't overridden. Nothing beside
+// the input moves when provenance changes.
+//
+// visibility:hidden (not display:none, not a spacer div) is the load-bearing
+// choice: the element keeps its exact box, so the reserved width is by
+// construction the real width — it can never drift out of step with the mark
+// the way a hand-measured spacer would. It also takes the hidden copy out of
+// the tab order and out of pointer events for free.
+//
+// Read-only surfaces (the Overview cards, the keeper grid, the eligible pool)
+// deliberately do NOT use this — nothing there is being typed into, and
+// reserving blank space on every row would cost layout for no benefit.
+function PriceMarkSlot({ overridden, computed, isDark, onReset }) {
+  const hidden = !overridden;
+  return (
+    <span className="kh-price-mark" aria-hidden={hidden || undefined}
+      style={{
+        display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+        visibility: hidden ? 'hidden' : 'visible',
+        pointerEvents: hidden ? 'none' : undefined,
+      }}>
+      <EditedMark computed={computed} isDark={isDark} compact reserved={hidden} onReset={onReset} />
     </span>
   );
 }
@@ -1623,7 +1664,8 @@ export {
   HScrollRow, Tooltip,
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
-  MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal, EditedMark, CommissionerSetMark,
+  MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal,
+  EditedMark, PriceMarkSlot, CommissionerSetMark,
   nextAction, leagueFlavor, leagueVoiceColor,
   KeepersCelebration,
 };
