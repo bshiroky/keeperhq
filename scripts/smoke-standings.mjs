@@ -63,7 +63,12 @@ const withStandings = (() => {
   return { ...league, standings: { season: '2025-26', importedAt: '2026-09-01T00:00:00Z', rows, tieResolutions: {} } };
 })();
 const DYN = idOf('Da Real Dynasty'), FIN = idOf('My Cozen Finnie');
-const resolved = { ...withStandings, standings: { ...withStandings.standings, tieResolutions: { [[DYN, FIN].sort().join('|')]: [FIN, DYN] } } };
+// Under the chain (default) the Dynasty/Finnie tie breaks on playoff finish
+// by itself; under the manual override it stops and asks.
+const resolved = withStandings;
+const manual = { ...withStandings, draftOrderConfig: { tiebreak: 'manual' } };
+// Level on points AND rank: only a coin flip separates them.
+const coinTie = { ...withStandings, standings: { ...withStandings.standings, rows: withStandings.standings.rows.map(r => (r.teamId === FIN ? { ...r, rank: 1 } : r)) } };
 
 for (const isDark of [true, false]) {
   const theme = isDark ? 'dark' : 'light';
@@ -92,8 +97,28 @@ for (const isDark of [true, false]) {
     assert(!/<button[^>]*disabled[^>]*>Continue/.test(html), 'Continue is enabled');
   });
 
-  test(`${theme}: the tie-break step names the tied teams and their identical line`, () => {
+  test(`${theme}: the tie step shows the chain breaking Dynasty/Finnie by playoff finish — no editor`, () => {
     const aliased = { ...league, yahooTeamMap: { ...league.yahooTeamMap, 'Treliving it Up': idOf("It's Hiller Time"), 'ХК опівнічник': idOf('ЦСКА Совки') } };
+    const html = render(h(StandingsPasteModal, { ...props, league: aliased, initialText: REAL_PASTE, initialStep: 'ties' }));
+    includes(html, 'Ties broken');
+    includes(html, 'Playoff finish');
+    includes(html, 'Da Real Dynasty &gt; My Cozen Finnie — by playoff finish');
+    excludes(html, 'A tie has to be broken by hand');
+    assert(!/<button[^>]*disabled[^>]*>Continue/.test(html), 'Continue is enabled — nothing left to ask');
+  });
+
+  test(`${theme}: the tie step records a coin flip when points and playoff finish are both level`, () => {
+    const aliased = { ...league, yahooTeamMap: { ...league.yahooTeamMap, 'Treliving it Up': idOf("It's Hiller Time"), 'ХК опівнічник': idOf('ЦСКА Совки') } };
+    // Same rank for both: a "*5" for Dynasty makes the paste level on every column the chain reads.
+    const paste = REAL_PASTE.replace('*1\tlogo Da Real Dynasty', '*5\tlogo Da Real Dynasty');
+    const html = render(h(StandingsPasteModal, { ...props, league: aliased, initialText: paste, initialStep: 'ties' }));
+    includes(html, 'Coin flip');
+    includes(html, 'coin flip (seed ');
+    excludes(html, 'A tie has to be broken by hand');
+  });
+
+  test(`${theme}: under the manual override the tie step is the editor, naming the tied teams and their identical line`, () => {
+    const aliased = { ...manual, yahooTeamMap: { ...league.yahooTeamMap, 'Treliving it Up': idOf("It's Hiller Time"), 'ХК опівнічник': idOf('ЦСКА Совки') } };
     const html = render(h(StandingsPasteModal, { ...props, league: aliased, initialText: REAL_PASTE, initialStep: 'ties' }));
     includes(html, 'A tie has to be broken by hand');
     includes(html, 'Tied: Da Real Dynasty · My Cozen Finnie');
@@ -110,9 +135,12 @@ for (const isDark of [true, false]) {
     const html = render(h(StandingsCard, { ...props, league: withStandings }));
     includes(html, '12 teams · imported Sep 1');
     includes(html, 'as “Treliving it Up”');
-    includes(html, 'Tie to break: Da Real Dynasty / My Cozen Finnie');
+    includes(html, 'Ties broken: Da Real Dynasty &gt; My Cozen Finnie — by playoff finish');
     includes(html, 'regular-season points');
     includes(html, '4-team lottery');
+    includes(html, 'playoff finish, then coin flip');
+    const manualHtml = render(h(StandingsCard, { ...props, league: manual }));
+    includes(manualHtml, 'Tie to break: Da Real Dynasty / My Cozen Finnie');
   });
 
   test(`${theme}: Lottery page — blocked without standings, pointing at Import`, () => {
@@ -122,16 +150,27 @@ for (const isDark of [true, false]) {
     excludes(html, 'Run Lottery');
   });
 
-  test(`${theme}: Lottery page — stops on the tie with the editor`, () => {
-    const html = render(routed(h(LotteryTab, { ...props, league: withStandings })));
+  test(`${theme}: Lottery page — under the manual override, stops on the tie with the editor`, () => {
+    const html = render(routed(h(LotteryTab, { ...props, league: manual })));
     includes(html, 'Break the tie before the lottery');
     includes(html, 'Tied: Da Real Dynasty · My Cozen Finnie');
     excludes(html, 'Run Lottery');
+    excludes(html, 'Flip the coin');
   });
 
-  test(`${theme}: Lottery page — seeded from the standings once the tie is broken`, () => {
+  test(`${theme}: Lottery page — a tie level on points and playoff finish stops for a recorded coin flip`, () => {
+    const html = render(routed(h(LotteryTab, { ...props, league: coinTie })));
+    includes(html, 'Break the tie before the lottery');
+    includes(html, 'Coin flip needed:');
+    includes(html, 'Flip the coin');
+    excludes(html, 'Finishes 1st of 2');
+    excludes(html, 'Run Lottery');
+  });
+
+  test(`${theme}: Lottery page — seeded from the standings, the chain having broken the tie`, () => {
     const html = render(routed(h(LotteryTab, { ...props, league: resolved })));
     includes(html, 'Run Lottery');
+    includes(html, 'by playoff finish');
     includes(html, 'Bottom 4 teams by <strong>regular-season points</strong>');
     // Worst four by points, in seed order 12 → 9.
     const idx = name => html.indexOf(name);
@@ -166,7 +205,7 @@ for (const isDark of [true, false]) {
     includes(html, 'Standings Basis');
     includes(html, 'Regular-season points');
     includes(html, 'Worst 4');
-    includes(html, 'Ask me (manual)');
+    includes(html, 'Playoff finish, then coin flip');
     includes(html, 'Yahoo names: Treliving it Up');
   });
 

@@ -1006,10 +1006,11 @@ Yahoo work off 47%, not off the optimistic reading.
   new standings change who's in the lottery** (cleared; a draw among the same
   teams is kept). **(2) Draft-order config in Settings** (snake only):
   `league.draftOrderConfig = { basis: 'points'|'rank', lotteryTeams: 4,
-  tiebreak: 'manual'|'record'|'pct' }`, read only via `draftOrderConfigOf`
-  (honours the legacy `bottomLotteryTeams`, which Save mirrors). Basis
-  defaults to **regular-season points** because Yahoo's Rank column reflects
-  the playoffs. **(3) Order computation** — `src/lib/draftOrder.js` (pure,
+  tiebreak: 'chain'|'manual' }`, read only via `draftOrderConfigOf`
+  (honours the legacy `bottomLotteryTeams`, which Save mirrors; the briefly-
+  shipped `'record'`/`'pct'` values read as `'chain'`). Basis defaults to
+  **regular-season points** because Yahoo's Rank column reflects the
+  playoffs. **(3) Order computation** — `src/lib/draftOrder.js` (pure,
   `npm run test:draft-order`): `rankStandings` (basis → tiebreak → recorded
   manual orders), `baseDraftOrder` (worst first, slot 1 = worst),
   `lotteryEligible` (the worst N), `lotteryDrawOf` (validated against today's
@@ -1021,16 +1022,29 @@ Yahoo work off 47%, not off the optimistic reading.
   (`(round−1)×teams+slot`) / original owner (from the order) / current owner
   (from `draftPicks`). Snake reversal on even rounds is applied **only when
   `draftFormatOf(league) === 'snake'`**; an auction league gets
-  `reason: 'not-snake'`. **(4) Ties stop and ask.** Under `manual`, or when
-  the configured tiebreak still leaves teams level, the order is
-  `ok: false, reason: 'unresolved-ties'` and the tied set is reported — the
-  real paste has one (Da Real Dynasty / My Cozen Finnie, identical on every
-  column). The `TieBreakEditor` (shared by the import modal and the Lottery
-  page) records the finishing order into `standings.tieResolutions`, **keyed
-  by the SET of tied ids** (sorted, `|`-joined; value best-first) so it holds
-  whichever tiebreak produced the group, and a stale key is simply ignored.
-  The Lottery page is blocked on a tie (and on missing standings, pointing at
-  Import) — a wrong draft order is worse than a stalled page. **(5) GM
+  `reason: 'not-snake'`. **(4) Ties: the chain, never silence.** The
+  tiebreak is a CHAIN — (1) the basis, (2) **playoff finish** (Yahoo's Rank
+  column IS the playoff result and is already in the paste; the worse rank
+  picks earlier), (3) a **coin flip recorded with its seed**
+  (`recordCoinFlip` / `coinFlipOrder`, mulberry32 over the sorted ids, so
+  the stored order replays from the seed). Head-to-head is deliberately
+  absent (needs schedule data). The real paste's tie (Da Real Dynasty / My
+  Cozen Finnie, identical on every column) breaks at step 2: Finnie finished
+  5th to Dynasty's 1st, so **Finnie picks first** (slot 8 to Dynasty's 9).
+  A tie that reaches step 3 with no flip on file is `ok: false,
+  reason: 'unresolved-ties'` with `needs: 'coinflip'`; the import modal
+  flips automatically (`flipUnresolved`) and SHOWS every broken tie
+  (`BrokenTiesList`: playoff finish / coin flip / by hand) before writing,
+  and the Lottery page offers a "Flip the coin" button. **`manual` is the
+  override**: every tie stops on the `TieBreakEditor` (shared by the import
+  modal and the Lottery page), and a recorded manual order beats the chain
+  even where the chain could decide. Resolutions live in
+  `standings.tieResolutions`, **keyed by the SET of tied ids** (sorted,
+  `|`-joined) as `{ method: 'manual'|'coinflip', order: [best…], seed?,
+  at }` (a bare array reads as manual), so a stale key is simply ignored and
+  a re-import clears them with the rows. The Lottery page is blocked on an
+  unbroken tie (and on missing standings, pointing at Import) — a wrong draft
+  order is worse than a stalled page. **(5) GM
   aliases** — no new store: `league.yahooTeamMap` (already accumulated) is
   the alias list, inverted per team by `aliasesByTeam` and shown/edited in
   the Settings **Teams card** ("Yahoo names: …" chips with ×, add field;
@@ -1058,10 +1072,10 @@ Yahoo work off 47%, not off the optimistic reading.
   Picks page makes. `scripts/report-standings-paste.mjs <standings.txt>
   [league.json] [--break "A > B"] [--seed N]` prints the whole chain from a
   saved paste (read-only). Verified against the real paste: base order by
-  points worst-first, the four lottery teams, the Dynasty/Finnie stop, a
-  seeded round 1 with a traded pick 4 "owned by Young Berube via Stop
-  F***ing Crying Bro", and the two renamed teams (Treliving it Up, ХК
-  опівнічник) as the only alias prompts. Not built, on purpose: any
+  points worst-first, the four lottery teams, the Dynasty/Finnie tie broken
+  by playoff finish, a seeded round 1 with a traded pick 4 "owned by Young
+  Berube via Stop F***ing Crying Bro", and the two renamed teams (Treliving
+  it Up, ХК опівнічник) as the only alias prompts. Not built, on purpose: any
   member-facing view, trade VALIDATION (Open item #14), and a standings
   source other than the paste.
 
@@ -1143,10 +1157,10 @@ headless.
   `scripts/test-picks-parser.mjs`, `scripts/test-standings-parser.mjs`; plain
   node, no framework)
 - `npm run test:draft-order` — the draft-order engine: config defaults, the
-  points/rank basis, tiebreaks, the manual tie stop + resolution, lottery
-  eligibility, stale draws, the snake board with overall numbers and pick
-  ownership (`scripts/test-draft-order.mjs`; plain node, uses the real
-  standings paste)
+  points/rank basis, the tiebreak chain (playoff finish, then a reproducible
+  coin flip), the manual override, lottery eligibility, stale draws, the
+  snake board with overall numbers and pick ownership
+  (`scripts/test-draft-order.mjs`; plain node, uses the real standings paste)
 - `node scripts/report-standings-paste.mjs <standings.txt> [league.json] [--break "A > B"] [--seed N]` —
   read-only: parses a saved Yahoo Standings paste, reports which names would
   hit the alias prompt, the base order, the lottery teams, any tie it stops
@@ -2390,22 +2404,26 @@ copy of a component drifts away from the original.
   when it differs from the app name, the draft-order settings line, and any
   tie still to break), `StandingsPasteModal` (paste → preview/mapping →
   ties → guard, one modal; `initialText` / `initialStep: 'ties'` are
-  render-test seams), and `TieBreakEditor` + `tiesResolved` +
-  `applyTieOrders` (the controlled "stop and ask" editor, shared with the
-  Lottery page).
+  render-test seams), `TieBreakEditor` + `tiesResolved` + `applyTieOrders`
+  (the controlled "stop and ask" editor for the manual override, shared with
+  the Lottery page), `flipUnresolved` (records chain-step-3 coin flips) and
+  `BrokenTiesList` (how each tie broke, shown before anything is written).
 - `src/lib/standingsParse.js` — the Yahoo Standings paste parser, pure JS
   (`parseStandingsText` → `{rows, issues, error}`); strips `logo`, reads `*`
   as clinched, tab / whitespace / one-cell-per-line copies. Never resolves
   names — that's `teamMap.js`.
 - `src/lib/draftOrder.js` — standings → draft board, pure JS. Config
   (`draftOrderConfigOf`), `rankStandings` / `baseDraftOrder` / `resolveTie` /
-  `tieKey`, `lotteryEligible` / `lotteryDrawOf` (stale-aware, legacy
-  `lotteryResults` fallback), `round1Order`, `buildDraftBoard` (snake only,
-  by `draftFormatOf`), `describeBoardReason`. Ties are never sorted
-  silently. Reads pick ownership through `draftPicks.js`.
+  `recordCoinFlip` / `coinFlipOrder` / `tieKey` / `describeTie`,
+  `lotteryEligible` / `lotteryDrawOf` (stale-aware, legacy `lotteryResults`
+  fallback), `round1Order`, `buildDraftBoard` (snake only, by
+  `draftFormatOf`), `describeBoardReason`. Ties go through the chain
+  (basis → playoff finish → recorded coin flip) or the manual override;
+  never sorted silently. Reads pick ownership through `draftPicks.js`.
 - `src/tabs/LotteryTab.jsx` — the Lottery full page, seeded from
-  `baseDraftOrder`: blocked without standings (→ Import) or on an unresolved
-  tie (inline `TieBreakEditor`); pre-draw list of the worst N with seeds and
+  `baseDraftOrder`: blocked without standings (→ Import) or on an unbroken
+  tie (a "Flip the coin" button for a chain tie, the inline `TieBreakEditor`
+  under the manual override); pre-draw list of the worst N with seeds and
   round-1 pick reassignment; the draw as `league.lotteryDraw` on Lock; the
   round-1 order post-draw (or straight away when lottery teams = 0). All
   pick trades go through `reassignPick`.

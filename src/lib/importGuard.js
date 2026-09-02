@@ -217,7 +217,7 @@ export function standingsGuardLines(impact) {
     lines.push({ tone: 'danger', text: `${impact.replacing} standings row${s(impact.replacing)} on file will be replaced by this paste.` });
   }
   if (impact.tieOrders > 0) {
-    lines.push({ tone: 'danger', text: `${impact.tieOrders} tie order${s(impact.tieOrders)} you set by hand will be cleared — any tie in the new standings is asked again.` });
+    lines.push({ tone: 'danger', text: `${impact.tieOrders} recorded tie-break${s(impact.tieOrders)} (hand-set orders and coin flips) will be cleared — any tie in the new standings is broken again.` });
   }
   if (impact.drawCleared) {
     lines.push({ tone: 'danger', text: 'The lottery draw on file will be cleared: the new standings change which teams are in the lottery, so the draw no longer applies. Re-run it on the Lottery page.' });

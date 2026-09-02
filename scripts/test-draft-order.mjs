@@ -8,8 +8,8 @@
 import assert from 'node:assert/strict';
 import {
   draftOrderConfigOf, rankStandings, baseDraftOrder, lotteryEligible, lotteryDrawOf,
-  round1Order, buildDraftBoard, resolveTie, tieKey,
-  BASIS_POINTS, BASIS_RANK, TIEBREAK_MANUAL, TIEBREAK_RECORD, TIEBREAK_PCT,
+  round1Order, buildDraftBoard, resolveTie, recordCoinFlip, coinFlipOrder, tieKey, describeTie,
+  BASIS_POINTS, BASIS_RANK, TIEBREAK_MANUAL, TIEBREAK_CHAIN,
 } from '../src/lib/draftOrder.js';
 import { reassignPick } from '../src/lib/draftPicks.js';
 import { parseStandingsText } from '../src/lib/standingsParse.js';
@@ -35,14 +35,16 @@ const rows = parsed.rows.map(r => ({ ...r, teamId: idOf(r.team), team: undefined
 const base = { id: 'hockey-1', draftType: 'snake', teams, standings: { rows } };
 const DYNASTY = idOf('Da Real Dynasty'), FINNIE = idOf('My Cozen Finnie');
 
-test('config: defaults are points / 4 / manual', () => {
-  assert.deepEqual(draftOrderConfigOf({}), { basis: BASIS_POINTS, lotteryTeams: 4, tiebreak: TIEBREAK_MANUAL });
+test('config: defaults are points / 4 / the chain', () => {
+  assert.deepEqual(draftOrderConfigOf({}), { basis: BASIS_POINTS, lotteryTeams: 4, tiebreak: TIEBREAK_CHAIN });
 });
 test('config: legacy bottomLotteryTeams is honoured, explicit config wins', () => {
   assert.equal(draftOrderConfigOf({ bottomLotteryTeams: 6 }).lotteryTeams, 6);
   assert.equal(draftOrderConfigOf({ bottomLotteryTeams: 6, draftOrderConfig: { lotteryTeams: 0 } }).lotteryTeams, 0);
-  assert.equal(draftOrderConfigOf({ draftOrderConfig: { basis: 'rank', tiebreak: 'pct' } }).basis, BASIS_RANK);
-  assert.equal(draftOrderConfigOf({ draftOrderConfig: { tiebreak: 'nonsense' } }).tiebreak, TIEBREAK_MANUAL);
+  assert.equal(draftOrderConfigOf({ draftOrderConfig: { basis: 'rank', tiebreak: 'manual' } }).tiebreak, TIEBREAK_MANUAL);
+  // The retired W-L-T / Pct options, and anything unknown, read as the chain.
+  assert.equal(draftOrderConfigOf({ draftOrderConfig: { tiebreak: 'pct' } }).tiebreak, TIEBREAK_CHAIN);
+  assert.equal(draftOrderConfigOf({ draftOrderConfig: { tiebreak: 'nonsense' } }).tiebreak, TIEBREAK_CHAIN);
 });
 
 test('no standings: not ok, reason named, nothing eligible', () => {
@@ -75,30 +77,106 @@ test('points basis: worst first by Pts, and the order is NOT rank order', () => 
   assert.equal(r.order[11].teamId, idOf('the grit grinders'), 'the points leader picks last');
 });
 
-test('the 315-point tie is reported, not sorted silently', () => {
+const MANUAL = { ...base, draftOrderConfig: { tiebreak: TIEBREAK_MANUAL } };
+
+test('chain: the 315-point tie is broken by playoff finish — Finnie (5th) picks before Dynasty (1st)', () => {
   const r = rankStandings(base);
+  assert.equal(r.ok, true);
+  assert.equal(r.unresolvedTies.length, 0);
+  const fin = r.finish.map(x => x.teamId);
+  assert.ok(fin.indexOf(DYNASTY) < fin.indexOf(FINNIE), 'the better playoff finish finishes higher');
+  assert.equal(r.ties.length, 1);
+  assert.equal(r.ties[0].method, 'rank');
+  assert.deepEqual(r.ties[0].order, [DYNASTY, FINNIE]);
+  const o = baseDraftOrder(base).order;
+  assert.equal(o.find(e => e.teamId === FINNIE).slot, 8, 'worse rank picks earlier');
+  assert.equal(o.find(e => e.teamId === DYNASTY).slot, 9);
+  assert.equal(describeTie(r.ties[0], nameOf), 'Da Real Dynasty > My Cozen Finnie — by playoff finish');
+});
+
+test('manual override: the same tie stops and asks', () => {
+  const r = rankStandings(MANUAL);
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'unresolved-ties');
   assert.equal(r.unresolvedTies.length, 1);
   assert.equal(r.unresolvedTies[0].key, tieKey([DYNASTY, FINNIE]));
+  assert.equal(r.unresolvedTies[0].needs, 'manual');
   assert.deepEqual([...r.unresolvedTies[0].teams].sort(), [DYNASTY, FINNIE].sort());
 });
 
-test('W-L-T and Pct tiebreaks cannot break an identical-on-every-column tie', () => {
-  for (const tiebreak of [TIEBREAK_RECORD, TIEBREAK_PCT]) {
-    const r = rankStandings({ ...base, draftOrderConfig: { tiebreak } });
-    assert.equal(r.ok, false, tiebreak);
-    assert.equal(r.unresolvedTies.length, 1, tiebreak);
-  }
-});
-
-test('a W-L-T tiebreak DOES break a points tie with different records', () => {
-  const alt = rows.map(r => (r.teamId === DYNASTY ? { ...r, wins: 146, losses: 121 } : r));
-  const r = rankStandings({ ...base, standings: { rows: alt }, draftOrderConfig: { tiebreak: TIEBREAK_RECORD } });
+test('manual resolution: recorded best-first, applied, keyed by the set', () => {
+  const league = resolveTie(MANUAL, [FINNIE, DYNASTY]);   // Finnie finishes higher
+  const r = rankStandings(league);
   assert.equal(r.ok, true);
   const fin = r.finish.map(x => x.teamId);
-  assert.ok(fin.indexOf(DYNASTY) < fin.indexOf(FINNIE), 'more wins finishes higher');
-  assert.equal(r.ties.length, 0, 'a broken tie is not reported as a tie');
+  assert.ok(fin.indexOf(FINNIE) < fin.indexOf(DYNASTY));
+  assert.equal(r.ties[0].resolved, true);
+  assert.equal(r.ties[0].method, 'manual');
+  const o = baseDraftOrder(league).order;
+  assert.equal(o.find(e => e.teamId === DYNASTY).slot, 8);
+  assert.equal(o.find(e => e.teamId === FINNIE).slot, 9);
+});
+
+test('manual resolution overrides the chain even when the chain could decide', () => {
+  // Chain says Dynasty > Finnie by rank; a recorded manual order says the reverse and wins.
+  const league = resolveTie(base, [FINNIE, DYNASTY]);
+  const r = rankStandings(league);
+  assert.equal(r.ties[0].method, 'manual');
+  assert.equal(baseDraftOrder(league).order.find(e => e.teamId === DYNASTY).slot, 8);
+});
+
+test('a bare-array resolution (first shipped shape) still reads as a manual order', () => {
+  const league = { ...MANUAL, standings: { rows, tieResolutions: { [tieKey([DYNASTY, FINNIE])]: [FINNIE, DYNASTY] } } };
+  const r = rankStandings(league);
+  assert.equal(r.ok, true);
+  assert.equal(r.ties[0].method, 'manual');
+});
+
+test('resolveTie ignores a malformed order', () => {
+  assert.equal(resolveTie(base, [DYNASTY]), base);
+  assert.equal(resolveTie(base, [DYNASTY, DYNASTY]), base);
+  assert.equal(resolveTie({ teams }, [DYNASTY, FINNIE]).standings, undefined, 'nothing to resolve against');
+});
+
+test('a resolution that does not match the tied set is ignored (stale key)', () => {
+  const league = { ...MANUAL, standings: { rows, tieResolutions: { [tieKey([DYNASTY, 't3'])]: [DYNASTY, 't3'] } } };
+  assert.equal(rankStandings(league).ok, false);
+});
+
+// Same rank AND same points: only a coin flip can separate them.
+const sameRank = rows.map(r => (r.teamId === FINNIE ? { ...r, rank: 1 } : r));
+const COIN = { ...base, standings: { rows: sameRank } };
+
+test('chain: level on points and playoff finish → needs a coin flip, never guessed', () => {
+  const r = rankStandings(COIN);
+  assert.equal(r.ok, false);
+  assert.equal(r.unresolvedTies.length, 1);
+  assert.equal(r.unresolvedTies[0].needs, 'coinflip');
+  assert.deepEqual(buildDraftBoard({ ...COIN, draftPicks: { rounds: 1, ownership: {} } }).picks, []);
+});
+
+test('coin flip: recorded with its seed and reproducible', () => {
+  const flipped = recordCoinFlip(COIN, [DYNASTY, FINNIE], 12345);
+  const rec = flipped.standings.tieResolutions[tieKey([DYNASTY, FINNIE])];
+  assert.equal(rec.method, 'coinflip');
+  assert.equal(rec.seed, 12345);
+  assert.deepEqual(rec.order, coinFlipOrder([FINNIE, DYNASTY], 12345), 'replays from the seed regardless of input order');
+  assert.deepEqual(recordCoinFlip(COIN, [FINNIE, DYNASTY], 12345).standings.tieResolutions[rec && tieKey([DYNASTY, FINNIE])].order, rec.order);
+  const r = rankStandings(flipped);
+  assert.equal(r.ok, true);
+  assert.equal(r.ties[0].method, 'coinflip');
+  assert.deepEqual(r.finish.filter(x => [DYNASTY, FINNIE].includes(x.teamId)).map(x => x.teamId), rec.order);
+  assert.ok(describeTie(r.ties[0], nameOf).includes('coin flip (seed 12345)'));
+  // A different seed can land the other way — the seed is what pins it.
+  const orders = new Set([0, 1, 2, 3, 4, 5, 6, 7].map(seed => coinFlipOrder([DYNASTY, FINNIE], seed).join('|')));
+  assert.equal(orders.size, 2, 'both outcomes are reachable');
+});
+
+test('coin flip: a generated seed is stored too, so an unseeded flip still replays', () => {
+  const flipped = recordCoinFlip(COIN, [DYNASTY, FINNIE]);
+  const rec = flipped.standings.tieResolutions[tieKey([DYNASTY, FINNIE])];
+  assert.ok(Number.isInteger(rec.seed));
+  assert.deepEqual(rec.order, coinFlipOrder([DYNASTY, FINNIE], rec.seed));
 });
 
 test('rank basis: Yahoo order, no tie', () => {
@@ -109,34 +187,8 @@ test('rank basis: Yahoo order, no tie', () => {
   assert.equal(r.order[11].finish, 1);
 });
 
-test('manual resolution: recorded best-first, applied, keyed by the set', () => {
-  const league = resolveTie(base, [FINNIE, DYNASTY]);   // Finnie finishes higher
-  const r = rankStandings(league);
-  assert.equal(r.ok, true);
-  const fin = r.finish.map(x => x.teamId);
-  assert.ok(fin.indexOf(FINNIE) < fin.indexOf(DYNASTY));
-  assert.equal(r.ties[0].resolved, true);
-  // Worst-first: Dynasty (lower finish) picks BEFORE Finnie.
-  const o = baseDraftOrder(league).order;
-  assert.equal(o.find(e => e.teamId === DYNASTY).slot, 8);
-  assert.equal(o.find(e => e.teamId === FINNIE).slot, 9);
-  // The other orientation is the other order.
-  const o2 = baseDraftOrder(resolveTie(base, [DYNASTY, FINNIE])).order;
-  assert.equal(o2.find(e => e.teamId === FINNIE).slot, 8);
-});
-
-test('resolveTie ignores a malformed order', () => {
-  assert.equal(resolveTie(base, [DYNASTY]), base);
-  assert.equal(resolveTie(base, [DYNASTY, DYNASTY]), base);
-  assert.equal(resolveTie({ teams }, [DYNASTY, FINNIE]).standings, undefined, 'nothing to resolve against');
-});
-
-test('a resolution that does not match the tied set is ignored (stale key)', () => {
-  const league = { ...base, standings: { rows, tieResolutions: { [tieKey([DYNASTY, 't3'])]: [DYNASTY, 't3'] } } };
-  assert.equal(rankStandings(league).ok, false);
-});
-
-const resolved = resolveTie(base, [FINNIE, DYNASTY]);
+// Under the chain the real paste resolves on its own: Dynasty > Finnie by playoff finish.
+const resolved = base;
 
 test('lottery: the worst 4 by points are eligible', () => {
   assert.deepEqual(lotteryEligible(resolved).map(nameOf), [
@@ -164,7 +216,7 @@ test('a valid draw fixes picks 1–4; 5–12 stay reverse standings', () => {
   assert.equal(r.complete, true);
   assert.deepEqual(r.slots.map(s => nameOf(s.originalTeamId)), [
     'Treliving it Up', 'Stop F***ing Crying Bro', 'HAULA IF YOU HEAR ME!', '🚨 The Trade Show 🚨',
-    "Ain't No Hellebuyck Girl", 'Young Berube', 'The Zamboni Driver!', 'Da Real Dynasty', 'My Cozen Finnie',
+    "Ain't No Hellebuyck Girl", 'Young Berube', 'The Zamboni Driver!', 'My Cozen Finnie', 'Da Real Dynasty',
     "Oscar Meier's Wiener", 'ХК опівнічник', 'the grit grinders',
   ]);
   assert.equal(r.slots[0].finish, 9, 'the seed shown is the standings finish');
@@ -252,7 +304,7 @@ test('board: no lottery (0 teams) is complete straight from the standings', () =
 });
 
 test('board: unresolved tie blocks it and names the tie', () => {
-  const b = buildDraftBoard({ ...base, draftPicks: { rounds: 2, ownership: {} } });
+  const b = buildDraftBoard({ ...MANUAL, draftPicks: { rounds: 2, ownership: {} } });
   assert.equal(b.ok, false);
   assert.equal(b.reason, 'unresolved-ties');
   assert.equal(b.unresolvedTies.length, 1);

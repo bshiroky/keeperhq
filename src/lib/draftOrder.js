@@ -21,22 +21,32 @@
 //     teams in the order they drew picks 1..N (Lottery page)
 //   league.draftPicks   — pick OWNERSHIP by round (draftPicks.js)
 //
-// Ties are never sorted silently. A tie the configured tiebreak can't break
-// (or any tie at all under `manual`) comes back as `unresolvedTies` and the
-// order is reported as not-ok — a wrong draft order is worse than a stalled
-// import, and nobody notices a wrong one until the draft.
+// Ties are never sorted silently. The tiebreak CHAIN is:
+//   1. the basis (regular-season points by default)
+//   2. playoff finish — Yahoo's Rank column IS the playoff result, and the
+//      worse rank picks earlier (it's already in the paste)
+//   3. a coin flip, RECORDED with its seed so the same flip replays
+// Nothing in the chain is applied without being recorded or derivable: a
+// tie that reaches step 3 with no flip on file comes back as `unresolvedTies`
+// (`needs: 'coinflip'`) and the order is not-ok until one is recorded. The
+// `manual` setting is the override — every tie stops and asks for the order,
+// and the recorded answer (`method: 'manual'`) beats the chain. Head-to-head
+// is deliberately absent: it needs schedule data the paste doesn't carry.
+//
+// A recorded resolution is { method: 'manual'|'coinflip', order: [best…],
+// seed?, at } under standings.tieResolutions[tieKey]; a bare array is read
+// as a manual order (the first shape this shipped with).
 
 import { pickOwnerId, getDraftRounds } from './draftPicks.js';
 import { draftFormatOf } from './keeperRules.js';
 
 export const BASIS_POINTS = 'points';   // regular-season Pts (default)
 export const BASIS_RANK = 'rank';       // Yahoo's Rank column (reflects playoffs)
-export const TIEBREAK_MANUAL = 'manual';
-export const TIEBREAK_RECORD = 'record';   // W-L-T
-export const TIEBREAK_PCT = 'pct';
+export const TIEBREAK_CHAIN = 'chain';     // points → playoff finish → coin flip (default)
+export const TIEBREAK_MANUAL = 'manual';   // every tie stops and asks (the override)
 
 export const BASIS_LABEL = { [BASIS_POINTS]: 'Regular-season points', [BASIS_RANK]: 'Final rank' };
-export const TIEBREAK_LABEL = { [TIEBREAK_MANUAL]: 'Ask me (manual)', [TIEBREAK_RECORD]: 'W-L-T record', [TIEBREAK_PCT]: 'Win %' };
+export const TIEBREAK_LABEL = { [TIEBREAK_CHAIN]: 'Playoff finish, then coin flip', [TIEBREAK_MANUAL]: 'Ask me (manual)' };
 
 export const DEFAULT_LOTTERY_TEAMS = 4;
 
@@ -52,7 +62,9 @@ export function draftOrderConfigOf(league) {
   return {
     basis: c.basis === BASIS_RANK ? BASIS_RANK : BASIS_POINTS,
     lotteryTeams: Math.max(0, Math.floor(lottery)),
-    tiebreak: c.tiebreak === TIEBREAK_RECORD || c.tiebreak === TIEBREAK_PCT ? c.tiebreak : TIEBREAK_MANUAL,
+    // Anything that isn't the manual override (including the retired W-L-T
+    // and Pct options) is the chain.
+    tiebreak: c.tiebreak === TIEBREAK_MANUAL ? TIEBREAK_MANUAL : TIEBREAK_CHAIN,
   };
 }
 
@@ -72,19 +84,11 @@ function basisValue(row, basis) {
   return row.pts == null ? null : row.pts;
 }
 
-// Secondary comparison for a tie group. Returns >0 when a is BETTER than b.
-function tiebreakCompare(a, b, tiebreak) {
-  if (tiebreak === TIEBREAK_RECORD) {
-    if (a.wins != null && b.wins != null && a.wins !== b.wins) return a.wins - b.wins;
-    if (a.losses != null && b.losses != null && a.losses !== b.losses) return b.losses - a.losses;
-    if (a.ties != null && b.ties != null && a.ties !== b.ties) return a.ties - b.ties;
-    return 0;
-  }
-  if (tiebreak === TIEBREAK_PCT) {
-    if (a.pct != null && b.pct != null && a.pct !== b.pct) return a.pct - b.pct;
-    return 0;
-  }
-  return 0;
+// Playoff finish: a lower Rank is a better finish. null ranks can't be
+// compared and stay tied.
+function rankCompare(a, b) {
+  if (a.rank == null || b.rank == null) return 0;
+  return b.rank - a.rank;   // >0 when a is BETTER (lower rank)
 }
 
 // Split a list into runs of rows the comparator can't separate (stable).
@@ -98,10 +102,41 @@ function groupBy(rows, same) {
   return groups;
 }
 
-// Standings → finish order (best first), applying basis, tiebreak, and any
-// recorded manual tie orders. Ties that survive all three are reported.
+// A recorded resolution for exactly this set of teams, normalized, or null.
+function resolutionFor(resolutions, teamIds) {
+  const key = tieKey(teamIds);
+  const raw = resolutions?.[key];
+  const rec = Array.isArray(raw) ? { method: 'manual', order: raw } : raw;
+  if (!rec || !Array.isArray(rec.order)) return null;
+  if (rec.order.length !== teamIds.length || tieKey(rec.order) !== key) return null;
+  return { method: rec.method === 'coinflip' ? 'coinflip' : 'manual', order: [...rec.order], seed: rec.seed ?? null, at: rec.at ?? null };
+}
+
+// A reproducible shuffle: mulberry32 over the SORTED ids, so the same seed
+// on the same set always yields the same order (what "recorded" means).
+export function coinFlipOrder(teamIds, seed) {
+  const ids = [...teamIds].sort();
+  let a = (Number(seed) >>> 0);
+  const rnd = () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  return ids;
+}
+
+// Standings → finish order (best first), applying the basis, then the chain
+// (or the manual override), then recorded resolutions. Ties that reach the
+// end of the chain unrecorded are reported.
 //
-// → { ok, reason?, finish: [{teamId, ...row}] best-first, ties: [{teams, key, resolved}], unresolvedTies: [...], missing: [teamId] }
+// → { ok, reason?, finish: [{teamId, ...row}] best-first,
+//     ties: [{ key, teams, resolved, method: 'rank'|'manual'|'coinflip'|null, order, needs? }],
+//     unresolvedTies: [...], missing: [teamId], config }
 export function rankStandings(league) {
   const teams = league?.teams || [];
   const config = draftOrderConfigOf(league);
@@ -125,26 +160,43 @@ export function rankStandings(league) {
   const resolutions = standings.tieResolutions || {};
   const finish = [];
   const ties = [];
+  const manual = config.tiebreak === TIEBREAK_MANUAL;
+
+  const applyRecorded = (sub, allowed) => {
+    const rec = resolutionFor(resolutions, sub.map(r => r.teamId));
+    if (!rec || !allowed.includes(rec.method)) return false;
+    const byTeam = new Map(sub.map(r => [r.teamId, r]));
+    rec.order.forEach(id => finish.push(byTeam.get(id)));
+    ties.push({ key: tieKey(rec.order), teams: sub.map(r => r.teamId), resolved: true, method: rec.method, order: rec.order, seed: rec.seed, at: rec.at });
+    return true;
+  };
+  const leaveUnresolved = (sub, needs) => {
+    sub.forEach(r => finish.push(r));
+    ties.push({ key: tieKey(sub.map(r => r.teamId)), teams: sub.map(r => r.teamId), resolved: false, method: null, order: null, needs });
+  };
+
   for (const group of groupBy(primary, (a, b) => basisValue(a, config.basis) === basisValue(b, config.basis))) {
     if (group.length === 1) { finish.push(group[0]); continue; }
-    // Configured tiebreak first (manual = none), then whatever it leaves tied
-    // goes to the recorded manual orders.
-    const manual = config.tiebreak === TIEBREAK_MANUAL;
-    const broken = manual ? group : [...group].sort((a, b) => tiebreakCompare(b, a, config.tiebreak));
-    const subgroups = manual ? [broken] : groupBy(broken, (a, b) => tiebreakCompare(a, b, config.tiebreak) === 0);
+    if (manual) {
+      // The override: a recorded answer (of either kind) or stop.
+      if (!applyRecorded(group, ['manual', 'coinflip'])) leaveUnresolved(group, 'manual');
+      continue;
+    }
+    // Chain. A manual order recorded for this exact set still wins — that's
+    // what makes manual an OVERRIDE rather than just another setting.
+    if (applyRecorded(group, ['manual'])) continue;
+    // Step 2: playoff finish. Worse rank → lower finish → earlier pick.
+    const byRank = [...group].sort((a, b) => rankCompare(b, a));
+    const subgroups = groupBy(byRank, (a, b) => rankCompare(a, b) === 0);
+    if (subgroups.length === group.length) {
+      byRank.forEach(r => finish.push(r));
+      ties.push({ key: tieKey(group.map(r => r.teamId)), teams: group.map(r => r.teamId), resolved: true, method: 'rank', order: byRank.map(r => r.teamId) });
+      continue;
+    }
     for (const sub of subgroups) {
       if (sub.length === 1) { finish.push(sub[0]); continue; }
-      const key = tieKey(sub.map(r => r.teamId));
-      const recorded = resolutions[key];
-      const valid = Array.isArray(recorded) && recorded.length === sub.length && tieKey(recorded) === key;
-      if (valid) {
-        const byTeam = new Map(sub.map(r => [r.teamId, r]));
-        recorded.forEach(id => finish.push(byTeam.get(id)));
-        ties.push({ key, teams: sub.map(r => r.teamId), resolved: true, order: [...recorded] });
-      } else {
-        sub.forEach(r => finish.push(r));
-        ties.push({ key, teams: sub.map(r => r.teamId), resolved: false, order: null });
-      }
+      // Step 3: a recorded coin flip (or a manual order for this sub-set).
+      if (!applyRecorded(sub, ['coinflip', 'manual'])) leaveUnresolved(sub, 'coinflip');
     }
   }
   const unresolvedTies = ties.filter(t => !t.resolved);
@@ -162,15 +214,39 @@ export function rankStandings(league) {
 // Record a manual order for one tie group (teamIds best-first). Validates
 // that it names exactly the tied set — a partial or foreign order is ignored
 // rather than stored wrong.
-export function resolveTie(league, orderedTeamIds) {
+export function resolveTie(league, orderedTeamIds, at = new Date().toISOString()) {
   const standings = standingsOf(league);
   if (!standings || !Array.isArray(orderedTeamIds) || orderedTeamIds.length < 2) return league;
   const key = tieKey(orderedTeamIds);
   if (new Set(orderedTeamIds).size !== orderedTeamIds.length) return league;
   return {
     ...league,
-    standings: { ...standings, tieResolutions: { ...(standings.tieResolutions || {}), [key]: [...orderedTeamIds] } },
+    standings: { ...standings, tieResolutions: { ...(standings.tieResolutions || {}), [key]: { method: 'manual', order: [...orderedTeamIds], at } } },
   };
+}
+
+// Record a coin flip for one tie group. The seed is what makes it
+// reproducible: the stored order is coinFlipOrder(teamIds, seed), and a test
+// (or a suspicious GM) can replay it. A seed is generated when none is given.
+export function recordCoinFlip(league, teamIds, seed = null, at = new Date().toISOString()) {
+  const standings = standingsOf(league);
+  if (!standings || !Array.isArray(teamIds) || teamIds.length < 2) return league;
+  if (new Set(teamIds).size !== teamIds.length) return league;
+  const s = seed == null ? Math.floor(Math.random() * 0x100000000) : (Number(seed) >>> 0);
+  const key = tieKey(teamIds);
+  return {
+    ...league,
+    standings: { ...standings, tieResolutions: { ...(standings.tieResolutions || {}), [key]: { method: 'coinflip', seed: s, order: coinFlipOrder(teamIds, s), at } } },
+  };
+}
+
+// Human-readable line for a broken tie.
+export function describeTie(tie, nameOf) {
+  const names = ids => ids.map(nameOf).join(' > ');
+  if (!tie.resolved) return `${tie.teams.map(nameOf).join(' / ')} — ${tie.needs === 'coinflip' ? 'coin flip needed' : 'order needed'}`;
+  if (tie.method === 'rank') return `${names(tie.order)} — by playoff finish`;
+  if (tie.method === 'coinflip') return `${names(tie.order)} — coin flip (seed ${tie.seed})`;
+  return `${names(tie.order)} — set by hand`;
 }
 
 // Base draft order: worst finisher first. Slot 1 = the worst team's pick
@@ -301,7 +377,7 @@ export function describeBoardReason(reason) {
     case 'no-standings': return 'No standings imported yet.';
     case 'incomplete': return 'The standings on file don’t cover every team.';
     case 'unranked': return 'Some standings rows have no value to sort on under the configured basis.';
-    case 'unresolved-ties': return 'The standings have a tie that has to be broken by hand.';
+    case 'unresolved-ties': return 'The standings have a tie still to break.';
     case 'lottery-pending': return 'The lottery hasn’t been run yet.';
     case 'stale-lottery': return 'The lottery on file no longer matches the standings — re-run it.';
     case 'not-snake': return 'Draft order applies to snake drafts only.';

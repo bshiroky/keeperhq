@@ -7,14 +7,16 @@
 // the names resolve against, so the report can say which names would hit the
 // alias prompt. Without it, a league is synthesized from the paste's own
 // names (every name resolves, nothing prompts). --break records a manual
-// tie order (best first, ">"-separated; repeatable). --seed makes the
-// lottery draw reproducible.
+// tie order (best first, ">"-separated; repeatable) — the override; the
+// chain (points → playoff finish → coin flip) runs otherwise, and a coin
+// flip is recorded with --seed as its seed. --seed also makes the lottery
+// draw reproducible.
 import fs from 'node:fs';
 import { parseStandingsText } from '../src/lib/standingsParse.js';
 import { resolveTeamNames } from '../src/lib/teamMap.js';
 import {
   draftOrderConfigOf, rankStandings, baseDraftOrder, lotteryEligible, round1Order, buildDraftBoard, resolveTie,
-  BASIS_LABEL, TIEBREAK_LABEL,
+  recordCoinFlip, describeTie, BASIS_LABEL, TIEBREAK_LABEL,
 } from '../src/lib/draftOrder.js';
 
 const args = process.argv.slice(2);
@@ -87,6 +89,11 @@ for (const b of breaks) {
   working = resolveTie(working, ids);
 }
 
+// Chain step 3: record a coin flip for anything still level (seeded when a
+// seed was given, so the report replays).
+for (const tie of rankStandings(working).unresolvedTies) {
+  if (tie.needs === 'coinflip') working = recordCoinFlip(working, tie.teams, seed == null ? null : seed);
+}
 const base = baseDraftOrder(working);
 console.log('\nBase order (worst first, before the lottery):');
 for (const e of base.order) {
@@ -94,7 +101,7 @@ for (const e of base.order) {
   console.log(`  slot ${String(e.slot).padStart(2)} · finish ${String(e.finish).padStart(2)} · ${nameOf(e.teamId).padEnd(28)} ${row.pts ?? '—'} pts · ${row.wins}-${row.losses}-${row.ties} · rank ${row.rank}${row.clinched ? '*' : ''}`);
 }
 if (base.unresolvedTies.length) {
-  console.log('\nSTOPPED — tie(s) that must be broken by hand:');
+  console.log('\nSTOPPED — tie(s) that must be broken by hand (manual override):');
   for (const tie of base.unresolvedTies) {
     const row = working.standings.rows.find(r => r.teamId === tie.teams[0]);
     console.log(`  ${tie.teams.map(nameOf).join(' / ')} — ${row.pts} pts, ${row.wins}-${row.losses}-${row.ties}, ${row.pct}`);
@@ -102,7 +109,10 @@ if (base.unresolvedTies.length) {
   console.log('  Re-run with --break "Better team > Worse team" to continue.');
   process.exit(0);
 }
-if (base.ties.length) console.log(`\nTies broken by hand: ${base.ties.map(t => t.order.map(nameOf).join(' > ')).join('; ')}`);
+if (base.ties.length) {
+  console.log('\nTies broken:');
+  for (const tie of base.ties) console.log(`  ${describeTie(tie, nameOf)}`);
+}
 
 const eligible = lotteryEligible(working);
 console.log(`\nLottery-eligible (worst ${config.lotteryTeams}): ${eligible.map(nameOf).join(' · ') || 'none'}`);

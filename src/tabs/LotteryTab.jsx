@@ -6,7 +6,7 @@ import { reassignPick, pickOwnerId } from '../lib/draftPicks.js';
 import {
   draftOrderConfigOf, baseDraftOrder, round1Order, lotteryDrawOf, BASIS_LABEL, describeBoardReason,
 } from '../lib/draftOrder.js';
-import { TieBreakEditor, tiesResolved, applyTieOrders } from './StandingsTab.jsx';
+import { TieBreakEditor, BrokenTiesList, tiesResolved, applyTieOrders, flipUnresolved } from './StandingsTab.jsx';
 
 // Lottery — the worst N teams (by the configured standings basis) draw for
 // picks 1–N; the rest pick in reverse standings order.
@@ -76,23 +76,41 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
   }
 
   // ── Blocked: a tie to break ───────────────────────────────────────────────
+  // Under the chain the only tie that lands here is one level on points AND
+  // playoff finish — a coin flip, recorded with its seed on click. Under the
+  // manual override every tie lands here with the editor.
   if (!base.ok) {
+    const coinTies = base.unresolvedTies.filter(tie => tie.needs === 'coinflip');
+    const manualTies = base.unresolvedTies.filter(tie => tie.needs !== 'coinflip');
     return (
       <div style={{ ...card, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
           <div style={{ fontSize: '15px', fontWeight: 700, color: t.textPrimary, marginBottom: 4 }}>Break the tie before the lottery</div>
           <div style={{ fontSize: '13px', color: t.textMuted, lineHeight: 1.5 }}>
-            Two or more teams finished level on {BASIS_LABEL[config.basis].toLowerCase()} and nothing in the standings separates them. The order you set here is recorded with the standings.
+            {coinTies.length > 0 && manualTies.length === 0
+              ? `Two or more teams finished level on ${BASIS_LABEL[config.basis].toLowerCase()} and on playoff finish — the last step of the chain is a coin flip, recorded with its seed so it can be replayed.`
+              : `Two or more teams finished level on ${BASIS_LABEL[config.basis].toLowerCase()}. The order you set here is recorded with the standings.`}
           </div>
         </div>
-        <TieBreakEditor league={league} ties={base.unresolvedTies} value={tieOrders} onChange={setTieOrders} isDark={isDark} accentColor={accentColor} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button variant="primary" size="md" accent={accentColor} isDark={isDark}
-            disabled={!tiesResolved(base.unresolvedTies, tieOrders)}
-            onClick={() => { onUpdateLeague(applyTieOrders(league, tieOrders)); setTieOrders({}); }}>
-            Save finishing order
-          </Button>
-        </div>
+        <BrokenTiesList league={league} ties={base.ties} isDark={isDark} />
+        {coinTies.length > 0 && (
+          <div style={{ padding: '10px 12px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: 6, fontSize: 12, color: t.warning, lineHeight: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span><strong>Coin flip needed:</strong> {coinTies.map(tie => tie.teams.map(nameOf).join(' / ')).join('; ')}</span>
+            <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => onUpdateLeague(flipUnresolved(league))}>🪙 Flip the coin</Button>
+          </div>
+        )}
+        {manualTies.length > 0 && (
+          <>
+            <TieBreakEditor league={league} ties={manualTies} value={tieOrders} onChange={setTieOrders} isDark={isDark} accentColor={accentColor} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button variant="primary" size="md" accent={accentColor} isDark={isDark}
+                disabled={!tiesResolved(manualTies, tieOrders)}
+                onClick={() => { onUpdateLeague(applyTieOrders(league, tieOrders)); setTieOrders({}); }}>
+                Save finishing order
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -182,6 +200,11 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: tokens.successBg, borderRadius: 8 }}>
             <Lock size={16} strokeWidth={1.5} color={tokens.success} />
             <span style={{ fontSize: '13px', color: tokens.success, fontWeight: 600 }}>Results locked{drawnAt ? ` ${drawnAt}` : ''}. You can still reassign picks for trades.</span>
+          </div>
+        )}
+        {base.ties.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <BrokenTiesList league={league} ties={base.ties} isDark={isDark} />
           </div>
         )}
         {draw?.stale && !pendingDraw && (

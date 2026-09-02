@@ -4,7 +4,8 @@ import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
 import { parseStandingsText } from '../lib/standingsParse.js';
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import {
-  rankStandings, lotteryEligible, resolveTie, draftOrderConfigOf, BASIS_LABEL, TIEBREAK_LABEL, standingsOf,
+  rankStandings, lotteryEligible, resolveTie, recordCoinFlip, draftOrderConfigOf, describeTie,
+  BASIS_LABEL, TIEBREAK_LABEL, TIEBREAK_MANUAL, standingsOf,
 } from '../lib/draftOrder.js';
 import { standingsImportImpact, standingsGuardLines } from '../lib/importGuard.js';
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
@@ -27,12 +28,16 @@ export function formatPct(v) {
 }
 
 // ── Tie-break editor ─────────────────────────────────────────────────────────
-// "Stop and ask": for each tie the configured tiebreak couldn't break, the
-// commissioner puts the tied teams in finishing order. Controlled — `value`
-// is { [tieKey]: [teamIds best-first] } and the caller decides when it's
-// written (the import applies it with the standings; the Lottery page saves
-// it on its own). Selecting a team already placed elsewhere in the same tie
-// moves it, so an order can never name one team twice.
+// "Stop and ask" — the manual override: for each tie that needs an order
+// from the commissioner, the tied teams go in finishing order. Controlled —
+// `value` is { [tieKey]: [teamIds best-first] } and the caller decides when
+// it's written (the import applies it with the standings; the Lottery page
+// saves it on its own). Selecting a team already placed elsewhere in the
+// same tie moves it, so an order can never name one team twice.
+//
+// Under the chain (points → playoff finish → coin flip) this editor only
+// appears for a tie that ALSO needs a manual answer; coin flips are recorded
+// by `flipUnresolved` and shown, not edited.
 export function tiesResolved(ties, value) {
   return (ties || []).every(tie => {
     const order = value?.[tie.key];
@@ -45,6 +50,42 @@ export function applyTieOrders(league, value) {
     if (Array.isArray(order) && order.every(Boolean)) next = resolveTie(next, order);
   }
   return next;
+}
+
+// Record a coin flip for every tie that has reached the end of the chain.
+// Returns the league with the flips on file (identity when there's nothing
+// to flip). Seeds are generated and stored, so the result replays.
+export function flipUnresolved(league) {
+  let next = league;
+  for (const tie of rankStandings(next).unresolvedTies) {
+    if (tie.needs === 'coinflip') next = recordCoinFlip(next, tie.teams);
+  }
+  return next;
+}
+
+// Read-only list of how each tie was broken (playoff finish / coin flip /
+// by hand), for the import's tie step and the Lottery page.
+export function BrokenTiesList({ league, ties, isDark }) {
+  const t = makeTheme(isDark);
+  const teams = league.teams || [];
+  const nameOf = id => teams.find(tm => tm.id === id)?.name || '?';
+  const shown = (ties || []).filter(tie => tie.resolved);
+  if (shown.length === 0) return null;
+  return (
+    <div style={{ border: `1px solid ${t.border}`, borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ padding: '8px 12px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted }}>Ties broken</div>
+      <div style={{ padding: '4px 12px 8px' }}>
+        {shown.map((tie, i) => (
+          <div key={tie.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < shown.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
+            <span style={{ ...tokens.typePillEmphatic, color: tie.method === 'coinflip' ? t.warning : t.textMuted, background: tie.method === 'coinflip' ? t.warningBg : t.sectionBg, border: `1px solid ${tie.method === 'coinflip' ? t.warningBorder : t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0 }}>
+              {tie.method === 'coinflip' ? 'Coin flip' : tie.method === 'rank' ? 'Playoff finish' : 'By hand'}
+            </span>
+            <span style={{ ...tokens.typeBody, color: t.textBody }}>{describeTie(tie, nameOf)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function TieBreakEditor({ league, ties, value, onChange, isDark, accentColor }) {
@@ -67,9 +108,9 @@ export function TieBreakEditor({ league, ties, value, onChange, isDark, accentCo
       <div style={{ padding: '10px 12px', background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: 6, fontSize: 12, color: t.warning, lineHeight: 1.5 }}>
         <div style={{ fontWeight: 700 }}>{ties.length === 1 ? 'A tie has to be broken by hand' : `${ties.length} ties have to be broken by hand`}</div>
         <div style={{ marginTop: 2 }}>
-          {config.tiebreak === 'manual'
+          {config.tiebreak === TIEBREAK_MANUAL
             ? 'Your tiebreak setting is “ask me”, so every tie stops here.'
-            : `The configured tiebreak (${TIEBREAK_LABEL[config.tiebreak]}) couldn't separate these teams.`}
+            : 'These teams are level on points and playoff finish.'}
           {' '}Put them in finishing order — the draft order never sorts a tie silently.
         </div>
       </div>
@@ -165,9 +206,10 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
   // The league as it would be after this paste — standings swapped in, the
   // confirmed names remembered — so tie detection and the overwrite guard
   // both look at the real outcome.
-  function provisional() {
-    const standingsRows = rows.filter(r => mapping[r.team]).map(r => ({
-      teamId: mapping[r.team],
+  function provisional() { return provisionalFor(mapping); }
+  function provisionalFor(map) {
+    const standingsRows = rows.filter(r => map[r.team]).map(r => ({
+      teamId: map[r.team],
       rank: r.rank, wins: r.wins, losses: r.losses, ties: r.ties, pct: r.pct, pts: r.pts,
       clinched: !!r.clinched,
       // What the paste actually said, so a wrong mapping is visible later.
@@ -177,25 +219,36 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
       ...league,
       standings: { season: league.season || null, importedAt: new Date().toISOString(), rows: standingsRows, tieResolutions: {} },
     };
-    return rememberYahooTeams(base, mapping);
+    return rememberYahooTeams(base, map);
   }
 
   const canContinue = rows.length > 0 && unresolved.length === 0 && dupTeamIds.length === 0 && missingTeams.length === 0;
 
+  // Coin flips recorded during this import (chain step 3), kept with the
+  // paste so the tie step can show them and Apply writes them.
+  // (The tie-step render seam runs the chain up front, as Continue would.)
+  const [flips, setFlips] = React.useState(() => (initialStep === 'ties' && initial?.parsed ? flipUnresolved(provisionalFor(initial.mapInit)) : null)); // league | null
+
   function fromPreview() {
     if (!canContinue) return;
-    const ranked = rankStandings(provisional());
-    if (ranked.unresolvedTies.length > 0) { setStep('ties'); return; }
-    fromTies();
+    // The chain runs by itself: points, then playoff finish, then a coin
+    // flip that's recorded here. Only a tie that still needs a hand-set
+    // order (the manual override) stops on the editor — but every broken
+    // tie is SHOWN before anything is written.
+    const flipped = flipUnresolved(provisional());
+    setFlips(flipped);
+    const ranked = rankStandings(flipped);
+    if (ranked.ties.length > 0) { setStep('ties'); return; }
+    fromTies(flipped);
   }
-  function fromTies() {
-    const next = applyTieOrders(provisional(), tieOrders);
+  function fromTies(baseLeague) {
+    const next = applyTieOrders(baseLeague || flips || provisional(), tieOrders);
     const impact = standingsImportImpact(league, next, { lotteryEligible });
     if (impact.hasImpact) { setGuard(impact); setStep('guard'); return; }
     applyImport(next, impact);
   }
   function applyImport(nextArg, impactArg) {
-    const next0 = nextArg || applyTieOrders(provisional(), tieOrders);
+    const next0 = nextArg || applyTieOrders(flips || provisional(), tieOrders);
     const impact = impactArg || guard || standingsImportImpact(league, next0, { lotteryEligible });
     let next = next0;
     // A draw made among the wrong teams is void — clear it rather than let the
@@ -209,7 +262,8 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
     onClose();
   }
 
-  const ranked = step === 'ties' ? rankStandings(provisional()) : null;
+  const ranked = step === 'ties' ? rankStandings(flips || provisional()) : null;
+  const manualTies = ranked ? ranked.unresolvedTies.filter(tie => tie.needs !== 'coinflip') : [];
 
   const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 };
   const selStyle = (okBorder) => ({ background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${okBorder ? accentColor : t.danger}`, borderRadius: 6, padding: '5px 8px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer', minWidth: 150, maxWidth: 220 });
@@ -354,12 +408,20 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
 
           {step === 'ties' && ranked && (
             <>
-              <TieBreakEditor league={provisional()} ties={ranked.unresolvedTies} value={tieOrders} onChange={setTieOrders} isDark={isDark} accentColor={accentColor} />
+              {manualTies.length === 0 && (
+                <div style={{ fontSize: 12, color: t.textSecondary, lineHeight: 1.5 }}>
+                  Teams level on points were separated by the tiebreak chain — playoff finish (a worse finish picks earlier), then a recorded coin flip. Nothing was sorted silently; here's how each one broke.
+                </div>
+              )}
+              <BrokenTiesList league={flips || provisional()} ties={ranked.ties} isDark={isDark} />
+              {manualTies.length > 0 && (
+                <TieBreakEditor league={flips || provisional()} ties={manualTies} value={tieOrders} onChange={setTieOrders} isDark={isDark} accentColor={accentColor} />
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                 <Button variant="secondary" size="md" isDark={isDark} onClick={() => setStep('preview')}>← Back to preview</Button>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Button variant="secondary" size="md" isDark={isDark} onClick={onClose}>Cancel</Button>
-                  <Button variant="primary" size="md" accent={accentColor} isDark={isDark} disabled={!tiesResolved(ranked.unresolvedTies, tieOrders)} onClick={fromTies}>Continue →</Button>
+                  <Button variant="primary" size="md" accent={accentColor} isDark={isDark} disabled={!tiesResolved(manualTies, tieOrders)} onClick={() => fromTies()}>Continue →</Button>
                 </div>
               </div>
             </>
@@ -440,6 +502,9 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
               <span style={{ color: t.warning, fontWeight: 600 }}>
                 Tie to break: {ranked.unresolvedTies.map(tie => tie.teams.map(nameOf).join(' / ')).join('; ')} — on the Lottery page.
               </span>
+            )}
+            {ranked && ranked.unresolvedTies.length === 0 && ranked.ties.length > 0 && (
+              <span>Ties broken: {ranked.ties.map(tie => describeTie(tie, nameOf)).join('; ')}.</span>
             )}
           </div>
         </>

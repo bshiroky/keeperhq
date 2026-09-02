@@ -8,7 +8,7 @@ import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { StandingsCard } from './tabs/StandingsTab.jsx';
-import { draftOrderConfigOf, BASIS_POINTS, BASIS_RANK, BASIS_LABEL, TIEBREAK_MANUAL, TIEBREAK_RECORD, TIEBREAK_PCT, TIEBREAK_LABEL } from './lib/draftOrder.js';
+import { draftOrderConfigOf, BASIS_POINTS, BASIS_RANK, BASIS_LABEL, TIEBREAK_CHAIN, TIEBREAK_MANUAL, TIEBREAK_LABEL } from './lib/draftOrder.js';
 import { aliasesByTeam, withTeamAliases } from './lib/teamMap.js';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
@@ -1175,13 +1175,12 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
     { value: BASIS_RANK, label: BASIS_LABEL[BASIS_RANK] },
   ];
   const TIEBREAK_OPTIONS = [
+    { value: TIEBREAK_CHAIN, label: TIEBREAK_LABEL[TIEBREAK_CHAIN] },
     { value: TIEBREAK_MANUAL, label: TIEBREAK_LABEL[TIEBREAK_MANUAL] },
-    { value: TIEBREAK_RECORD, label: TIEBREAK_LABEL[TIEBREAK_RECORD] },
-    { value: TIEBREAK_PCT, label: TIEBREAK_LABEL[TIEBREAK_PCT] },
   ];
   const basisHelp = "Yahoo's Rank column reflects playoff results; regular-season points is what most leagues draft from. Sorting on the wrong one flips the order for half the league.";
   const lotteryHelp = 'How many of the worst-placed teams draw for the top picks. 0 = no lottery, straight reverse standings.';
-  const tiebreakHelp = 'What to sort on when points are equal. A tie the tiebreak can\u2019t break — or any tie under \u201cask me\u201d — stops and asks for the order.';
+  const tiebreakHelp = 'When points are equal: playoff finish (Yahoo\u2019s Rank — the worse finish picks earlier), then a coin flip recorded with its seed. \u201cAsk me\u201d overrides the chain and stops on every tie instead.';
   const orderView = [
     { label: 'Standings Basis', value: BASIS_LABEL[orderConfig.basis], help: basisHelp },
     { label: 'Lottery Teams', value: orderConfig.lotteryTeams === 0 ? 'No lottery' : `Worst ${orderConfig.lotteryTeams}`, help: lotteryHelp },

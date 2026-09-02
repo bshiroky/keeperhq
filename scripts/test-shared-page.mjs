@@ -617,7 +617,7 @@ test('an overridden DRAFTED price flows into the calculated keep cost', () => {
 const SNAKE_PROJECTION = {
   name: 'Snake', sport: 'hockey', draftType: 'snake',
   keeperCostModel: 'slot', termModel: 'fixed', termYears: 3, keeperSlots: 4,
-  draftOrderConfig: { basis: 'points', lotteryTeams: 2, tiebreak: 'manual' },
+  draftOrderConfig: { basis: 'points', lotteryTeams: 2, tiebreak: 'chain' },
   lotteryDraw: { at: '2026-09-01T00:00:00Z', order: ['t4', 't3'] },
   draftPicks: { rounds: 2, ownership: { '2:t1': 't4' } },
   standings: {
@@ -659,18 +659,31 @@ test('shared board: "pick 5 belongs to Delta via Alpha" — round 2 reverses, ow
   assert.equal(b.picks.filter(p => p.traded).length, 1);
 });
 
-test('shared board: a tie still to break is reported, not sorted', () => {
+test('shared board: a points tie breaks on playoff finish — the worse rank picks earlier', () => {
+  // Alpha (rank 1) and Beta (rank 2) level on points: Beta picks before Alpha.
   const tied = { ...SNAKE_PROJECTION, standings: { ...SNAKE_PROJECTION.standings, rows: SNAKE_PROJECTION.standings.rows.map(r => (r.teamId === 't2' ? { ...r, pts: 40 } : r)) } };
+  const b = sharedDraftBoard(tied);
+  assert.equal(b.ok, true);
+  assert.equal(b.picks.find(p => p.overall === 3).originalTeamName, 'Beta');
+  assert.equal(b.picks.find(p => p.overall === 4).originalTeamName, 'Alpha');
+  assert.equal(b.ties[0].method, 'rank');
+});
+
+test('shared board: a tie still to break is reported, not sorted — and a projected resolution applies', () => {
+  const manual = { ...SNAKE_PROJECTION, draftOrderConfig: { ...SNAKE_PROJECTION.draftOrderConfig, tiebreak: 'manual' } };
+  const tied = { ...manual, standings: { ...manual.standings, rows: manual.standings.rows.map(r => (r.teamId === 't2' ? { ...r, pts: 40 } : r)) } };
   const b = sharedDraftBoard(tied);
   assert.equal(b.ok, false);
   assert.equal(b.reason, 'unresolved-ties');
   assert.deepEqual(b.picks, []);
-  // …and resolves once the recorded order arrives with the projection.
   const key = ['t1', 't2'].sort().join('|');
-  const resolved = { ...tied, standings: { ...tied.standings, tieResolutions: { [key]: ['t2', 't1'] } } };
+  const resolved = { ...tied, standings: { ...tied.standings, tieResolutions: { [key]: { method: 'manual', order: ['t2', 't1'], at: '2026-09-01T00:00:00Z' } } } };
   const b2 = sharedDraftBoard(resolved);
   assert.equal(b2.ok, true);
   assert.equal(b2.picks.find(p => p.overall === 4).originalTeamName, 'Beta', 'Beta finishes first, so picks last');
+  // A recorded coin flip projects the same way.
+  const flipped = { ...tied, standings: { ...tied.standings, tieResolutions: { [key]: { method: 'coinflip', seed: 7, order: ['t1', 't2'], at: '2026-09-01T00:00:00Z' } } } };
+  assert.equal(sharedDraftBoard(flipped).ties[0].method, 'coinflip');
 });
 
 test('shared board: without standings the page gets a reason, never a guessed order', () => {
