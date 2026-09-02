@@ -4,6 +4,7 @@ import { buildTeamPool } from '../tabs/SetKeepersTab.jsx';
 import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
 import { isPriceOverridden } from './priceProvenance.js';
 import { sortTeamsByName } from './teamOrder.js';
+import { buildDraftBoard, standingsOf } from './draftOrder.js';
 
 // Data layer for the public shared league page (/l/:token).
 //
@@ -242,4 +243,32 @@ export function sortRowsDefault(rows, playerMap, league) {
     const rb = b.round ?? Infinity;
     return (ra - rb) || a.player.localeCompare(b.player);
   });
+}
+
+// ── Draft board (shared page) ───────────────────────────────────────────────
+// The board is DERIVED on the page from the projected inputs (standings,
+// draft-order settings, the lottery draw, pick ownership — migration 008)
+// by the same pure function the commissioner's pages use, so the member view
+// can't drift from the commissioner view. Team names are attached here
+// because the views render names, not ids. Returns the board with `ok: false`
+// and a `reason` when it can't be built (no standings, a tie still to break,
+// an auction league) — the page decides what to show for each.
+//
+// No member UI renders this yet; it exists so those views can be built
+// against a real projection. `standings` is exposed alongside because a
+// standings table is the obvious first view and it needs no computation.
+export function sharedDraftBoard(league) {
+  const teams = league?.teams || [];
+  const nameOf = id => (id ? (teams.find(tm => tm.id === id)?.name || null) : null);
+  const board = buildDraftBoard(league);
+  const standings = standingsOf(league);
+  return {
+    ...board,
+    picks: board.picks.map(p => ({ ...p, originalTeamName: nameOf(p.originalTeamId), ownerTeamName: nameOf(p.ownerTeamId) })),
+    round1: (board.round1 || []).map(s => ({ ...s, originalTeamName: nameOf(s.originalTeamId) })),
+    lotteryEligibleNames: (board.lotteryEligible || []).map(nameOf),
+    standings: standings
+      ? [...standings.rows].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99)).map(r => ({ ...r, teamName: nameOf(r.teamId) }))
+      : null,
+  };
 }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { draftFormatOf, hasTerm, termOf } from '../lib/keeperRules.js';
 import { makeTheme, ConfirmBody } from '../components.jsx';
-import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
+import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import { parseDraftResults } from '../lib/draftParse.js';
 import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '../lib/nflDirectory.js';
 import { lookupByNames } from '../lib/nflDirectoryStore.js';
@@ -129,10 +129,8 @@ function DraftImportFlow({ league, accentColor, isDark, onImport, onComplete, on
     // then a string-similarity suggestion against the league's team names.
     // Anything still unresolved shows the red dropdown for the commissioner.
     const mapInit = {};
-    parsed.forEach(p => {
-      const match = resolveYahooTeam(league, p.name) || suggestTeam(league, p.name);
-      if (match) mapInit[p.name] = match;
-    });
+    const resolved = resolveTeamNames(league, parsed.map(p => p.name));
+    parsed.forEach(p => { if (resolved[p.name]?.teamId) mapInit[p.name] = resolved[p.name].teamId; });
     setMapping(mapInit);
   }
 

@@ -185,3 +185,45 @@ export function draftGuardLines(impact) {
   }
   return lines;
 }
+
+// A standings paste replaces the whole standings block (rows AND the manual
+// tie orders recorded against them). The sharp loss is downstream: a lottery
+// already drawn was drawn among the WORST N under the old standings, so if
+// the new standings change who those N are, the draw is void and is cleared.
+// The comparison needs the new eligible set, so the caller passes the
+// provisional league (standings swapped in, nothing saved yet).
+export function standingsImportImpact(league, provisional, { lotteryEligible } = {}) {
+  const rows = league?.standings?.rows || [];
+  const tieOrders = Object.keys(league?.standings?.tieResolutions || {}).length;
+  const eligibleNow = typeof lotteryEligible === 'function' ? lotteryEligible(league) : [];
+  const eligibleNext = typeof lotteryEligible === 'function' ? lotteryEligible(provisional) : [];
+  const hasDraw = !!(league?.lotteryDraw?.order?.length) || !!(Array.isArray(league?.lotteryResults) && league.lotteryResults.length);
+  const sameSet = eligibleNow.length === eligibleNext.length && [...eligibleNow].sort().join('|') === [...eligibleNext].sort().join('|');
+  const drawCleared = hasDraw && !sameSet;
+  return {
+    replacing: rows.length,
+    tieOrders,
+    hasDraw,
+    drawCleared,
+    drawKept: hasDraw && sameSet,
+    hasImpact: rows.length > 0 || drawCleared,
+  };
+}
+
+export function standingsGuardLines(impact) {
+  const lines = [];
+  const s = (n) => (n === 1 ? '' : 's');
+  if (impact.replacing > 0) {
+    lines.push({ tone: 'danger', text: `${impact.replacing} standings row${s(impact.replacing)} on file will be replaced by this paste.` });
+  }
+  if (impact.tieOrders > 0) {
+    lines.push({ tone: 'danger', text: `${impact.tieOrders} tie order${s(impact.tieOrders)} you set by hand will be cleared — any tie in the new standings is asked again.` });
+  }
+  if (impact.drawCleared) {
+    lines.push({ tone: 'danger', text: 'The lottery draw on file will be cleared: the new standings change which teams are in the lottery, so the draw no longer applies. Re-run it on the Lottery page.' });
+  } else if (impact.drawKept) {
+    lines.push({ tone: 'ok', text: 'The lottery draw on file stays valid — the same teams are in the lottery under the new standings.' });
+  }
+  lines.push({ tone: 'ok', text: 'Pick trades recorded on the Picks page and every keeper are untouched.' });
+  return lines;
+}

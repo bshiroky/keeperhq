@@ -24,7 +24,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 
 const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
-  keepersFirst, sortTeamsByName, SharedLeaguePage,
+  keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
   buildTeamPool, buildStatusIndex,
 } = await import('../.tmp-shared-bundle.mjs');
@@ -607,6 +607,82 @@ test('an overridden DRAFTED price flows into the calculated keep cost', () => {
   const after = buildSharedRows(corrected).find(r => r.player === "Ja'Marr Chase");
   assert.notEqual(after.cost, before.cost, 'the quoted keep cost moves with the corrected price');
   assert.equal(after.draftedCost, 100, 'and the "drafted" line shows the corrected price');
+});
+
+
+// ── Draft board from the 008 projection ────────────────────────────────────
+// A fixture shaped like what get_shared_league returns after migration 008:
+// ONLY the projected keys. If the board needs something the projection
+// doesn't carry, this is where it fails.
+const SNAKE_PROJECTION = {
+  name: 'Snake', sport: 'hockey', draftType: 'snake',
+  keeperCostModel: 'slot', termModel: 'fixed', termYears: 3, keeperSlots: 4,
+  draftOrderConfig: { basis: 'points', lotteryTeams: 2, tiebreak: 'manual' },
+  lotteryDraw: { at: '2026-09-01T00:00:00Z', order: ['t4', 't3'] },
+  draftPicks: { rounds: 2, ownership: { '2:t1': 't4' } },
+  standings: {
+    season: '2025-26', importedAt: '2026-09-01T00:00:00Z', tieResolutions: {},
+    rows: [
+      { teamId: 't1', rank: 1, wins: 10, losses: 2, ties: 0, pct: 0.833, pts: 40, clinched: true },
+      { teamId: 't2', rank: 2, wins: 8, losses: 4, ties: 0, pct: 0.667, pts: 30, clinched: true },
+      { teamId: 't3', rank: 3, wins: 4, losses: 8, ties: 0, pct: 0.333, pts: 20, clinched: false },
+      { teamId: 't4', rank: 4, wins: 2, losses: 10, ties: 0, pct: 0.167, pts: 10, clinched: false },
+    ],
+  },
+  teams: ['Alpha', 'Beta', 'Gamma', 'Delta'].map((name, i) => ({ id: `t${i + 1}`, name, keepers: [], priorKeepers: [], roster: [] })),
+};
+
+test('shared board: built from the projected inputs alone, names attached', () => {
+  const b = sharedDraftBoard(SNAKE_PROJECTION);
+  assert.equal(b.ok, true);
+  assert.equal(b.complete, true);
+  assert.equal(b.picks.length, 8);
+  assert.deepEqual(b.picks.filter(p => p.round === 1).map(p => p.originalTeamName), ['Delta', 'Gamma', 'Beta', 'Alpha']);
+  assert.deepEqual(b.lotteryEligibleNames, ['Delta', 'Gamma']);
+  assert.deepEqual(b.standings.map(r => r.teamName), ['Alpha', 'Beta', 'Gamma', 'Delta']);
+});
+
+test('shared board: "pick 5 belongs to Delta via Alpha" — round 2 reverses, ownership applies', () => {
+  const b = sharedDraftBoard(SNAKE_PROJECTION);
+  // Round 1 is Delta, Gamma, Beta, Alpha; round 2 reverses, so pick 5 is
+  // Alpha's own slot (the turn) — and Alpha's round-2 pick is owned by Delta.
+  const p5 = b.picks.find(p => p.overall === 5);
+  assert.equal(p5.round, 2);
+  assert.equal(p5.slot, 1);
+  assert.equal(p5.originalTeamName, 'Alpha');
+  assert.equal(p5.ownerTeamName, 'Delta');
+  assert.equal(p5.traded, true);
+  assert.equal(b.picks.find(p => p.overall === 4).originalTeamName, 'Alpha', 'the turn');
+  const p8 = b.picks.find(p => p.overall === 8);
+  assert.equal(p8.originalTeamName, 'Delta');
+  assert.equal(p8.traded, false);
+  assert.equal(b.picks.filter(p => p.traded).length, 1);
+});
+
+test('shared board: a tie still to break is reported, not sorted', () => {
+  const tied = { ...SNAKE_PROJECTION, standings: { ...SNAKE_PROJECTION.standings, rows: SNAKE_PROJECTION.standings.rows.map(r => (r.teamId === 't2' ? { ...r, pts: 40 } : r)) } };
+  const b = sharedDraftBoard(tied);
+  assert.equal(b.ok, false);
+  assert.equal(b.reason, 'unresolved-ties');
+  assert.deepEqual(b.picks, []);
+  // …and resolves once the recorded order arrives with the projection.
+  const key = ['t1', 't2'].sort().join('|');
+  const resolved = { ...tied, standings: { ...tied.standings, tieResolutions: { [key]: ['t2', 't1'] } } };
+  const b2 = sharedDraftBoard(resolved);
+  assert.equal(b2.ok, true);
+  assert.equal(b2.picks.find(p => p.overall === 4).originalTeamName, 'Beta', 'Beta finishes first, so picks last');
+});
+
+test('shared board: without standings the page gets a reason, never a guessed order', () => {
+  const { standings, ...noStandings } = SNAKE_PROJECTION;
+  const b = sharedDraftBoard(noStandings);
+  assert.equal(b.ok, false);
+  assert.equal(b.reason, 'no-standings');
+  assert.equal(b.standings, null);
+});
+
+test('shared board: an auction league has none', () => {
+  assert.equal(sharedDraftBoard({ ...SNAKE_PROJECTION, draftType: 'auction' }).reason, 'not-snake');
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);

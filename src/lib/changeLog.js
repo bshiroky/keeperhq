@@ -108,7 +108,9 @@ export function describeChange(entry) {
     case 'import':
       return {
         subject: entry.teamName || 'League',
-        action: entry.field === 'roster' ? 'roster re-imported' : 'draft re-imported',
+        action: entry.field === 'roster' ? 'roster re-imported'
+          : entry.field === 'standings' ? 'standings imported'
+          : 'draft re-imported',
         detail: entry.note || '',
         where: '',
       };
