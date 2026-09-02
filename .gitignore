@@ -10,3 +10,4 @@ dist
 .tmp-nfl-bundle.mjs
 .tmp-shared-bundle.mjs
 .tmp-provenance-bundle.mjs
+.tmp-picks-bundle.mjs

@@ -929,6 +929,61 @@ Yahoo work off 47%, not off the optimistic reading.
   leagues has silently fallen back to alphabetical on the shared page since it
   shipped. Both now have regression tests in `scripts/test-shared-page.mjs`.
 
+- **Yahoo Draft Picks import reads the real page (this branch's PR):** the
+  Picks paste parser expected a `Round 2 (from Team)` block format Yahoo never
+  produces. Yahoo's Draft Picks page has three views — **Grid** (team × round,
+  counts only), **By Round**, and **By Team** — and only **By Round is complete
+  on its own**, so that is what the import reads now (`src/lib/picksParse.js`,
+  pure). Each round is a block of alternating lines: the CURRENT owner, then
+  the ORIGINAL owners of every pick it holds that round (or `-`), and when a
+  team holds several Yahoo runs the names together with **no separator**
+  (`…Hellebuyck GirlStop F***ing Crying Brothe grit grinders`). Solved by
+  exact-cover segmentation: every owner line in the paste is a known team, so
+  the vocabulary comes from the paste itself (the league's own names are a
+  second tier), and the concatenation is split on **`normalizeTeamName`** —
+  the GM-mapping key, now exported from `teamMap.js` and widened to keep any
+  Unicode letter/digit so a Cyrillic team (`ЦСКА Совки`) no longer normalises
+  to the empty string. A chunk no team covers is reported in its raw spelling
+  with that pick skipped, never guessed; a string that splits more than one
+  way is flagged as ambiguous. **Validation is built in and reported by round
+  and team, never silently accepted**: every round must account for exactly
+  one pick per team (sum + missing + duplicate checks), and a **Grid pasted
+  alongside is a checksum** — per team per round counts compared to what was
+  read. The Grid alone is refused with a message naming By Round. The result
+  feeds the existing per-pick model directly (each `(round, original,
+  owner)` is one `draftPicks.ownership` entry) and, because By Round is
+  complete, the import **writes every pick it resolves** — a pick shown with
+  its original owner clears a trade recorded by hand, and the preview lists
+  those as "back to X" beside the trades; the existing `picksImportImpact`
+  guard names each contradicted hand-recorded trade before anything is
+  written. Every Yahoo name must map to a distinct team (two names on one
+  team disables Apply). `PicksPasteModal` takes `initialText` / `initialGridText` seams so
+  `npm run test:picks-ui` renders the preview step server-side (the
+  Rules-button lesson); `scripts/report-picks-paste.mjs <by-round.txt>
+  [grid.txt]` prints the same report from a saved paste. The old block
+  format still parses as the by-team fallback.
+  **First real paste (R1–R16 clean, R17 corrupted) taught three things:**
+  (1) **Two fields, not one paste** — By Round (required) and Grid
+  (optional checksum) are separate labelled textareas, because the
+  instruction to paste the Grid *below* went unread; the parser takes the
+  Grid as `opts.gridText`. (2) **Yahoo's Grid header is TWO lines**
+  (`Team<TAB>Rounds`, then `1<TAB>2…17`), not the one-line
+  `Team 1 2 … N` the first version assumed — so the Grid wasn't recognised
+  at all and its rows read as Round 17 continuation: `Team` and `1` became
+  teams and the count rows segmented into picks of team "1" (R17 claimed
+  ~200 picks). Both header shapes are read now, and the header is the
+  **boundary** when both views land in one field: nothing in By Round
+  produces it, so round parsing stops there (a Grid pasted FIRST is skipped
+  as a span instead). (3) **The mapping dropdown marks taken teams** —
+  same behaviour as the draft import: picking a team mapped on another row
+  steals it (that row reverts to red), other rows list it as `✓ (mapped)`,
+  and an "N of M teams mapped" counter sits by Apply. The regression test
+  reconstructs the real failure (the old parser yields 14 teams / junk
+  `Team`, `1`) and asserts 12 teams · 204 picks · Grid ok. **The user's
+  actual paste still hasn't been run in-session** — it was never pasted
+  into the conversation or PR; `report-picks-paste.mjs` exists for exactly
+  that.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1002,9 +1057,17 @@ headless.
   to the database**; the NFL directory refresh is an in-app button, not a
   build step.
 - `npm test` — everything below in sequence
-- `npm run test:parser` — paste-parser unit tests, draft + roster
-  (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`;
-  plain node, no framework)
+- `npm run test:parser` — paste-parser unit tests, draft + roster + picks
+  (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`,
+  `scripts/test-picks-parser.mjs`; plain node, no framework)
+- `npm run test:picks-ui` — server-renders the pick-ownership paste modal's
+  preview step (totals, Grid checksum verdict, round-sum issues, the
+  "back to X" clears, the unmapped-name block) in both themes
+  (`scripts/smoke-picks-paste.mjs`; esbuild-bundles
+  `scripts/picks-smoke-entry.jsx` to `.tmp-picks-bundle.mjs`, gitignored)
+- `node scripts/report-picks-paste.mjs <by-round.txt> [grid.txt]` —
+  read-only: parses a saved Yahoo By Round paste (Grid in a second file, or
+  under it) and prints picks / traded / every issue by round and team
 - `npm run test:nfl` — NFL directory pure helpers: the match key, the Sleeper
   row mapping, the disambiguation rules, the fill-rate summary
   (`scripts/test-nfl-directory.mjs`)
@@ -2219,8 +2282,23 @@ copy of a component drifts away from the original.
   sticky-transparency rule applies here too; click a cell → inline
   team select; traded cells `via {owner}` in warning tint), and the
   Traded Picks roll-up with per-trade undo. Also exports
-  `parseDraftPicksText` + `PicksPasteModal` (the pick-trades paste
-  import; parser format provisional pending a real Yahoo sample).
+  `PicksPasteModal` (paste → preview/mapping → confirm, with the
+  round-sum and Grid-checksum results shown on the preview step; takes
+  `initialText` as a render-test seam) and re-exports
+  `parseDraftPicksText` from `src/lib/picksParse.js`.
+- `src/lib/picksParse.js` — the Yahoo Draft Picks paste parser, pure JS.
+  `parseDraftPicksText(text, {knownNames})` detects the view and
+  dispatches: `parsePicksByRound` (the real format — round blocks of
+  owner/held pairs, concatenated original-owner names segmented against
+  the paste's own owner vocabulary via `segmentTeamNames`, per-round
+  one-pick-per-team checks, optional Grid checksum via `parsePicksGrid`),
+  `parsePicksByTeam` (the old block format, fallback), and a refusal for
+  a Grid-only paste. `opts.gridText` is the dedicated Grid field; a Grid
+  embedded under the By Round text is found by its (two-line or one-line)
+  header, which also ends round parsing. Returns `{ format, picks, rounds,
+  teams, teamCount, totalPicks, tradedCount, issues, grid, error? }`. Tests:
+  `scripts/test-picks-parser.mjs` (parser) + `scripts/smoke-picks-paste.mjs`
+  (the modal's preview step, both themes).
 - `src/tabs/OverviewTab.jsx` — exports **`KeepersOverview`** (the live
   Overview surface) plus the now-dormant `CompactKeeperGrid`.
   **`KeepersOverview`** is a full-width responsive grid
@@ -2641,11 +2719,11 @@ buttons, no member login until (B)'s trigger is hit.
     commissioner record pick trades by hand and see ownership at a
     glance (see the pick-ownership PR bullet). The **mapping layer
     (Yahoo team name ↔ GM/owner)** also shipped
-    (`league.yahooTeamMap`, wired into the draft-paste preview).
-    Still open from the original item: actual trade *validation*
-    (warning when someone trades a pick they no longer own) and any
-    direct pick *import* from Yahoo — both are rules/ingest layers on
-    top of the now-existing ownership data.
+    (`league.yahooTeamMap`, wired into the draft-paste preview), and the
+    **Yahoo Draft Picks paste now reads the real By Round view** with a
+    Grid checksum (see the shipped-work bullet). Still open from the
+    original item: actual trade *validation* (warning when someone
+    trades a pick they no longer own) and a direct API pull of picks.
 15. **Account creation + login — SHIPPED (PR #23).** Google SSO is
     live (`AccountMenu` in `src/App.jsx`, `supabase.auth.signInWithOAuth`).
     Tightly coupled with the backend (#7): login identifies the
