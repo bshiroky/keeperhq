@@ -3,7 +3,7 @@
 // need a bundler (JSX, import.meta.env), so esbuild flattens them for node.
 export {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
-  keepersFirst,
+  keepersFirst, sharedDraftBoard,
 } from '../src/lib/sharedLeague.js';
 export { sortTeamsByName } from '../src/lib/teamOrder.js';
 export { buildTeamPool } from '../src/tabs/SetKeepersTab.jsx';

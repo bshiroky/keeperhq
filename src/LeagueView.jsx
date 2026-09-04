@@ -7,6 +7,9 @@ import { KeepersOverview } from './tabs/OverviewTab.jsx';
 import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
 import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
+import { StandingsCard } from './tabs/StandingsTab.jsx';
+import { draftOrderConfigOf, BASIS_POINTS, BASIS_RANK, BASIS_LABEL, TIEBREAK_CHAIN, TIEBREAK_MANUAL, TIEBREAK_LABEL } from './lib/draftOrder.js';
+import { aliasesByTeam, withTeamAliases } from './lib/teamMap.js';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
@@ -514,6 +517,36 @@ function ToggleField({ value, onChange, t, isDark }) {
     }}>
       <span className="kh-toggle-knob" style={{ position: 'absolute', top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
     </button>
+  );
+}
+
+// Chip list of a team's Yahoo names with remove ×, plus an add field (Enter
+// or the button). Used inside the Teams card's edit mode only.
+function AliasEditor({ names, onAdd, onRemove, isDark, t }) {
+  const [draft, setDraft] = React.useState('');
+  const submit = () => { if (draft.trim()) { onAdd(draft); setDraft(''); } };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+        <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted }}>Yahoo names</span>
+        {names.length === 0 && <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>none yet — added as pastes are mapped</span>}
+        {names.map(name => (
+          <span key={name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...tokens.typePill, color: t.textSecondary, background: t.badgeBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusPill, padding: '2px 4px 2px 9px' }}>
+            {name}
+            <button type="button" onClick={() => onRemove(name)} aria-label={`Remove Yahoo name ${name}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, padding: 2, display: 'inline-flex', fontFamily: 'inherit' }}>
+              <X size={11} strokeWidth={2} />
+            </button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <Input value={draft} width={220} size="sm" isDark={isDark} placeholder="Add a Yahoo team name"
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} />
+        <Button variant="secondary" size="sm" isDark={isDark} onClick={submit} disabled={!draft.trim()}>Add</Button>
+      </div>
+    </div>
   );
 }
 
@@ -1068,28 +1101,107 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
   // ── Teams card — inline team renames (EditableCard pattern). Teams are
   // referenced by id everywhere (keepers' tradedTo, payment rows, import
   // mapping, the shared page projection), so a rename propagates on its own.
+  //
+  // Each team also carries its Yahoo ALIASES — every Yahoo team name that has
+  // resolved to it. That list is league.yahooTeamMap inverted (aliasesByTeam),
+  // so what's shown here is exactly what every paste resolves against, and a
+  // wrong mapping is fixed here rather than by re-importing. A name moving
+  // between GMs is handled here too, by hand — never detected.
+  const aliases = aliasesByTeam(league);
+  const teamHelp = (tm) => {
+    const list = aliases[tm.id] || [];
+    const shown = list.filter(n => n !== tm.name);
+    if (!tm.isCommissioner && shown.length === 0) return undefined;
+    return (
+      <>
+        {tm.isCommissioner && <span>Commissioner</span>}
+        {tm.isCommissioner && shown.length > 0 && <span> · </span>}
+        {shown.length > 0 && <span>Yahoo names: {shown.join(' · ')}</span>}
+      </>
+    );
+  };
   const teamsView = teams.map((tm, i) => ({
     label: `Team ${i + 1}`,
     value: tm.name,
-    ...(tm.isCommissioner ? { help: 'Commissioner' } : {}),
+    help: teamHelp(tm),
   }));
-  const teamsDraftInitial = { names: Object.fromEntries(teams.map(tm => [tm.id, tm.name])) };
+  const teamsDraftInitial = {
+    names: Object.fromEntries(teams.map(tm => [tm.id, tm.name])),
+    aliases: Object.fromEntries(teams.map(tm => [tm.id, [...(aliases[tm.id] || [])]])),
+  };
   function teamsEdit(draft, setDraft) {
+    // Adding a name already listed under another team MOVES it — one Yahoo
+    // name can only ever mean one team.
+    const addAlias = (teamId, raw) => {
+      const name = (raw || '').trim();
+      if (!name) return;
+      const next = {};
+      for (const [id, list] of Object.entries(draft.aliases)) next[id] = list.filter(n => n !== name);
+      next[teamId] = [...(next[teamId] || []), name];
+      setDraft({ ...draft, aliases: next });
+    };
+    const removeAlias = (teamId, name) => setDraft({ ...draft, aliases: { ...draft.aliases, [teamId]: draft.aliases[teamId].filter(n => n !== name) } });
     return teams.map((tm, i) => ({
       label: `Team ${i + 1}`,
       ...(tm.isCommissioner ? { help: 'Commissioner' } : {}),
-      control: <TextField value={draft.names[tm.id]} width={220} isDark={isDark} t={t}
-        onChange={v => setDraft({ ...draft, names: { ...draft.names, [tm.id]: v } })} />,
+      control: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '4px 0', width: '100%' }}>
+          <TextField value={draft.names[tm.id]} width={220} isDark={isDark} t={t}
+            onChange={v => setDraft({ ...draft, names: { ...draft.names, [tm.id]: v } })} />
+          <AliasEditor names={draft.aliases[tm.id] || []} isDark={isDark} t={t}
+            onAdd={name => addAlias(tm.id, name)} onRemove={name => removeAlias(tm.id, name)} />
+        </div>
+      ),
     }));
   }
   function saveTeams(draft) {
-    onUpdateLeague({
+    const renamed = {
       ...league,
       teams: teams.map(tm => {
         const name = (draft.names[tm.id] || '').trim();
         // A blanked-out field keeps the old name — no way to save a nameless team.
         return name && name !== tm.name ? { ...tm, name } : tm;
       }),
+    };
+    onUpdateLeague(withTeamAliases(renamed, draft.aliases));
+  }
+
+  // ── Draft Order card (snake only) — what the standings sort on, how many
+  // teams enter the lottery, and how a points tie is broken. Read only through
+  // draftOrderConfigOf, which also honours the legacy bottomLotteryTeams.
+  const orderConfig = draftOrderConfigOf(league);
+  const BASIS_OPTIONS = [
+    { value: BASIS_POINTS, label: BASIS_LABEL[BASIS_POINTS] },
+    { value: BASIS_RANK, label: BASIS_LABEL[BASIS_RANK] },
+  ];
+  const TIEBREAK_OPTIONS = [
+    { value: TIEBREAK_CHAIN, label: TIEBREAK_LABEL[TIEBREAK_CHAIN] },
+    { value: TIEBREAK_MANUAL, label: TIEBREAK_LABEL[TIEBREAK_MANUAL] },
+  ];
+  const basisHelp = "Yahoo's Rank column reflects playoff results; regular-season points is what most leagues draft from. Sorting on the wrong one flips the order for half the league.";
+  const lotteryHelp = 'How many of the worst-placed teams draw for the top picks. 0 = no lottery, straight reverse standings.';
+  const tiebreakHelp = 'When points are equal: playoff finish (Yahoo\u2019s Rank — the worse finish picks earlier), then a coin flip recorded with its seed. \u201cAsk me\u201d overrides the chain and stops on every tie instead.';
+  const orderView = [
+    { label: 'Standings Basis', value: BASIS_LABEL[orderConfig.basis], help: basisHelp },
+    { label: 'Lottery Teams', value: orderConfig.lotteryTeams === 0 ? 'No lottery' : `Worst ${orderConfig.lotteryTeams}`, help: lotteryHelp },
+    { label: 'Tiebreak', value: TIEBREAK_LABEL[orderConfig.tiebreak], help: tiebreakHelp },
+  ];
+  const orderDraftInitial = { ...orderConfig };
+  function orderEdit(draft, setDraft) {
+    const set = (k, v) => setDraft({ ...draft, [k]: v });
+    return [
+      { label: 'Standings Basis', help: basisHelp, control: <SelectField value={draft.basis} onChange={v => set('basis', v)} t={t} isDark={isDark} options={BASIS_OPTIONS} /> },
+      { label: 'Lottery Teams', help: lotteryHelp, control: <TextField type="number" value={draft.lotteryTeams} onChange={v => set('lotteryTeams', v)} t={t} isDark={isDark} /> },
+      { label: 'Tiebreak', help: tiebreakHelp, control: <SelectField value={draft.tiebreak} onChange={v => set('tiebreak', v)} t={t} isDark={isDark} options={TIEBREAK_OPTIONS} /> },
+    ];
+  }
+  function saveOrder(draft) {
+    const n = Math.max(0, Math.min(teams.length || 99, Math.floor(Number(draft.lotteryTeams) || 0)));
+    onUpdateLeague({
+      ...league,
+      draftOrderConfig: { basis: draft.basis, lotteryTeams: n, tiebreak: draft.tiebreak },
+      // Legacy mirror, kept in step for anything that still reads it.
+      bottomLotteryTeams: n,
     });
   }
 
@@ -1101,6 +1213,11 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
       {teams.length > 0 && (
         <EditableCard title="Teams" t={t} isDark={isDark} accentColor={accentColor}
           viewRows={teamsView} initialDraft={teamsDraftInitial} editRows={teamsEdit} onSave={saveTeams} onSaved={onSaved} />
+      )}
+
+      {draftFormatOf(league) === 'snake' && (
+        <EditableCard title="Draft Order" t={t} isDark={isDark} accentColor={accentColor}
+          viewRows={orderView} initialDraft={orderDraftInitial} editRows={orderEdit} onSave={saveOrder} onSaved={onSaved} />
       )}
 
       <MemberRulesCard league={league} isDark={isDark} accentColor={accentColor}
@@ -1190,6 +1307,11 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
         <Button variant="secondary" size="sm" isDark={isDark}
           onClick={() => navigate(`/league/${league.id}/draft`)} style={{ flexShrink: 0 }}>Open Last Draft →</Button>
       </div>
+
+      {/* Last season's standings — the draft order's input. Both draft types
+          (standings are last-season data); the ORDER built from them is
+          snake-only and lives on the Lottery page. */}
+      <StandingsCard league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />
 
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>

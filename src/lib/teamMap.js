@@ -82,3 +82,52 @@ export function rememberYahooTeams(league, pairs) {
   if (Object.keys(additions).length === 0) return league;
   return { ...league, yahooTeamMap: { ...(league.yahooTeamMap || {}), ...additions } };
 }
+
+// ── Aliases: the per-GM view of the same map ────────────────────────────────
+// Yahoo team names change constantly, so each GM accumulates a LIST of names
+// they've used. That list IS yahooTeamMap inverted — no second store, so the
+// Settings editor and every paste read the same truth. Order is insertion
+// order (the order names were confirmed), which reads as a history.
+export function aliasesByTeam(league) {
+  const out = {};
+  for (const tm of league?.teams || []) out[tm.id] = [];
+  for (const [name, teamId] of Object.entries(league?.yahooTeamMap || {})) {
+    if (out[teamId]) out[teamId].push(name);
+  }
+  return out;
+}
+
+// Rebuild the map from per-team lists (the Settings editor's write path).
+// A name listed under two teams goes to the LAST one — the editor prevents
+// that anyway by moving a name when it's added elsewhere. Names that map to a
+// team that no longer exists are dropped; everything else is preserved.
+export function withTeamAliases(league, byTeam) {
+  const teams = league?.teams || [];
+  const map = {};
+  for (const tm of teams) {
+    for (const raw of byTeam?.[tm.id] || []) {
+      const name = (raw || '').trim();
+      if (name) map[name] = tm.id;
+    }
+  }
+  return { ...league, yahooTeamMap: map };
+}
+
+// Resolve a batch of pasted names the way EVERY Yahoo paste must: a saved
+// alias resolves silently; otherwise a similarity suggestion is offered for
+// confirmation; otherwise the commissioner is asked. The `source` is what
+// lets a surface tell "already known" from "prefilled guess" — the guess is
+// still a prompt, just one with a default.
+//
+// → { "<name>": { teamId: string|null, source: 'alias'|'suggested'|'none' } }
+export function resolveTeamNames(league, names) {
+  const out = {};
+  for (const name of names || []) {
+    if (name in out) continue;
+    const saved = resolveYahooTeam(league, name);
+    if (saved) { out[name] = { teamId: saved, source: 'alias' }; continue; }
+    const guess = suggestTeam(league, name);
+    out[name] = guess ? { teamId: guess, source: 'suggested' } : { teamId: null, source: 'none' };
+  }
+  return out;
+}

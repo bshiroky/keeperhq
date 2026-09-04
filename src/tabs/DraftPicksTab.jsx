@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowRight, ClipboardList, X } from 'lucide-react';
 import { makeTheme, tokens, NumberInput, Button, ConfirmBody } from '../components.jsx';
 import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPicks } from '../lib/draftPicks.js';
-import { resolveYahooTeam, suggestTeam, rememberYahooTeams } from '../lib/teamMap.js';
+import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
 import { parseDraftPicksText } from '../lib/picksParse.js';
 
@@ -41,10 +41,9 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
     if (result.error) return { result: null, mapInit: {}, error: result.error };
     const mapInit = {};
     const names = [...new Set([...(result.teams || []), ...result.picks.flatMap(p => [p.originalName, p.ownerName])])];
-    names.forEach(n => {
-      const match = resolveYahooTeam(league, n) || suggestTeam(league, n);
-      if (match) mapInit[n] = match;
-    });
+    // Saved alias → silent; similarity → prefilled; otherwise the red select.
+    const resolved = resolveTeamNames(league, names);
+    names.forEach(n => { if (resolved[n]?.teamId) mapInit[n] = resolved[n].teamId; });
     return { result, mapInit, error: null };
   };
   const initial = React.useMemo(() => (initialText ? previewOf(initialText, initialGridText) : null), []); // eslint-disable-line react-hooks/exhaustive-deps

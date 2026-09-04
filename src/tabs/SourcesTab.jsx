@@ -5,6 +5,7 @@ import { makeTheme, tokens, ConfirmBody } from '../components.jsx';
 import { DraftImportModal } from './ImportTab.jsx';
 import { priorKeepersImpact, draftGuardLines } from '../lib/importGuard.js';
 import { RosterImportModal } from './RosterImportTab.jsx';
+import { resolveYahooTeam } from '../lib/teamMap.js';
 
 // Centralized "Data Sources" panel — used inside the season setup step.
 // Shows progress on all the imports a commissioner needs to do before assigning keepers:
@@ -98,11 +99,15 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
     applyImport();
   }
 
-  // Team matching is by name here (this surface predates the yahooTeamMap
-  // path), so the guard resolves ids the same way doImport does.
+  // Team names resolve through the same alias map every Yahoo paste uses
+  // (a saved Yahoo name resolves silently), falling back to a case-
+  // insensitive match on the team's own name. This surface is dormant and
+  // has no mapping step, so an unknown name simply doesn't import.
+  const teamIdFor = (name) => resolveYahooTeam(league, name)
+    || (league.teams || []).find(tm => tm.name.toLowerCase() === (name || '').toLowerCase())?.id
+    || null;
   function teamIdsInPreview() {
-    const names = new Set((preview || []).map(row => (row.team || '').toLowerCase()));
-    return (league.teams || []).filter(tm => names.has(tm.name.toLowerCase())).map(tm => tm.id);
+    return [...new Set((preview || []).map(row => teamIdFor(row.team)).filter(Boolean))];
   }
 
   function applyImport() {
@@ -110,7 +115,8 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
     // Group by team and merge into priorKeepers
     const byTeam = {};
     preview.forEach(row => {
-      const key = row.team.toLowerCase();
+      const key = teamIdFor(row.team);
+      if (!key) return;
       (byTeam[key] = byTeam[key] || []).push({
         player: row.player,
         contractYear: row.contractYear,
@@ -118,10 +124,8 @@ function PrevContractsPasteModal({ league, accentColor, isDark, onImport, onClos
         expired: row.expired || undefined,
       });
     });
-    // Match team names case-insensitively
     const newTeams = (league.teams || []).map(tm => {
-      const matchKey = tm.name.toLowerCase();
-      const rows = byTeam[matchKey];
+      const rows = byTeam[tm.id];
       if (!rows) return tm;
       return { ...tm, priorKeepers: rows };
     });
