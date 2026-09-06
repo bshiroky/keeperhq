@@ -8,6 +8,7 @@ import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } fro
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
+import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../lib/contractYear.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -137,6 +138,10 @@ function buildTeamPool(league, team) {
     return entry;
   };
 
+  // An expired entry still names its term so the contract-year control can
+  // show where it ran out (and revive it if the import got the year wrong).
+  const expiredTerm = (p) => (termed ? { length: p.contractLength || len, year: (p.contractYear || 0) + 1 } : {});
+
   const onContract = [];
   const expired = [];
   const rosteredNoContract = [];
@@ -157,7 +162,7 @@ function buildTeamPool(league, team) {
       return;
     }
     if (isExpired(prior)) {
-      expired.push({ player: r.player, pos: r.pos || prior.pos, kind: 'expired' });
+      expired.push({ player: r.player, pos: r.pos || prior.pos, kind: 'expired', ...expiredTerm(prior) });
       return;
     }
     onContract.push(contractEntry(prior, r));
@@ -171,7 +176,7 @@ function buildTeamPool(league, team) {
     if (claimed.has(key) || ownedElsewhere(p.player)) return;
     if (rostersExist && rosterOwnerByName.has(key)) return;
     if (isExpired(p)) {
-      expired.push({ player: p.player, pos: p.pos, kind: 'expired' });
+      expired.push({ player: p.player, pos: p.pos, kind: 'expired', ...expiredTerm(p) });
       return;
     }
     onContract.push(contractEntry(p, null));
@@ -295,20 +300,66 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
   );
 }
 
+// The contract-year control on a pool row: Y{year} / {length} as two selects.
+// This records a FACT from last season (where the player is in his deal),
+// not this season's keep decision — Keep stays the declaration and reads the
+// year from the row. "Expired" sits alongside the years: the contract ran out
+// last season and the player is back in the draft (the Expired tab's state,
+// settable directly). A blocked (expired) row offers the years as the way
+// back; its length is locked until then.
+function TermControl({ entry, blocked, gridAccent, isDark, onChange }) {
+  const t = makeTheme(isDark);
+  const length = entry.length || 3;
+  const year = blocked ? EXPIRED : (entry.nextYear ?? entry.year ?? 1);
+  const color = entry.final ? t.danger : gridAccent;
+  const sel = {
+    background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm,
+    padding: '3px 4px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer', color: t.textPrimary,
+  };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}
+      onClick={e => e.stopPropagation()}>
+      <select value={year} aria-label={`${entry.player} — contract year`}
+        onChange={e => {
+          if (e.target.value === EXPIRED) { onChange({ year: EXPIRED, length }); return; }
+          const y = parseInt(e.target.value);
+          if (Number.isFinite(y)) onChange({ year: y, length });
+        }}
+        style={{ ...sel, color: blocked ? t.danger : color, fontWeight: 700 }}>
+        {contractYearOptions(length).map(v => <option key={v} value={v}>Y{v}</option>)}
+        <option value={EXPIRED}>Expired</option>
+      </select>
+      <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
+      <select value={length} aria-label={`${entry.player} — contract length`} disabled={blocked}
+        onChange={e => { const L = parseInt(e.target.value); onChange({ year: Math.min(year || 1, L), length: L }); }}
+        style={{ ...sel, opacity: blocked ? 0.5 : 1, cursor: blocked ? 'not-allowed' : 'pointer' }}>
+        {CONTRACT_LENGTH_OPTIONS.map(v => <option key={v} value={v}>{v}</option>)}
+      </select>
+    </span>
+  );
+}
+
 // A single eligible-pool row: position badge + player + status pill + Keep
 // toggle. Blocked (expired) rows are non-interactive; full/already-elsewhere
 // rows show a disabled Keep.
-function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, disabled, onToggle }) {
+function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, disabled, onToggle, onSetTerm }) {
   const t = makeTheme(isDark);
   // Auction value states the ACTION cost ("Keep $88") so it reads as the keep
   // price next to the muted "Drafted $83" status — the +$/yr math is visible
   // on the row instead of an unexplained number. A league with both a dollar
   // cost and a term shows both halves.
+  // With a term control on the row the year is the control itself, not text.
+  const termEditable = !!onSetTerm && (entry.nextYear != null || entry.kind === 'expired');
   const bits = [];
   if (entry.nextCost != null) bits.push(`Keep $${entry.nextCost}`);
-  if (entry.nextYear != null) bits.push(`Y${entry.nextYear}/${entry.length}`);
-  const valueText = entry.kind === 'expired' ? null : (bits.join(' · ') || 'Keep');
+  if (entry.nextYear != null && !termEditable) bits.push(`Y${entry.nextYear}/${entry.length}`);
+  const valueText = entry.kind === 'expired' ? null : (bits.join(' · ') || (termEditable ? null : 'Keep'));
   const valueColor = entry.final ? t.danger : gridAccent;
+  // The status label restates the year when the control shows it; only the
+  // dollar status ("Drafted $83") and the final-year warning keep earning
+  // their width next to it.
+  const statusLabel = termEditable && !entry.termStatusKeep ? (entry.final && entry.kind !== 'expired' ? 'Final yr' : null) : entry.statusLabel;
+  const statusColor = termEditable && !entry.termStatusKeep ? t.danger : entry.statusColor;
 
   let btn;
   if (blocked) {
@@ -334,11 +385,12 @@ function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, dis
         <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.sectionBg, borderRadius: 3, padding: '1px 5px', minWidth: 22, textAlign: 'center', flexShrink: 0 }}>{entry.pos}</span>
       )}
       <span style={{ ...tokens.typeBody, fontWeight: 600, color: blocked ? t.textMuted : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: blocked ? 'line-through' : 'none' }}>{entry.player}</span>
-      {entry.statusLabel && <span style={{ ...tokens.typePill, color: entry.statusColor || t.textMuted, flexShrink: 0 }}>{entry.statusLabel}</span>}
+      {statusLabel && <span style={{ ...tokens.typePill, color: statusColor || t.textMuted, flexShrink: 0 }}>{statusLabel}</span>}
       {/* The drafted price this row's keep cost is calculated FROM was set by
           hand — say so here, where the arithmetic is on screen. */}
       {entry.wasCostOverridden && <EditedMark computed={entry.wasCostComputed} isDark={isDark} compact />}
       {valueText && <span style={{ ...tokens.typePill, fontWeight: 700, color: valueColor, flexShrink: 0 }}>{valueText}</span>}
+      {termEditable && <TermControl entry={entry} blocked={blocked} gridAccent={gridAccent} isDark={isDark} onChange={v => onSetTerm(entry, v)} />}
       {btn}
     </div>
   );
@@ -349,7 +401,7 @@ function GroupHeader({ label, isDark }) {
   return <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: '8px 4px 4px' }}>{label}</div>;
 }
 
-function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull, onAdd, onRemoveName }) {
+function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull, onAdd, onRemoveName, onSetTerm }) {
   const t = makeTheme(isDark);
   const termed = hasTerm(league);
   const dollars = isAuctionCost(league);
@@ -380,6 +432,10 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     const elsewhere = !keeping && keptAnywhere.has(normalizeName(entry.player));
     return { keeping, disabled: (!keeping && isFull) || elsewhere, onToggle: () => toggle(entry) };
   };
+  // Contract-year edits only exist where a term exists, and only for players
+  // on THIS team's file (the roster and expired tabs) — a directory hit has
+  // no record to set a year on.
+  const termProps = termed && onSetTerm ? { onSetTerm } : {};
 
   // Auction leagues have no expiry concept — the Expired tab is snake-only
   // (mirrors the shared page's snake-gated Expired filter).
@@ -398,6 +454,7 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     // desc, alphabetical tiebreak.
     const onC = teamPool.onContract.filter(e => matches(e.player)).map(e => ({
       ...e,
+      termStatusKeep: dollars,
       statusLabel: dollars
         ? (e.wasCost != null ? `Drafted $${e.wasCost}` : 'Drafted')
         : termed ? (e.final ? 'Final year' : 'On contract') : 'Kept last year',
@@ -405,6 +462,7 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
     }));
     const ros = teamPool.rosteredNoContract.filter(e => matches(e.player)).map(e => ({
       ...e,
+      termStatusKeep: dollars,
       statusLabel: dollars ? 'Undrafted' : termed ? 'No contract' : 'Not kept',
       statusColor: t.textMuted,
     }));
@@ -418,9 +476,9 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
       body = (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {onC.length > 0 && <GroupHeader label={dollars ? 'Drafted last year · eligible' : termed ? 'On a contract · eligible' : 'Kept last year · eligible'} isDark={isDark} />}
-          {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}
+          {onC.map((e, i) => <PoolRow key={`c-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} {...termProps} />)}
           {ros.length > 0 && <GroupHeader label={dollars ? 'Rostered · undrafted' : termed ? 'Rostered · no contract' : 'Rostered · not kept'} isDark={isDark} />}
-          {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}
+          {ros.map((e, i) => <PoolRow key={`r-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} {...termProps} />)}
         </div>
       );
     }
@@ -445,10 +503,10 @@ function EligiblePool({ league, team, accentColor, gridAccent, isDark, keepingNa
         : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{results.map((e, i) => <PoolRow key={`d-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} {...rowProps(e)} />)}</div>;
     }
   } else {
-    const exp = teamPool.expired.filter(e => matches(e.player)).map(e => ({ ...e, statusLabel: 'Expired', statusColor: t.danger }));
+    const exp = teamPool.expired.filter(e => matches(e.player)).map(e => ({ ...e, termStatusKeep: true, statusLabel: 'Expired', statusColor: t.danger }));
     body = exp.length === 0
       ? <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'center', padding: '24px 12px', display: 'inline-flex', alignItems: 'center', gap: 5, justifyContent: 'center', width: '100%' }}><Check size={13} strokeWidth={2} /> No expired contracts — everyone on file can be kept.</div>
-      : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{exp.map((e, i) => <PoolRow key={`e-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} keeping={false} blocked />)}</div>;
+      : <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{exp.map((e, i) => <PoolRow key={`e-${e.player}-${i}`} entry={e} isDark={isDark} accentColor={accentColor} gridAccent={gridAccent} keeping={false} blocked {...termProps} />)}</div>;
   }
 
   return (
@@ -593,6 +651,15 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
       from: priceOf(k), to: patch.keptFor,
     }));
   }
+  // Contract year is a fact from LAST season, set on the pool row — never a
+  // side effect of Keep. Goes through lib/contractYear so the record lands
+  // where the pool reads it (an existing prior record anywhere, else this
+  // team's file) and the edit is logged.
+  function setTermFor(entry, { year, length }) {
+    const { league: next, changes } = setContractYear(league, team.id, entry.player, { year, length });
+    if (next === league) return;
+    onUpdateLeague(appendChanges(next, changes));
+  }
   function addManual(name) {
     const clean = (name || '').trim();
     if (!clean || keepingNames.has(normalizeName(clean)) || keepers.length >= slots) return;
@@ -602,7 +669,7 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
   const poolProps = {
     league, team, accentColor, gridAccent, isDark, keepingNames, keptAnywhere, isFull,
-    onAdd: addEntry, onRemoveName: removeName,
+    onAdd: addEntry, onRemoveName: removeName, onSetTerm: setTermFor,
   };
 
   return (

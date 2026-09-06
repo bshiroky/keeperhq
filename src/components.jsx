@@ -69,6 +69,11 @@ const tokens = {
   infoBg:        'rgba(59,138,230,0.12)',
   infoBorder:    'rgba(59,138,230,0.33)',
   brand:         '#3ca96b',
+  // Podium finishes (the standings card's playoff trophies). One place, so a
+  // second surface that marks 1st/2nd/3rd reads the same three colors.
+  medalGold:     '#d4a017',
+  medalSilver:   '#9aa3ad',
+  medalBronze:   '#b87333',
 };
 
 function makeTheme(isDark) {

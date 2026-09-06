@@ -21,6 +21,7 @@ import { overriddenPricesIn } from './lib/priceProvenance.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
+import { sortTeamsByName } from './lib/teamOrder.js';
 
 // League Detail — Keepers home shell + PayoutsTab + SettingsPanel/ImportPanel
 
@@ -435,7 +436,7 @@ function PayoutsTab({ league, isDark, onUpdateLeague, accentColor, onSaved }) {
           </div>
         </div>
         <div style={{ padding: '0 20px' }}>
-          {teams.map((team, i) => {
+          {sortTeamsByName(teams).map((team, i) => {
             const isOpen = expandedTeam === team.id;
             return (
               <div key={team.id} style={{ borderBottom: i < teams.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
@@ -1332,7 +1333,7 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0 }}>
-          {(league.teams || []).map((tm, i, arr) => {
+          {sortTeamsByName(league.teams).map((tm, i, arr) => {
             const hasRoster = tm.roster && tm.roster.length > 0;
             const rowBorder = i < arr.length - 2 ? `1px solid ${t.dividerFaint}` : 'none';
             return (

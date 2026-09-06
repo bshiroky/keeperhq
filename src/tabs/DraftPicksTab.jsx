@@ -5,6 +5,8 @@ import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPi
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
 import { parseDraftPicksText } from '../lib/picksParse.js';
+import { buildDraftBoard, pickNumberFor, formatPickNumber, describePickListStatus } from '../lib/draftOrder.js';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // ── Draft Picks panel (the Picks door) ───────────────────────────────────────
 // Commissioner-only round × team grid of pick OWNERSHIP for the upcoming
@@ -363,8 +365,17 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
 
 function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
-  const teams = league.teams || [];
+  // Columns are alphabetical — the grid is a lookup, and stored creation order
+  // tells a reader nothing. Display order only; picks are keyed by team id.
+  const teams = sortTeamsByName(league.teams || []);
   const rounds = getDraftRounds(league);
+  // Overall pick numbers come from the same board the shared page derives, so
+  // the commissioner sees exactly what the league sees: exact numbers once the
+  // lottery is drawn, a range for lottery teams before it, nothing without
+  // standings.
+  const board = React.useMemo(() => buildDraftBoard(league), [league]);
+  const numbersStatus = !board.ok ? 'unordered' : board.complete ? 'exact' : 'ranges';
+  const numberAt = (round, originalTeamId) => formatPickNumber(pickNumberFor(board, round, originalTeamId));
   const [editing, setEditing] = React.useState(null); // { round, teamId } | null
   const [showPaste, setShowPaste] = React.useState(false);
 
@@ -412,6 +423,8 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
           <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Who owns which pick</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
             <strong style={{ color: t.textSecondary }}>Click any pick to record a trade</strong> — it moves to the team you choose and shows highlighted. Each column is a team's original picks. Round 1 stays in sync with the Lottery page.
+            {numbersStatus === 'unordered' && <> Overall pick numbers appear once standings are imported.</>}
+            {numbersStatus === 'ranges' && <> {describePickListStatus('ranges')}</>}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -469,6 +482,7 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
                     const ownerId = pickOwnerId(league, round, tm.id);
                     const isTraded = ownerId !== tm.id;
                     const isEditing = editing && editing.round === round && editing.teamId === tm.id;
+                    const number = numberAt(round, tm.id);
                     return (
                       <td key={tm.id} style={{ padding: '3px 4px', borderBottom: round < rounds ? `1px solid ${t.dividerFaint}` : 'none', textAlign: 'center' }}>
                         {isEditing ? (
@@ -481,7 +495,7 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
                         ) : (
                           <button onClick={() => setEditing({ round, teamId: tm.id })}
                             className={isTraded ? undefined : 'kh-pick-cell'}
-                            title={isTraded ? `${tm.name}'s R${round} pick — now owned by ${teamName(ownerId)}. Click to reassign.` : `${tm.name}'s R${round} pick — click to record a trade`}
+                            title={`${tm.name}'s R${round} pick${number ? ` (pick ${number})` : ''} — ${isTraded ? `now owned by ${teamName(ownerId)}. Click to reassign.` : 'click to record a trade'}`}
                             style={{
                               width: '100%', boxSizing: 'border-box',
                               background: isTraded ? t.warningBg : 'none',
@@ -492,7 +506,17 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
                               cursor: 'pointer', fontFamily: 'inherit',
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}>
-                            {isTraded ? `via ${teamName(ownerId)}` : teamName(ownerId)}
+                            {/* The overall number (or lottery range) sits above the
+                                owner so the cell reads the way the shared page's
+                                per-team list does: "29 · via Alex". */}
+                            {number && (
+                              <span style={{ display: 'block', ...tokens.typeStatMeta, fontWeight: 700, color: isTraded ? t.warning : t.textSecondary, marginBottom: 1 }}>
+                                {number}
+                              </span>
+                            )}
+                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {isTraded ? `via ${teamName(ownerId)}` : teamName(ownerId)}
+                            </span>
                           </button>
                         )}
                       </td>
@@ -521,6 +545,7 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
               <div key={`${p.round}:${p.originalTeamId}`} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < traded.length - 1 ? `1px solid ${t.dividerFaint}` : 'none' }}>
                 <span style={{ ...tokens.typePillEmphatic, color: t.warning, background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0 }}>R{p.round}</span>
                 <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  {numberAt(p.round, p.originalTeamId) && <span style={{ fontWeight: 700, color: t.textPrimary }}>Pick {numberAt(p.round, p.originalTeamId)}</span>}
                   <span>{teamName(p.originalTeamId)}'s pick</span>
                   <ArrowRight size={13} strokeWidth={2} color={t.textMuted} />
                   <span style={{ fontWeight: 700, color: t.textPrimary }}>{teamName(p.ownerTeamId)}</span>

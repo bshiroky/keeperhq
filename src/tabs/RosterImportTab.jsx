@@ -9,6 +9,7 @@ import { lookupByNames, fetchDirectoryStatus, directoryConfigured } from '../lib
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { rosterImportImpact, rosterGuardLines } from '../lib/importGuard.js';
 import '../claudeStub.js';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // Per-Team Roster Import
 // - Paste mode: lib/rosterParse.js (Yahoo roster text; names appear twice
@@ -434,7 +435,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
             <label style={{ fontSize: 10, color: t.textMuted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Team</label>
             <select value={teamId} onChange={e => { setTeamId(e.target.value); setPlayers([]); setText(''); setError(null); }}
               style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: 6, padding: '7px 10px', fontSize: 13, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer' }}>
-              {league.teams.map(tm => (
+              {sortTeamsByName(league.teams).map(tm => (
                 <option key={tm.id} value={tm.id}>{tm.name}{tm.roster ? `  ·  ${tm.roster.length} loaded` : ''}</option>
               ))}
             </select>

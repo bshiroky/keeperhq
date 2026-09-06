@@ -1,11 +1,12 @@
 import React from 'react';
-import { ClipboardList, Star } from 'lucide-react';
+import { ClipboardList, Star, Trophy } from 'lucide-react';
 import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
 import { parseStandingsText } from '../lib/standingsParse.js';
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import {
   rankStandings, lotteryEligible, resolveTie, recordCoinFlip, draftOrderConfigOf, describeTie,
   BASIS_LABEL, TIEBREAK_LABEL, TIEBREAK_MANUAL, standingsOf,
+  baseDraftOrder,
 } from '../lib/draftOrder.js';
 import { standingsImportImpact, standingsGuardLines } from '../lib/importGuard.js';
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
@@ -442,9 +443,19 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
   const teams = league.teams || [];
   const nameOf = id => teams.find(tm => tm.id === id)?.name || '?';
   const standings = standingsOf(league);
-  const rows = standings ? [...standings.rows].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99)) : [];
   const config = draftOrderConfigOf(league);
   const ranked = standings ? rankStandings(league) : null;
+  // Rows in the order the DRAFT uses — the configured basis, worst first —
+  // not Yahoo's Rank, which reflects the playoffs. The rank stays as a column,
+  // and a podium finish gets its trophy there. When the order can't be built
+  // (a team missing, nothing to sort on) fall back to rank order.
+  const base = standings ? baseDraftOrder(league) : null;
+  const byOrder = base && base.order.length === standings.rows.length;
+  const rowById = new Map((standings?.rows || []).map(r => [r.teamId, r]));
+  const rows = !standings ? []
+    : byOrder ? base.order.map(e => ({ ...rowById.get(e.teamId), slot: e.slot, lottery: e.slot <= config.lotteryTeams }))
+    : [...standings.rows].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99));
+  const MEDAL = { 1: tokens.medalGold, 2: tokens.medalSilver, 3: tokens.medalBronze };
   const importedAt = standings?.importedAt ? new Date(standings.importedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
 
   const th = { padding: '6px 20px', ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'left', borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap' };
@@ -477,11 +488,21 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
         <>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead><tr><th style={th}>Rank</th><th style={th}>Team</th><th style={th}>W-L-T</th><th style={th}>Pct</th><th style={th}>Pts</th></tr></thead>
+              <thead><tr>
+                {byOrder && <th style={th} title="Draft order before the lottery — 1 picks first">Order</th>}
+                <th style={th}>Rank</th><th style={th}>Team</th><th style={th}>W-L-T</th><th style={th}>Pct</th><th style={th}>Pts</th>
+              </tr></thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={r.teamId}>
+                    {byOrder && (
+                      <td style={{ ...td, fontWeight: 800, color: r.lottery ? accentColor : t.textPrimary, whiteSpace: 'nowrap', borderBottom: i < rows.length - 1 ? td.borderBottom : 'none' }}
+                        title={r.lottery ? 'In the lottery' : undefined}>
+                        {r.slot}{r.lottery && <span style={{ ...tokens.typeLabelEyebrow, color: accentColor, marginLeft: 5 }}>lottery</span>}
+                      </td>
+                    )}
                     <td style={{ ...td, fontWeight: 700, color: t.textPrimary, whiteSpace: 'nowrap', borderBottom: i < rows.length - 1 ? td.borderBottom : 'none' }}>
+                      {MEDAL[r.rank] && <Trophy size={12} strokeWidth={2.25} style={{ marginRight: 5, color: MEDAL[r.rank], verticalAlign: '-2px' }} aria-label={`finished ${r.rank === 1 ? '1st' : r.rank === 2 ? '2nd' : '3rd'} in the playoffs`} />}
                       {r.rank}{r.clinched && <Star size={11} strokeWidth={2} fill="currentColor" style={{ marginLeft: 4, color: t.success, verticalAlign: '-1px' }} aria-label="clinched playoff spot" />}
                     </td>
                     <td style={{ ...td, fontWeight: 600, color: t.textPrimary, borderBottom: i < rows.length - 1 ? td.borderBottom : 'none' }}>
@@ -497,7 +518,7 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
             </table>
           </div>
           <div style={{ padding: '10px 20px', background: t.sectionBg, borderTop: `1px solid ${t.divider}`, ...tokens.typeBodyMeta, color: t.textMuted, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span>Draft order sorts on <strong style={{ color: t.textSecondary }}>{BASIS_LABEL[config.basis].toLowerCase()}</strong> · {config.lotteryTeams > 0 ? `${config.lotteryTeams}-team lottery` : 'no lottery'} · ties: {TIEBREAK_LABEL[config.tiebreak].toLowerCase()} — set in Settings.</span>
+            <span>{byOrder ? 'Listed in draft order: ' : 'Draft order sorts on '}<strong style={{ color: t.textSecondary }}>{BASIS_LABEL[config.basis].toLowerCase()}</strong>{byOrder ? ', worst first' : ''} · {config.lotteryTeams > 0 ? `${config.lotteryTeams}-team lottery` : 'no lottery'} · ties: {TIEBREAK_LABEL[config.tiebreak].toLowerCase()} — set in Settings. Rank is the playoff finish.</span>
             {ranked && ranked.unresolvedTies.length > 0 && (
               <span style={{ color: t.warning, fontWeight: 600 }}>
                 Tie to break: {ranked.unresolvedTies.map(tie => tie.teams.map(nameOf).join(' / ')).join('; ')} — on the Lottery page.

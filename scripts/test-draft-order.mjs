@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   draftOrderConfigOf, rankStandings, baseDraftOrder, lotteryEligible, lotteryDrawOf,
   round1Order, buildDraftBoard, resolveTie, recordCoinFlip, coinFlipOrder, tieKey, describeTie,
+  teamPicks, pickNumberFor, lotteryRangeFor, formatPickNumber,
   BASIS_POINTS, BASIS_RANK, TIEBREAK_MANUAL, TIEBREAK_CHAIN,
 } from '../src/lib/draftOrder.js';
 import { reassignPick } from '../src/lib/draftPicks.js';
@@ -316,6 +317,60 @@ test('board: an auction league has no snake board', () => {
   const b = buildDraftBoard({ ...drawn, draftType: 'auction' });
   assert.equal(b.ok, false);
   assert.equal(b.reason, 'not-snake');
+});
+
+
+// ── Per-team pick lists ─────────────────────────────────────────────────────
+// What a GM reads: every pick the team HOLDS with its overall number, a range
+// for lottery teams before the draw, and "via" when it came by trade.
+
+test('team picks: drawn — a team holds its own picks by number, plus a traded one "via" its origin', () => {
+  const board = buildDraftBoard(drawn);
+  const berube = idOf('Young Berube'), crying = idOf('Stop F***ing Crying Bro');
+  // Crying Bro drew pick 2; trade it to Young Berube.
+  const traded = reassignPick(drawn, 1, crying, berube);
+  const list = teamPicks(traded, berube);
+  assert.equal(list.status, 'exact');
+  const r1 = list.picks.filter(p => p.round === 1);
+  assert.deepEqual(r1.map(p => [p.overall, p.via]), [[2, crying], [board.picks.find(p => p.round === 1 && p.originalTeamId === berube).overall, null]]);
+  assert.ok(list.picks.every(p => p.number?.kind === 'exact'), 'every pick is a number once the lottery is drawn');
+  assert.equal(list.picks.length, board.rounds + 1, 'one own pick per round, plus the one traded in');
+  // …and the pick is gone from the team that traded it.
+  assert.ok(!teamPicks(traded, crying).picks.some(p => p.round === 1), 'Crying Bro holds no round-1 pick now');
+  // Sorted by round, then overall.
+  const overalls = list.picks.map(p => p.overall);
+  assert.deepEqual(overalls, [...overalls].sort((a, b) => a - b));
+});
+
+test('team picks: pending lottery — the range is the lottery slots, first in odd rounds and last in even', () => {
+  const board = buildDraftBoard(resolved);
+  assert.equal(board.complete, false);
+  assert.deepEqual(lotteryRangeFor(board, 1), [1, 4]);
+  assert.deepEqual(lotteryRangeFor(board, 2), [21, 24]);
+  assert.deepEqual(lotteryRangeFor(board, 3), [25, 28]);
+  const treliving = idOf('Treliving it Up');   // in the lottery
+  const list = teamPicks(resolved, treliving);
+  assert.equal(list.status, 'ranges');
+  assert.equal(formatPickNumber(list.picks[0].number), '1–4');
+  assert.equal(formatPickNumber(list.picks[1].number), '21–24');
+  assert.equal(pickNumberFor(board, 2, treliving).kind, 'range');
+  // A non-lottery team is exact even before the draw.
+  const dynasty = teamPicks(resolved, DYNASTY);
+  assert.ok(dynasty.picks.every(p => p.number.kind === 'exact'));
+  assert.equal(dynasty.picks[0].overall, 9, 'Dynasty picks 9th (Finnie broke the tie ahead of it)');
+  assert.equal(dynasty.picks[1].overall, 16, 'and 16th when round 2 reverses');
+});
+
+test('team picks: no standings — rounds and ownership only', () => {
+  const league = { ...base, standings: undefined, draftPicks: { rounds: 3, ownership: { '2:t1': 't2' } } };
+  const list = teamPicks(league, 't2');
+  assert.equal(list.status, 'unordered');
+  assert.deepEqual(list.picks.map(p => [p.round, p.number, p.via]), [[1, null, null], [2, null, 't1'], [2, null, null], [3, null, null]]);
+  assert.equal(pickNumberFor(buildDraftBoard(league), 1, 't1'), null);
+});
+
+test('team picks: an auction league has none', () => {
+  assert.equal(teamPicks({ ...drawn, draftType: 'auction' }, DYNASTY).status, 'none');
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ' (with failures)' : ''}`);

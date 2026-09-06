@@ -26,7 +26,7 @@ const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
-  buildTeamPool, buildStatusIndex,
+  buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, teamPicks, formatPickNumber,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -699,3 +699,132 @@ test('shared board: an auction league has none', () => {
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS`);
+
+// ── Per-team picks on the team tab ─────────────────────────────────────────
+// "I have pick 29 and pick 41": each team tab lists what the team holds, with
+// overall numbers, so members can trade on it. Rendered through the real page
+// (the Rules-button lesson) in each of the three board states.
+
+const renderTeam = (league, teamId) => renderToStaticMarkup(
+  React.createElement(SharedLeaguePage, { league, isDark: false, initialFilter: `team:${teamId}` }));
+
+test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none on the Rostered view', () => {
+  const html = renderTeam(SNAKE_PROJECTION, 't4');
+  assert.ok(html.includes('Draft picks'), 'the section is on the team tab');
+  assert.ok(html.includes('3 picks held'));
+  assert.ok(html.includes('Pick 1<'), 'round 1, pick 1 (won the lottery)');
+  assert.ok(html.includes('Pick 5<') && html.includes('via Alpha'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(html.includes('Pick 8<'), 'own round-2 pick, last of the round');
+  assert.ok(!/Lottery not drawn|isn’t set yet/.test(html), 'no caveat once the order is final');
+  const alpha = renderTeam(SNAKE_PROJECTION, 't1');
+  assert.ok(alpha.includes('1 pick held') && alpha.includes('Pick 4<'), 'Alpha kept only its round-1 pick');
+  assert.ok(!alpha.includes('via '), 'nothing on Alpha’s list came by trade');
+  const rostered = renderPage(SNAKE_PROJECTION, false);
+  assert.ok(!rostered.includes('Draft picks'), 'the Rostered view carries no picks section');
+});
+
+test('team picks: lottery pending — lottery teams get a range, carried through the even round', () => {
+  const { lotteryDraw, ...pending } = SNAKE_PROJECTION;
+  const list = teamPicks(pending, 't4');
+  assert.equal(list.status, 'ranges');
+  assert.deepEqual(list.picks.map(p => [p.round, formatPickNumber(p.number), p.via]), [
+    [1, '1–2', null],        // odd round: the lottery slots lead
+    [2, '5', 't1'],          // a non-lottery team’s pick stays exact
+    [2, '7–8', null],        // even round: the snake puts them last
+  ]);
+  const html = renderTeam(pending, 't4');
+  assert.ok(html.includes('Pick 1–2<') && html.includes('Pick 7–8<'));
+  assert.ok(html.includes('Lottery not drawn yet'));
+  const beta = teamPicks(pending, 't2');
+  assert.deepEqual(beta.picks.map(p => formatPickNumber(p.number)), ['3', '6'], 'non-lottery teams are exact already');
+});
+
+test('team picks: no standings — rounds and ownership only, and it says the order isn’t set', () => {
+  const { standings, lotteryDraw, ...none } = SNAKE_PROJECTION;
+  const list = teamPicks(none, 't4');
+  assert.equal(list.status, 'unordered');
+  assert.deepEqual(list.picks.map(p => [p.round, p.number, p.via]), [[1, null, null], [2, null, 't1'], [2, null, null]]);
+  const html = renderTeam(none, 't4');
+  assert.ok(html.includes('isn’t set yet'));
+  assert.ok(html.includes('Round 1') && html.includes('via Alpha'));
+  assert.ok(!html.includes('Pick '), 'no numbers without an order');
+});
+
+test('team picks: an auction league lists nothing', () => {
+  assert.equal(teamPicks(AUCTION, 't1').status, 'none');
+  assert.ok(!renderTeam(AUCTION, 't1').includes('Draft picks'));
+});
+
+// ── Contract year set on the pool row reaches the shared page ──────────────
+// A migrated contracts league: every roster imported, every player "No
+// contract · Y1/3". Setting the year on the row (not clicking Keep) must show
+// members the real year, and the final year must render as expiring.
+
+test('contract year: set on a rostered player, the shared page shows Y2/3 — and Y3/3 as Final yr', () => {
+  const base = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }], keepers: [] }],
+  };
+  let { league } = setContractYear(base, 't1', 'Nico Hischier', { year: 2, length: 3 });
+  ({ league } = setContractYear(league, 't1', 'Jack Hughes', { year: 3, length: 3 }));
+  const rows = buildSharedRows(league);
+  const nico = rows.find(r => r.player === 'Nico Hischier');
+  assert.equal(nico.kind, 'contract', 'a year makes him under contract, not a keeper');
+  assert.equal(`Y${nico.year}/${nico.len}`, 'Y2/3');
+  const jack = rows.find(r => r.player === 'Jack Hughes');
+  assert.equal(jack.final, true, 'the final year renders as expiring');
+  assert.equal(league.teams[0].keepers.length, 0, 'nothing was declared for this season');
+  const html = renderPage(league, false);
+  assert.ok(html.includes('Y2/3') && html.includes('Final yr'), 'both reach the page');
+});
+
+test('contract year: the pool row carries the control, and Keep reads the year from it', () => {
+  const base = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }], keepers: [] }],
+  };
+  const { league } = setContractYear(base, 't1', 'Nico Hischier', { year: 2, length: 3 });
+  const html = renderToStaticMarkup(React.createElement(EligiblePool, {
+    league, team: league.teams[0], accentColor: '#000', gridAccent: '#000', isDark: false,
+    keepingNames: new Set(), keptAnywhere: new Set(), isFull: false,
+    onAdd() {}, onRemoveName() {}, onSetTerm() {},
+  }));
+  assert.ok(html.includes('Nico Hischier — contract year'), 'the year select is on the row');
+  assert.ok(/<option[^>]*selected[^>]*>Y2<\/option>/.test(html), 'and it shows Y2');
+  assert.ok(html.includes('Nico Hischier — contract length'));
+  const pool = buildTeamPool(league, league.teams[0]);
+  assert.equal(pool.onContract[0].nextYear, 2, 'Keep would declare him at Y2 — the row’s year');
+});
+
+test('contract year: Expired set on the row moves the player to the Expired tab and marks him not keepable on his team tab', () => {
+  const base = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }, { player: 'Jesper Bratt', pos: 'LW' }], keepers: [] }],
+  };
+  let { league } = setContractYear(base, 't1', 'Nico Hischier', { year: 'expired', length: 3 });
+  ({ league } = setContractYear(league, 't1', 'Jack Hughes', { year: 2, length: 3 }));
+  const pool = buildTeamPool(league, league.teams[0]);
+  assert.deepEqual(pool.expired.map(e => e.player), ['Nico Hischier'], 'the Expired tab holds him');
+  assert.ok(!pool.onContract.some(e => e.player === 'Nico Hischier') && !pool.rosteredNoContract.some(e => e.player === 'Nico Hischier'), 'and My roster does not');
+  // The pool control on the Expired tab shows "Expired" selected, with the years as the way back.
+  const rows = buildSharedRows(league);
+  const nico = rows.find(r => r.player === 'Nico Hischier');
+  assert.equal(nico.kind, 'expired');
+  // Team tab: present, last, marked. Rostered view: absent.
+  const team = renderTeam(league, 't1');
+  const iNico = team.indexOf('Nico Hischier'), iJack = team.indexOf('Jack Hughes'), iBratt = team.indexOf('Jesper Bratt');
+  assert.ok(iNico > 0, 'the expired player is on his team tab');
+  assert.ok(iNico > iJack && iNico > iBratt, 'pinned below the keepable rows');
+  assert.ok(team.includes('Expired') && team.includes('Y3/3'), 'marked expired, not as a contract year');
+  assert.ok(team.includes('can’t be kept'), 'and the footer says so');
+  assert.ok(team.includes('Y2/3'), 'the under-contract row keeps its own treatment');
+  const rostered = renderPage(league, false);
+  assert.ok(!rostered.includes('Nico Hischier'), 'the Rostered (trade) view still excludes him');
+  // The pool row's control offers Expired everywhere and shows it selected on the Expired tab.
+  const poolHtml = renderToStaticMarkup(React.createElement(EligiblePool, {
+    league, team: league.teams[0], accentColor: '#000', gridAccent: '#000', isDark: false,
+    keepingNames: new Set(), keptAnywhere: new Set(), isFull: false, onAdd() {}, onRemoveName() {}, onSetTerm() {},
+  }));
+  assert.ok(/<option value="expired">Expired<\/option>/.test(poolHtml), 'Expired is an option beside the years');
+});
+

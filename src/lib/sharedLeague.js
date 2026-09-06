@@ -175,6 +175,16 @@ export function keepersFirst(list, pick = x => x) {
   return [...kept, ...rest];
 }
 
+// Expired contracts sink to the bottom of a team tab: they're on the list so
+// a member sees who ISN'T keepable, but below everyone who is. Stable.
+export function expiredLast(list, pick = x => x) {
+  const live = [], gone = [];
+  for (const item of list || []) {
+    (pick(item)?.kind === 'expired' ? gone : live).push(item);
+  }
+  return [...live, ...gone];
+}
+
 // ── Stat categories (desktop table) ────────────────────────────────────────
 // League-configurable with defaults. A league may carry an override at
 // league.statCategories = { skaters: ['gp','g',…], goalies: [...] } — keys

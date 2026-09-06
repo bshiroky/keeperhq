@@ -7,6 +7,7 @@ import { SampleKeeperCell } from './keeper-grid-variants.jsx';
 import { loadPlayers, normalizeName } from '../lib/players.js';
 import { keeperValueText, isFinalYear, hasTerm, isAuctionCost } from '../lib/keeperRules.js';
 import { isPriceOverridden, computedPriceOf } from '../lib/priceProvenance.js';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // Overview Tab — Pre-season dashboard + compact keeper grid
 
@@ -585,7 +586,8 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <style>{`.kh-team-card { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; } .kh-team-card:hover { transform: translateY(-2px); border-color: ${accentColor}66; }`}</style>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-        {teams.map(team => (
+        {/* Alphabetical, like every other team strip — display order only. */}
+        {sortTeamsByName(teams).map(team => (
           <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} playerMap={playerMap} />
         ))}
       </div>
