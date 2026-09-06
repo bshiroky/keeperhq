@@ -10,6 +10,9 @@ import {
   sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst, expiredLast, sharedDraftBoard,
 } from './lib/sharedLeague.js';
 import { teamPicks, teamTradedAwayPicks, formatPickNumber, describePickListStatus } from './lib/draftOrder.js';
+import { sortTeamsByName } from './lib/teamOrder.js';
+import { DraftBoardGrid, LotteryPendingLine } from './tabs/DraftBoardGrid.jsx';
+import { KeepersOverview } from './tabs/OverviewTab.jsx';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
 // Read-only, public, mobile-first — the member-facing cousin of the
@@ -39,6 +42,12 @@ const SHARE_STYLES = `
     .kh-share-rules-btn { min-height: 44px; padding: 0 16px; }
   }
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
+  /* Per-team picks: a grid in the draft board's vocabulary — rounds across,
+     wrapping after ~9 on desktop; phones get three per row. */
+  .kh-share-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 12px; }
+  @media (max-width: 640px) {
+    .kh-share-picks { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); padding: 10px; }
+  }
   @media print {
     .kh-share-rail, .kh-share-search, .kh-share-rules-btn { display: none !important; }
     .kh-share-row, .kh-share-tr { break-inside: avoid; }
@@ -409,9 +418,14 @@ function RowList({ rows, league, playerMap, isDark, label }) {
 // "Y2/3" read as a centred "Y2"), and the Player column ran 28px past the
 // snap boundary, leaving a sliver of the next stat column peeking out under
 // it. The pixel the offset names has to be the pixel the cell ends on.
+//
+// CONTRACT_W is sized to its CONTENT: the widest thing in the column is the
+// "CONTRACT" header itself (81px in Space Grotesk at the eyebrow size, padding
+// included; the cells hold "Y3/3" at 46px). It was 100 from when the cells
+// read "Final yr Y3/3". Auction widens it for the "Keep for $X" pair below.
 const PLAYER_W = 230;
 const STAT_W = 64;
-const CONTRACT_W = 100;
+const CONTRACT_W = 84;
 const STATUS_W = 116;
 
 function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defaultSortKey }) {
@@ -434,13 +448,16 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
   const naturalW = PLAYER_W + nStats * STAT_W + contractW + STATUS_W;
   const stretchMode = containerW > 0 && naturalW <= containerW;
   // Scroll mode: the visible stat region is an INTEGER number of columns.
-  // Whatever width is left over (0 to STAT_W-1 px) goes to the Contract
-  // column, so the pinned panel's left edge lands exactly on a column
-  // boundary and nothing is half-cut under it; scroll-snap then keeps every
-  // stop on a boundary too (the scrollable range is a multiple of STAT_W).
+  // Whatever width is left over (0 to STAT_W-1 px) goes to the PLAYER
+  // column — names use the room, where the Contract column (which used to
+  // take it) just read as dead air beside "Y3/3" — so the pinned panel's
+  // left edge lands exactly on a column boundary and nothing is half-cut
+  // under it; scroll-snap then keeps every stop on a boundary too (the
+  // scrollable range is a multiple of STAT_W).
   const statViewportW = Math.max(0, containerW - PLAYER_W - contractW - STATUS_W);
   const slack = (!stretchMode && containerW > 0 && nStats > 0) ? statViewportW % STAT_W : 0;
-  const pinnedContractW = contractW + slack;
+  const pinnedPlayerW = PLAYER_W + slack;
+  const pinnedContractW = contractW;
   const tableW = naturalW + slack;
 
   React.useEffect(() => {
@@ -534,7 +551,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
         <div ref={scrollRef} style={{
           overflowX: stretchMode ? 'hidden' : 'auto',
           scrollSnapType: stretchMode ? 'none' : 'x mandatory',
-          scrollPaddingLeft: stretchMode ? 0 : PLAYER_W,
+          scrollPaddingLeft: stretchMode ? 0 : pinnedPlayerW,
         }}>
           <table aria-label={title || 'Players'} style={{
             width: stretchMode ? '100%' : `${tableW}px`,
@@ -542,7 +559,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
           }}>
             <thead>
               <tr>
-                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderRight: stickyRule }}>
+                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: pinnedPlayerW, minWidth: pinnedPlayerW, borderRight: stickyRule }}>
                   Player
                 </th>
                 {cats.map(cat => {
@@ -587,7 +604,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                           // same tint opaquely over cardBg.
                           background: kept ? t.successBg : expired ? t.dangerBg : undefined,
                         }}>
-                        <th scope="row" style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, borderRight: stickyRule, textAlign: 'left', fontWeight: 'inherit' }}>
+                        <th scope="row" style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 14px', width: pinnedPlayerW, minWidth: pinnedPlayerW, borderBottom: rowBorder, borderRight: stickyRule, textAlign: 'left', fontWeight: 'inherit' }}>
                           {isHockey ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
                               <SharedHeadshot rec={rec} isDark={isDark} size={30} />
@@ -619,7 +636,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                           <td colSpan={nStats} style={{ padding: '9px 10px', borderBottom: rowBorder, whiteSpace: 'nowrap', opacity: dim }}>
                             {/* Sticky within the wide colSpan cell so the message
                                 stays in view while the stat columns scroll. */}
-                            <span style={{ display: 'inline-block', position: 'sticky', left: PLAYER_W + 10, ...tokens.typeBodyMeta, fontStyle: 'italic', color: t.textMuted }}>
+                            <span style={{ display: 'inline-block', position: 'sticky', left: pinnedPlayerW + 10, ...tokens.typeBodyMeta, fontStyle: 'italic', color: t.textMuted }}>
                               No stats yet — limited games played
                             </span>
                           </td>
@@ -681,22 +698,26 @@ function StatTables({ rows, league, playerMap, isDark, toolbar }) {
 // What a team holds going into the draft, with overall numbers, so a GM can
 // say "I have pick 29 and pick 41" and trade on it. Derived on the page from
 // the projected inputs (migration 008) by the same board the commissioner's
-// Picks page reads, so the two can't disagree. Text-first: one line per pick.
+// Picks page reads, so the two can't disagree.
+//
+// A GRID in the draft board's vocabulary — rounds across, wrapping — not a
+// list (17 rows of "R7 · Pick 79" was mostly whitespace). One cell per pick:
+// round label, the overall number (or the lottery range), and where it came
+// from. Picks this team TRADED AWAY sit in the same grid at their round,
+// struck through with "→ {owner}", so the grid reads as the team's original
+// slots with the gaps explained in place. Two picks in one round are two
+// cells. The sub-line is reserved in every cell so the row of cells shares
+// one height whether or not a pick came by trade.
 //
 // Three states, decided by the board (lib/draftOrder teamPicks):
 //   exact     — lottery drawn: every pick is a number.
 //   ranges    — standings on file, lottery pending: a lottery team's pick
-//               shows the span it can land in ("pick 1–4"), carried through
-//               even rounds where the snake puts those slots last.
+//               shows the span it can land in ("1–4"), carried through even
+//               rounds where the snake puts those slots last.
 //   unordered — no usable standings: round and ownership only, and a line
 //               saying the order isn't set.
 // Not rendered at all on a non-snake league (nothing to list), and never on
 // the Rostered view — it belongs to a team.
-//
-// Below the held picks, the picks this team TRADED AWAY ("R1 · Pick 8 →
-// traded to Pedram"), visually distinct, so a GM sees both what they have and
-// where the rest went. One row per pick always — two picks in the same round
-// are two rows with their own numbers, never "R3 ×2".
 function TeamPicksSection({ league, board, team, isDark }) {
   const t = makeTheme(isDark);
   const { status, picks } = teamPicks(league, team.id, board);
@@ -704,18 +725,13 @@ function TeamPicksSection({ league, board, team, isDark }) {
   const gone = teamTradedAwayPicks(league, team.id, board).picks;
   const nameOf = id => league.teams.find(tm => tm.id === id)?.name || '?';
   const note = describePickListStatus(status);
-  const roundPill = (round, muted) => (
-    <span style={{ ...tokens.typePillEmphatic, color: muted ? t.textMuted : t.textSecondary, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0, minWidth: 30, textAlign: 'center', boxSizing: 'border-box' }}>
-      <span aria-hidden>R{round}</span><SrOnly>Round {round},</SrOnly>
-    </span>
-  );
-  // "via X" is the visible shorthand; the read-out says what it means.
-  const origin = (id) => (
-    <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-      title={`originally ${nameOf(id)}\u2019s pick`}>
-      <span aria-hidden>via {nameOf(id)}</span><SrOnly>originally {nameOf(id)}\u2019s pick</SrOnly>
-    </span>
-  );
+  // Held and traded-away interleave by round, then by number; a gone pick
+  // sorts after a held one in the same round when nothing else separates them.
+  const cells = [
+    ...picks.map(p => ({ ...p, gone: false })),
+    ...gone.map(p => ({ ...p, gone: true })),
+  ].sort((a, b) => a.round - b.round || a.sortKey - b.sortKey || (a.gone ? 1 : 0) - (b.gone ? 1 : 0));
+
   return (
     <section aria-label={`${team.name} draft picks`} style={{ marginTop: tokens.spaceLg }}>
       <div style={{ marginBottom: tokens.spaceXs, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceSm, flexWrap: 'wrap' }}>
@@ -730,59 +746,104 @@ function TeamPicksSection({ league, board, team, isDark }) {
             {note}
           </div>
         )}
-        {picks.length === 0 ? (
+        {cells.length === 0 ? (
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceMd}px ${tokens.spaceSm}px`, textAlign: 'center' }}>
-            No picks held — every one has been traded away.
+            No picks on file for this team.
           </div>
         ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: `0 ${tokens.spaceSm}px` }}>
-            {picks.map((p, i) => {
-              const number = formatPickNumber(p.number);
-              return (
-                <li key={`${p.round}:${p.originalTeamId}`} className="kh-share-row" style={{
-                  display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-                  padding: `${tokens.spaceXs}px 0`,
-                  borderBottom: i < picks.length - 1 ? `1px solid ${t.dividerFaint}` : 'none',
-                }}>
-                  {roundPill(p.round, false)}
-                  <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                    {number
-                      ? <span style={{ fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>Pick {number}</span>
-                      : <span style={{ color: t.textMuted }}>Round {p.round}</span>}
-                    {p.via && origin(p.via)}
-                  </span>
-                </li>
-              );
-            })}
+          <ul className="kh-share-picks">
+            {cells.map(p => (
+              <PickTile key={`${p.gone ? 'gone' : 'held'}:${p.round}:${p.originalTeamId}`} pick={p} nameOf={nameOf} isDark={isDark} />
+            ))}
           </ul>
         )}
-        {gone.length > 0 && (
-          <div aria-label={`${team.name} picks traded away`} style={{ borderTop: `1px solid ${t.divider}`, background: t.sectionBg }}>
-            <h3 style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px 0`, margin: 0 }}>Traded away</h3>
-            <ul style={{ listStyle: 'none', margin: 0, padding: `0 ${tokens.spaceSm}px` }}>
-              {gone.map((p, i) => {
-                const number = formatPickNumber(p.number);
-                return (
-                  <li key={`gone:${p.round}`} className="kh-share-row" style={{
-                    display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
-                    padding: `${tokens.spaceXs}px 0`,
-                    borderBottom: i < gone.length - 1 ? `1px solid ${t.dividerFaint}` : 'none',
-                  }}>
-                    {roundPill(p.round, true)}
-                    <span style={{ ...tokens.typeBody, color: t.textMuted, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                      {number
-                        ? <span style={{ fontWeight: 700, whiteSpace: 'nowrap', textDecoration: 'line-through' }}>Pick {number}</span>
-                        : <span style={{ textDecoration: 'line-through' }}>Round {p.round}</span>}
-                      <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        <span aria-hidden>→ </span>traded to {nameOf(p.ownerTeamId)}
-                      </span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+      </div>
+    </section>
+  );
+}
+
+// One cell of the team's pick grid. Visible: "R2" / "17" / "via Alex" (or
+// "→ Alex" struck through for a pick traded away). The read-out spells it:
+// "Round 2, Pick 17, originally Alex's pick" — the round pill and the "via"
+// are aria-hidden shorthand with SrOnly text alongside, the same shape the
+// list version used, so the accessible sentence didn't change with the
+// layout. A "via" cell carries the board's traded tint (warning) so the two
+// surfaces read alike.
+function PickTile({ pick: p, nameOf, isDark }) {
+  const t = makeTheme(isDark);
+  const number = formatPickNumber(p.number);
+  const via = !p.gone && p.via ? nameOf(p.via) : null;
+  const to = p.gone ? nameOf(p.ownerTeamId) : null;
+  const bg = p.gone ? t.sectionBg : via ? t.warningBg : t.cardBg;
+  const border = p.gone ? `1px dashed ${t.border}` : `1px solid ${via ? t.warningBorder : t.border}`;
+  const numberColor = p.gone ? t.textMuted : via ? t.warning : t.textPrimary;
+  return (
+    <li className="kh-share-row" style={{
+      background: bg, border, borderRadius: tokens.radiusMd, padding: '7px 9px',
+      minWidth: 0, boxSizing: 'border-box',
+    }} title={to ? `Round ${p.round}${number ? `, pick ${number}` : ''} — traded to ${to}` : via ? `Round ${p.round}${number ? `, pick ${number}` : ''} — originally ${via}’s pick` : undefined}>
+      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, lineHeight: 1.2 }}>
+        <span aria-hidden>R{p.round}</span><SrOnly>Round {p.round},</SrOnly>
+      </div>
+      <div style={{ ...tokens.typeBody, fontWeight: 800, color: numberColor, lineHeight: 1.3, marginTop: 2, whiteSpace: 'nowrap', textDecoration: p.gone ? 'line-through' : 'none' }}>
+        {number
+          ? <><SrOnly>Pick </SrOnly>{number}</>
+          : <><span aria-hidden>—</span><SrOnly>number not set</SrOnly></>}
+      </div>
+      {/* Reserved line: every cell has one, so a row of cells shares a height. */}
+      <div style={{ ...tokens.typeStatMeta, fontWeight: 600, lineHeight: 1.3, marginTop: 2, minHeight: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: p.gone ? t.textMuted : tokens.warning }}>
+        {via && <><span aria-hidden>via {via}</span><SrOnly>{`, originally ${via}’s pick`}</SrOnly></>}
+        {to && <><span aria-hidden>→ </span>traded to {to}</>}
+      </div>
+    </li>
+  );
+}
+
+// ── Draft board (board tab) ─────────────────────────────────────────────────
+// The commissioner's Picks board, read-only: the SAME DraftBoardGrid, with no
+// reassign path (a cell is a span, not a button), the pre-lottery placeholders
+// and asterisks as built, and the "Run lottery" link left off (a member has
+// nowhere to run it). Above it a team filter — toggle buttons, none pressed by
+// default — that dims every cell that isn't the chosen team's, so someone can
+// see where their picks sit against everyone else's. The dim is decoration:
+// every cell still names its owner in text, and a traded cell's origin is DOM
+// text (see PickCell's readOnly branch), so the board reads the same with the
+// filter on, off, or unperceived.
+function SharedDraftBoard({ league, board, isDark }) {
+  const t = makeTheme(isDark);
+  const teams = sortTeamsByName(league.teams || []);
+  const [highlight, setHighlight] = React.useState(null);
+  const chipStyle = (on) => ({
+    ...tokens.typePill, fontWeight: 600, borderRadius: tokens.radiusPill,
+    padding: '6px 13px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'inherit',
+    ...(on
+      ? { background: t.textPrimary, color: t.cardBg, border: `1px solid ${t.textPrimary}` }
+      : { background: t.cardBg, color: t.textSecondary, border: `1px solid ${t.border}` }),
+  });
+  return (
+    <section aria-label="Draft board">
+      <div style={{ marginBottom: tokens.spaceSm }}>
+        <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginBottom: 6 }}>
+          Highlight a team to see where its picks sit. Columns are rounds, rows are pick slots; traded picks carry the team that now holds them.
+        </div>
+        <div role="group" aria-label="Highlight a team" className="kh-share-rail-scroll"
+          style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 0' }}>
+          {teams.map(tm => {
+            const on = highlight === tm.id;
+            return (
+              <button key={tm.id} type="button" aria-pressed={on} style={chipStyle(on)}
+                onClick={() => setHighlight(h => (h === tm.id ? null : tm.id))}>
+                {tm.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+        {!board.complete && (
+          <LotteryPendingLine league={league} board={board} teams={teams} isDark={isDark} showLink={false} />
         )}
+        <DraftBoardGrid league={league} board={board} teams={teams} isDark={isDark} readOnly highlightTeamId={highlight} />
       </div>
     </section>
   );
@@ -904,7 +965,7 @@ function railKeyDown(e, chips, filter, setFilter) {
 
 // `initialFilter` is a render-test seam only (a server render can't click a
 // team chip) — the same reason the paste modals take `initialText`.
-function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
+function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const termed = hasTerm(league);
@@ -928,10 +989,10 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
   const teamFilterId = filter.startsWith('team:') ? filter.slice(5) : null;
   const filterTeam = teamFilterId ? teams.find(tm => tm.id === teamFilterId) : null;
 
-  // Print always renders the default keepable view (§12) — the rail is hidden
-  // in print, so whatever filter was active would otherwise print unlabeled.
+  // Print always renders the default view (§12) — the rail is hidden in
+  // print, so whatever filter was active would otherwise print unlabeled.
   React.useEffect(() => {
-    const reset = () => setFilter('keepable');
+    const reset = () => setFilter('overview');
     window.addEventListener('beforeprint', reset);
     return () => window.removeEventListener('beforeprint', reset);
   }, []);
@@ -953,7 +1014,9 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
   // is heading back to the draft. Post-deadline the default view narrows to
   // declared keepers.
   let rows;
-  if (filter === 'expired') {
+  if (filter === 'overview' || filter === 'board') {
+    rows = []; // card / board views — the row list isn't shown
+  } else if (filter === 'expired') {
     rows = allRows.filter(r => r.kind === 'expired');
   } else if (filter === 'contracts') {
     rows = allRows.filter(r => r.kind === 'keeper' || r.kind === 'contract');
@@ -976,7 +1039,15 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
     [allRows, filter, locked, search, playerMap, league]
   );
 
-  const chips = sharedFilterChips({ league, locked, termed, hasExpired, teams });
+  const chips = sharedFilterChips({ league, locked, termed, hasExpired, hasBoard: board.ok, teams });
+
+  // The header status line — one line, same place on every tab, so switching
+  // tabs never shifts the layout. Before the deadline it says whether anyone
+  // has declared yet (the Overview cards below make "not yet declared" a
+  // false claim once a team has); after it, that keepers are locked.
+  const statusLine = locked
+    ? `Keepers locked · ${cd.dateShort}`
+    : `${anyKeepers ? 'Keepers being declared' : 'Keepers not yet declared'} · ${cd ? `deadline ${cd.dateShort}` : 'deadline not set'}`;
 
   const teamHasExpired = filterTeam
     ? allRows.some(r => r.kind === 'expired' && r.teamId === filterTeam.id)
@@ -994,22 +1065,23 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
     <ListSearch value={search} onChange={setSearch} count={sortedRows.length} isDark={isDark} />
   );
 
-  const body = (
+  const body = filter === 'overview' ? (
+    // The commissioner's Keepers home, read-only: one card per team, K1..KN
+    // slots with declared keepers, "Final yr" in red, open slots as
+    // placeholders, and the expiring roll-up. Same component, `member` mode.
+    <KeepersOverview league={league} accentColor={sport.color} isDark={isDark} member />
+  ) : filter === 'board' ? (
+    <SharedDraftBoard league={league} board={board} isDark={isDark} />
+  ) : (
     <>
       {filter === 'expired' && (
         <ViewHeader title="Expired contracts" subtitle="not keepable — re-enter the draft" danger isDark={isDark} />
       )}
       {/* Mascot speech is for WAITING surfaces only — it renders solely when
-          there is nothing else to show. A populated list with zero declared
-          keepers gets a one-line quiet notice instead. */}
-      {filter === 'keepable' && !locked && !anyKeepers && !search.trim() && (
-        sortedRows.length === 0
-          ? <EmptyStateBanner isDark={isDark} />
-          : (
-            <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginBottom: tokens.spaceSm }}>
-              No keepers declared yet — everyone below is still eligible.
-            </div>
-          )
+          there is nothing else to show. The "no keepers yet" fact itself lives
+          in the header status line, on every tab, so nothing here shifts. */}
+      {filter === 'keepable' && !locked && !anyKeepers && !search.trim() && sortedRows.length === 0 && (
+        <EmptyStateBanner isDark={isDark} />
       )}
 
       {sortedRows.length === 0 ? (
@@ -1078,22 +1150,21 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
               <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
                 {sport.label} · {COST_LABEL[keeperCostModelOf(league)]} · {termLabel(termOf(league))}
               </div>
+              {/* Always present, whichever tab is showing. */}
+              <div className="kh-share-status" style={{ ...tokens.typeBodyMeta, fontWeight: 600, color: locked ? t.textSecondary : t.textMuted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {locked && <span aria-hidden>🔒 </span>}{statusLine}
+              </div>
             </div>
           </div>
-          {cd && (
+          {/* The countdown, pre-deadline only — once locked, the status line
+              under the league name carries the date and this block would
+              only repeat it. */}
+          {cd && !locked && (
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
-              {locked ? (
-                <span style={{ ...tokens.typeBody, fontWeight: 600, color: t.textSecondary, whiteSpace: 'nowrap' }}>
-                  <span aria-hidden>🔒 </span>Keepers locked · {cd.dateShort}
-                </span>
-              ) : (
-                <>
-                  {/* "15 days" alone is meaningless read out of context. */}
-                  <SrOnly>Keeper deadline in </SrOnly>
-                  <div style={{ ...COUNTDOWN_TYPE, color: sport.color, whiteSpace: 'nowrap' }}>{cd.label}</div>
-                  <div style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>{cd.dateLabel}</div>
-                </>
-              )}
+              {/* "15 days" alone is meaningless read out of context. */}
+              <SrOnly>Keeper deadline in </SrOnly>
+              <div style={{ ...COUNTDOWN_TYPE, color: sport.color, whiteSpace: 'nowrap' }}>{cd.label}</div>
+              <div style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>{cd.dateLabel}</div>
             </div>
           )}
         </div>

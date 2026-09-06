@@ -1,6 +1,6 @@
 import React from 'react';
 import { Lock, Check, Clock, ClipboardList } from 'lucide-react';
-import { makeTheme, tokens, Button, usePlayerMap, Headshot, EditedMark } from '../components.jsx';
+import { makeTheme, tokens, Button, usePlayerMap, Headshot, EditedMark, CommissionerSetMark } from '../components.jsx';
 import { SeasonSetupWizard } from './SetupTab.jsx';
 import { KeeperEditModal } from './KeepersTab.jsx';
 import { SampleKeeperCell } from './keeper-grid-variants.jsx';
@@ -468,7 +468,13 @@ function SetupSeasonBanner({ league, isDark, accentColor, onStart }) {
 // team. Below the grid, snake leagues get the "Expiring after this season"
 // roll-up (the back-to-the-draft list).
 
-function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen, playerMap }) {
+// `member` is the read-only rendering for the shared page: the card is a
+// plain block (a button that opens nothing would be a lie to a screen
+// reader), and a hand-set price carries the member-facing "Set by
+// commissioner" mark rather than the commissioner's EditedMark — the two
+// answer to different information rules (see components.jsx), and the
+// projection doesn't carry the calculated value EditedMark would show.
+function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen, playerMap, member = false }) {
   const t = makeTheme(isDark);
   const slots = league.keeperSlots || 0;
   const keepers = team.keepers || [];
@@ -478,9 +484,10 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
   const countBg = complete ? t.successBg : (count > 0 ? `${gridAccent}18` : t.sectionBg);
   const countBorder = complete ? t.successBorder : (count > 0 ? `${gridAccent}55` : t.border);
 
+  const Root = member ? 'div' : 'button';
   return (
-    <button onClick={() => onOpen(team.id)} className="kh-team-card" style={{
-      textAlign: 'left', fontFamily: 'inherit', cursor: 'pointer', padding: 0,
+    <Root onClick={member ? undefined : () => onOpen(team.id)} className={member ? undefined : 'kh-team-card'} style={{
+      textAlign: 'left', fontFamily: 'inherit', cursor: member ? 'default' : 'pointer', padding: 0,
       background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
       boxShadow: t.cardShadow, overflow: 'hidden', display: 'flex', flexDirection: 'column',
     }}>
@@ -507,7 +514,9 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
                   <span style={{ ...tokens.typePill, fontWeight: 700, color: expiring ? t.danger : gridAccent, flexShrink: 0 }}>{keeperValueText(league, k)}</span>
                   {/* A cost the commissioner set by hand is marked wherever it
                       renders, not only where it's editable. */}
-                  {isPriceOverridden(k) && <EditedMark computed={computedPriceOf(k)} isDark={isDark} compact />}
+                  {isPriceOverridden(k) && (member
+                    ? <CommissionerSetMark isDark={isDark} />
+                    : <EditedMark computed={computedPriceOf(k)} isDark={isDark} compact />)}
                 </>
               ) : (
                 <span style={{ ...tokens.typeBody, color: t.textMuted, fontStyle: 'italic', flex: 1 }}>Open slot</span>
@@ -516,7 +525,7 @@ function TeamKeeperCard({ team, league, accentColor, gridAccent, isDark, onOpen,
           );
         })}
       </div>
-    </button>
+    </Root>
   );
 }
 
@@ -551,7 +560,9 @@ function ExpiringSection({ expiring, isDark }) {
   );
 }
 
-function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
+// `member`: the shared page's read-only rendering — same cards, same
+// expiring strip, no click-through and no hover lift.
+function KeepersOverview({ league, accentColor, isDark, onOpenTeam, member = false }) {
   const t = makeTheme(isDark);
   const teams = league.teams || [];
   const termed = hasTerm(league);
@@ -584,11 +595,11 @@ function KeepersOverview({ league, accentColor, isDark, onOpenTeam }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <style>{`.kh-team-card { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; } .kh-team-card:hover { transform: translateY(-2px); border-color: ${accentColor}66; }`}</style>
+      {!member && <style>{`.kh-team-card { transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s; } .kh-team-card:hover { transform: translateY(-2px); border-color: ${accentColor}66; }`}</style>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
         {/* Alphabetical, like every other team strip — display order only. */}
         {sortTeamsByName(teams).map(team => (
-          <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} playerMap={playerMap} />
+          <TeamKeeperCard key={team.id} team={team} league={league} accentColor={accentColor} gridAccent={gridAccent} isDark={isDark} onOpen={onOpenTeam} playerMap={playerMap} member={member} />
         ))}
       </div>
       {termed && <ExpiringSection expiring={expiring} isDark={isDark} />}
