@@ -14,8 +14,14 @@ globalThis.window = {
 };
 globalThis.document = { addEventListener() {}, removeEventListener() {}, body: { style: {} } };
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+// MemoryRouter uses useLayoutEffect, which React warns about on the server —
+// expected here, and noise in the output.
+const rawError = console.error;
+console.error = (...a) => { if (String(a[0]).includes('useLayoutEffect does nothing on the server')) return; rawError(...a); };
 
-const { PicksPasteModal, DraftPicksPanel } = await import('../.tmp-picks-bundle.mjs');
+const { PicksPasteModal, DraftPicksPanel, lotteryTradeLines, MemoryRouter } = await import('../.tmp-picks-bundle.mjs');
+// The board's pre-lottery line links to the Lottery page, so the panel renders inside a router.
+const panel = props => h(MemoryRouter, null, h(DraftPicksPanel, props));
 
 let passed = 0;
 function test(name, fn) {
@@ -135,7 +141,7 @@ for (const isDark of [true, false]) {
   });
 
   test(`${theme}: without standings the Picks page falls back to the ownership grid and says so`, () => {
-    const html = render(h(DraftPicksPanel, props));
+    const html = render(panel(props));
     includes(html, 'Paste from Yahoo');
     includes(html, 'No standings imported yet.');
     includes(html, 'Import last season’s standings');
@@ -157,7 +163,7 @@ for (const isDark of [true, false]) {
 
   test(`${theme}: with standings + lottery the Picks page is a draft board — rounds across, slots down, numbers in the cells`, () => {
     const drawn = { ...ordered, lotteryDraw: { at: '2026-09-01T00:00:00Z', order: ['t3', 't4'] } };
-    const html = render(h(DraftPicksPanel, { ...props, league: drawn }));
+    const html = render(panel({ ...props, league: drawn }));
     includes(html, 'Draft board');
     includes(html, '>R1<'); includes(html, '>R2<'); includes(html, '>R3<');
     includes(html, '>Pick<');
@@ -172,17 +178,43 @@ for (const isDark of [true, false]) {
     assert(/Pick 8<\/span><span>Casey&#x27;s pick/.test(html), 'the roll-up numbers the traded pick');
   });
 
-  test(`${theme}: before the lottery the lottery slots merge into one cell listing the eligible teams' picks`, () => {
-    const html = render(h(DraftPicksPanel, { ...props, league: ordered }));
+  test(`${theme}: before the lottery every slot is its own cell — placeholders with numbers, a line naming the lottery teams`, () => {
+    const html = render(panel({ ...props, league: ordered }));
     includes(html, 'Draft board');
-    includes(html, 'The lottery hasn’t been run yet.');
-    includes(html, 'Lottery · 1–2');   // odd round: slots lead
-    includes(html, 'Lottery · 7–8');   // even round: the snake puts them last
-    includes(html, 'Lottery · 9–10');
-    assert(/rowspan="2"/i.test(html), 'the lottery cell spans its slots');
-    // Non-lottery teams are exact already.
+    excludes(html, 'rowspan');
+    excludes(html, 'rowSpan');
+    // The line above the board: who's in it, and the way to run it.
+    includes(html, 'Lottery not run');
+    includes(html, 'Casey, Drew');
+    assert(/href="\/league\/hockey-x\/lottery"[^>]*>Run lottery/.test(html), 'links to the Lottery page');
+    // Two lottery slots per round, each a placeholder carrying only its number.
+    assert((html.match(/Lottery pick/g) || []).length === 6, 'two placeholders in each of three rounds');
+    assert(/>1<[^]*?Lottery pick/.test(html) && />2<[^]*?Lottery pick/.test(html), 'R1 slots 1–2');
+    assert(/>7<[^]*?Lottery pick/.test(html) && />8<[^]*?Lottery pick/.test(html), 'R2 snakes them to 7–8');
+    excludes(html, 'Lottery · ');
+    // Non-lottery rows are exact already.
     assert(/>3<\/span><span[^>]*>Alex</.test(html), 'pick 3 is fixed from standings');
     assert(/>4<\/span><span[^>]*>Alex</.test(html), 'pick 4 is Alex');
+    // Casey's R2 pick went to Drew: both R2 placeholders carry the asterisk and name it on hover; R1/R3 don't.
+    const lines = lotteryTradeLines(ordered, { ...ordered, teams: 4 }, 2, id => ({ t1: 'Alex', t2: 'Blake', t3: 'Casey', t4: 'Drew' })[id]);
+    assert((html.match(/>\*<\/span>/g) || []).length === 2, `exactly the two R2 placeholders are starred (got ${(html.match(/>\*<\/span>/g) || []).length})`);
+    includes(html, 'One of picks 7–8 is Drew&#x27;s, via Casey.');
+    excludes(html, 'One of picks 1–2');
+    void lines;
+  });
+
+  test(`${theme}: after the lottery the line and the asterisks are gone`, () => {
+    const drawn = { ...ordered, lotteryDraw: { at: '2026-09-01T00:00:00Z', order: ['t3', 't4'] } };
+    const html = render(panel({ ...props, league: drawn }));
+    excludes(html, 'Lottery not run');
+    excludes(html, 'Lottery pick');
+    excludes(html, '>*</span>');
+    excludes(html, 'One of picks');
+  });
+
+  test(`${theme}: the Traded Picks list carries an Add trade control`, () => {
+    const html = render(panel({ ...props, league: ordered }));
+    includes(html, 'Add trade');
   });
 }
 

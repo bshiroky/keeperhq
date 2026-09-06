@@ -1175,10 +1175,25 @@ Yahoo work off 47%, not off the optimistic reading.
   R1..RN, rows = pick slots, each cell the team on the clock with its overall
   number, reading top to bottom as that round's order. Traded picks are
   highlighted with their CURRENT owner; whose pick it was is on hover
-  ("originally X's pick"). Before the lottery, each round's lottery slots
-  (first N in odd rounds, last N in even — the snake) merge into ONE
-  `rowSpan` cell headed "Lottery · lo–hi" listing the eligible teams' picks,
-  each still clickable. Without usable standings (or on an unbroken tie) it
+  ("originally X's pick"). **One cell per pick per round, always — nothing
+  merges** (a first cut merged each round's lottery slots into a `rowSpan`
+  cell listing four teams, repeated every round and alternating position with
+  the snake: unreadable, reverted). **Pre-lottery:** a line above the board
+  reads "Lottery not run — Amar, Andrew, Corey, Pedram are in it. Run
+  lottery →" (`LotteryPendingLine`, a `Link` to the Lottery page); each
+  lottery slot is a muted, non-clickable `LotteryPlaceholder` labelled
+  "Lottery pick" with only its overall number (1–4 in R1, 21–24 in R2 — the
+  snake places them as usual); when any lottery team's pick in that round has
+  been traded, every placeholder in that round carries an asterisk whose
+  hover reads "One of picks 25–28 is Corey's, via Pedram." (one sentence per
+  trade, `lotteryTradeLines`) — the trade is real, the slot isn't known yet.
+  Non-lottery rows render exactly as post-lottery. **Post-lottery** the line,
+  the placeholders and the asterisks all go: names and exact numbers.
+  **Add trade** (`AddTradeControl`, on the Traded Picks header): round ·
+  original owner → new owner, writing through the same `reassignPick` a cell
+  click does — needed pre-lottery (a placeholder maps to no owner) and for
+  the pre-draft trades the league logs here as they happen (Yahoo has no
+  off-season pick trading). Without usable standings (or on an unbroken tie) it
   falls back to the original round × team ownership grid (`OwnershipGrid`)
   with the reason and where to fix it; that grid's traded cell now reads
   `→ {owner}` (the old "via {owner}" pointed the wrong way in an
@@ -2524,13 +2539,16 @@ copy of a component drifts away from the original.
   derived) + the "Paste from Yahoo" button, then the grid — a **draft
   board** (`DraftBoardGrid`: rounds across, pick slots down, each cell the
   team on the clock with its overall number; traded cells warning-tinted
-  with the current owner, origin on hover; pre-lottery slots merged into
-  one "Lottery" cell per round) when `buildDraftBoard` is ok, otherwise
+  with the current owner, origin on hover; pre-lottery slots are muted
+  "Lottery pick" placeholders, one per slot, starred when a lottery team's
+  pick in that round is traded, under a "Lottery not run" line linking to
+  the Lottery page) when `buildDraftBoard` is ok, otherwise
   the round×team **ownership grid** (`OwnershipGrid`: sticky round column
   with opaque layered background — the sticky-transparency rule applies
   here too; traded cells `→ {owner}`) with the reason and where to fix it.
   Every cell in both is the one `PickCell` (click → inline owner select),
-  and the Traded Picks roll-up with per-trade undo sits below. Also exports
+  and the Traded Picks roll-up with per-trade undo and the `AddTradeControl`
+  (round · original → new owner, same write as a cell click) sits below. Also exports
   `PicksPasteModal` (paste → preview/mapping → confirm, with the
   round-sum and Grid-checksum results shown on the preview step; takes
   `initialText` as a render-test seam) and re-exports
