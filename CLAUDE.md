@@ -1079,6 +1079,65 @@ Yahoo work off 47%, not off the optimistic reading.
   member-facing view, trade VALIDATION (Open item #14), and a standings
   source other than the paste.
 
+- **Draft-prep pass: contract years on the pool row, picks on the shared
+  page (this branch's PR):** the draft moved up and the league is asking
+  about picks and keepers. Five items. **(1) Contract year is set on the pool
+  row, never by Keep.** A migrated contracts league arrives with every roster
+  imported and every player reading "No contract · Y1/3" when ~48 are
+  mid-contract; the only way to record that was clicking Keep, which
+  DECLARES the player for this season — the wrong action (the year is last
+  season's fact, the keep is a decision the GM hasn't made). Every My-roster
+  and Expired pool row in a termed league now carries a `Y[n] / [len]` pair
+  of selects (`TermControl` in `SetKeepersTab.jsx`, replacing the row's
+  `Y1/3` text; the "On contract"/"No contract" status label is dropped there
+  because the control shows it — the dollar status `Drafted $83` and the red
+  `Final yr` stay). It writes through `src/lib/contractYear.js`
+  (`setContractYear`): the ENTERING year is stored as years-served
+  (`contractYear = year − 1`, the draft import's convention) on the player's
+  existing prior record wherever it lives (drafted by A, rostered by B — the
+  record stays on A with its price and B's pool still reads it), or a new
+  record on the roster team when none exists; a declared keeper on the team is
+  patched to match so slot and row can't disagree; an `expired` flag is
+  cleared by a live year; the edit is logged as `term` entries. Keep still
+  reads `nextYear` from the pool, so a Y3/3 row keeps as Y3/3 and renders
+  expiring everywhere (pool, keeper slot, Overview card, shared page
+  `Final yr Y3/3`). Overview cards were NOT given the control — the pool is
+  the one place, per the one-editor rule. **(2) Picks on the shared page** —
+  each team tab gets a "Draft picks" section under the roster
+  (`TeamPicksSection` in `SharedLeaguePage.jsx`; never on the Rostered view,
+  never on an auction league): one line per pick held — `R2 · Pick 17 ·
+  via Alex`. Derived on the page from the 008 projection by `teamPicks`
+  (`src/lib/draftOrder.js`), the same board the commissioner's Picks page
+  reads. Three states: **exact** (lottery drawn); **ranges** (standings on
+  file, lottery pending or stale — a lottery team's pick shows the span its
+  slot can land in, `Pick 1–4`, carried through even rounds where the snake
+  puts those slots LAST: `21–24` in round 2 of a 12-team draft; non-lottery
+  teams are exact already; `lotteryRangeFor`); **unordered** (no usable
+  standings — round and via only, plus "Draft order isn't set yet"). A pick
+  traded to a non-lottery team keeps its range and the `via`.
+  `SharedLeaguePage` takes `initialFilter` purely as a render-test seam
+  (`test:shared` renders every state through the real page — the Rules-button
+  lesson). **(3) Alphabetical team order everywhere** — `sortTeamsByName`
+  now also orders the Overview cards, the Picks grid columns (and its cell
+  select), the Import page's roster list, the roster-paste team dropdown, the
+  Pool & Payouts payments list, and the Lottery reassign selects. Deliberately
+  NOT the Settings Teams card: its rows are the names being edited, and
+  re-sorting under a rename would move the field under the cursor. **(4)
+  Overall numbers on the Picks grid** — every cell shows its number (or
+  range) above the owner, from `pickNumberFor` on the same board, so the
+  commissioner sees exactly what the league sees; the Traded Picks roll-up
+  says `Pick 13 · Alex's pick → Frank`; the intro line states which state the
+  numbers are in. **(5) Standings card in draft order** — rows sort the way
+  the draft does (`baseDraftOrder`: the configured basis, worst first), an
+  **Order** column carries the base slot with lottery teams marked, Rank stays
+  as a column with `Trophy` icons for the 1st/2nd/3rd playoff finish
+  (`tokens.medalGold/Silver/Bronze` — three new tokens, one place), and the
+  footer says "Rank is the playoff finish"; falls back to rank order when the
+  order can't be built. Tests: `test:contracts` (new, pure),
+  `test:draft-order` (pick lists/ranges), `test:shared` (page renders all
+  three pick states + the contract-year flow + the pool control),
+  `smoke-standings` (order column, trophies).
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1156,6 +1215,9 @@ headless.
   standings (`scripts/test-draft-parser.mjs`, `scripts/test-roster-parser.mjs`,
   `scripts/test-picks-parser.mjs`, `scripts/test-standings-parser.mjs`; plain
   node, no framework)
+- `npm run test:contracts` — contract year set on a pool row: where the
+  record lands, years-served storage, keeper patched to match, expired flag
+  cleared (`scripts/test-contract-year.mjs`; plain node)
 - `npm run test:draft-order` — the draft-order engine: config defaults, the
   points/rank basis, the tiebreak chain (playoff finish, then a reproducible
   coin flip), the manual override, lottery eligibility, stale draws, the

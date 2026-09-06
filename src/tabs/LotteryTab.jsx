@@ -7,6 +7,7 @@ import {
   draftOrderConfigOf, baseDraftOrder, round1Order, lotteryDrawOf, BASIS_LABEL, describeBoardReason,
 } from '../lib/draftOrder.js';
 import { TieBreakEditor, BrokenTiesList, tiesResolved, applyTieOrders, flipUnresolved } from './StandingsTab.jsx';
+import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // Lottery — the worst N teams (by the configured standings basis) draw for
 // picks 1–N; the rest pick in reverse standings order.
@@ -232,7 +233,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {isEditing ? (
                       <select autoFocus defaultValue={owner} onChange={ev => reassign(e.teamId, ev.target.value)} onBlur={() => setEditing(null)} style={selStyle} aria-label={`Owner of ${nameOf(e.teamId)}'s lottery pick`}>
-                        {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                        {sortTeamsByName(teams).map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
                       </select>
                     ) : (
                       <div onClick={() => setEditing({ originalTeamId: e.teamId })} style={{ cursor: 'pointer' }}>
@@ -281,7 +282,7 @@ function LotteryTab({ league, accentColor, isDark, onUpdateLeague }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {isEditing ? (
                       <select autoFocus defaultValue={row.owner} onChange={ev => reassign(row.original, ev.target.value)} onBlur={() => setEditing(null)} style={selStyle} aria-label={`Owner of pick ${row.slot}`}>
-                        {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+                        {sortTeamsByName(teams).map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
                       </select>
                     ) : (
                       <div onClick={() => isRevealed && row.original && setEditing({ originalTeamId: row.original })} style={{ cursor: isRevealed && row.original ? 'pointer' : 'default' }}>

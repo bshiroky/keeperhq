@@ -7,8 +7,9 @@ import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABE
 import { RulesButton } from './LeagueRulesModal.jsx';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
-  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst,
+  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst, sharedDraftBoard,
 } from './lib/sharedLeague.js';
+import { teamPicks, formatPickNumber, describePickListStatus } from './lib/draftOrder.js';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
 // Read-only, public, mobile-first — the member-facing cousin of the
@@ -645,6 +646,76 @@ function StatTables({ rows, league, playerMap, isDark, toolbar }) {
   );
 }
 
+// ── Team picks (team tab) ───────────────────────────────────────────────────
+// What a team holds going into the draft, with overall numbers, so a GM can
+// say "I have pick 29 and pick 41" and trade on it. Derived on the page from
+// the projected inputs (migration 008) by the same board the commissioner's
+// Picks page reads, so the two can't disagree. Text-first: one line per pick.
+//
+// Three states, decided by the board (lib/draftOrder teamPicks):
+//   exact     — lottery drawn: every pick is a number.
+//   ranges    — standings on file, lottery pending: a lottery team's pick
+//               shows the span it can land in ("pick 1–4"), carried through
+//               even rounds where the snake puts those slots last.
+//   unordered — no usable standings: round and ownership only, and a line
+//               saying the order isn't set.
+// Not rendered at all on a non-snake league (nothing to list), and never on
+// the Rostered view — it belongs to a team.
+function TeamPicksSection({ league, board, team, isDark }) {
+  const t = makeTheme(isDark);
+  const { status, picks } = teamPicks(league, team.id, board);
+  if (status === 'none') return null;
+  const nameOf = id => league.teams.find(tm => tm.id === id)?.name || '?';
+  const note = describePickListStatus(status);
+  return (
+    <section aria-label={`${team.name} draft picks`} style={{ marginTop: tokens.spaceLg }}>
+      <div style={{ marginBottom: tokens.spaceXs, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceSm, flexWrap: 'wrap' }}>
+        <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary }}>Draft picks</span>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{picks.length} pick{picks.length === 1 ? '' : 's'} held</span>
+      </div>
+      <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden' }}>
+        {note && (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`, background: t.sectionBg, borderBottom: `1px solid ${t.divider}` }}>
+            {note}
+          </div>
+        )}
+        {picks.length === 0 ? (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceMd}px ${tokens.spaceSm}px`, textAlign: 'center' }}>
+            No picks held — every one has been traded away.
+          </div>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: `0 ${tokens.spaceSm}px` }}>
+            {picks.map((p, i) => {
+              const number = formatPickNumber(p.number);
+              return (
+                <li key={`${p.round}:${p.originalTeamId}`} className="kh-share-row" style={{
+                  display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+                  padding: `${tokens.spaceXs}px 0`,
+                  borderBottom: i < picks.length - 1 ? `1px solid ${t.dividerFaint}` : 'none',
+                }}>
+                  <span style={{ ...tokens.typePillEmphatic, color: t.textSecondary, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0, minWidth: 30, textAlign: 'center', boxSizing: 'border-box' }}>
+                    R{p.round}
+                  </span>
+                  <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    {number
+                      ? <span style={{ fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>Pick {number}</span>
+                      : <span style={{ color: t.textMuted }}>Round {p.round}</span>}
+                    {p.via && (
+                      <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        via {nameOf(p.via)}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ── View-level copy blocks ──────────────────────────────────────────────────
 
 function ViewHeader({ title, subtitle, danger, isDark }) {
@@ -734,7 +805,9 @@ function FilterChip({ label, active, danger, onClick, isDark }) {
 
 // ── The page ────────────────────────────────────────────────────────────────
 
-function SharedLeaguePage({ league, isDark }) {
+// `initialFilter` is a render-test seam only (a server render can't click a
+// team chip) — the same reason the paste modals take `initialText`.
+function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const termed = hasTerm(league);
@@ -745,11 +818,12 @@ function SharedLeaguePage({ league, isDark }) {
   const locked = !!cd?.locked;
 
   const allRows = React.useMemo(() => buildSharedRows(league), [league]);
+  const board = React.useMemo(() => sharedDraftBoard(league), [league]);
   const hasExpired = termed && allRows.some(r => r.kind === 'expired');
   const anyKeepers = allRows.some(r => r.kind === 'keeper');
   const teams = league.teams || [];
 
-  const [filter, setFilter] = React.useState('keepable');
+  const [filter, setFilter] = React.useState(initialFilter);
   // Player search — filters the current view's rows as you type, using the
   // same normalized matching the commissioner Eligible Pool search uses
   // (trade-talk use case: "what would it cost to get X?").
@@ -869,6 +943,9 @@ function SharedLeaguePage({ league, isDark }) {
       {filterTeam && termed && teamHasExpired && (
         <ViewFooter isDark={isDark}>{filterTeam.name}&rsquo;s expired contracts are under the Expired filter.</ViewFooter>
       )}
+      {/* Below the roster on a team tab only — the picks belong to a team,
+          not to the Rostered view. */}
+      {filterTeam && <TeamPicksSection league={league} board={board} team={filterTeam} isDark={isDark} />}
       {filter === 'keepable' && locked && (
         <ViewFooter isDark={isDark}>Keepers are final. Everyone else heads to the draft.</ViewFooter>
       )}

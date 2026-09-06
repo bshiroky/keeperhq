@@ -384,3 +384,88 @@ export function describeBoardReason(reason) {
     default: return '';
   }
 }
+
+// ── Per-pick numbering and per-team pick lists ──────────────────────────────
+// What a GM reads on the shared page ("I have pick 29 and pick 41") and what
+// the Picks grid shows in each cell. Three states, decided by the board:
+//
+//   'exact'     — standings + lottery on file: every pick has an overall number.
+//   'ranges'    — standings on file, lottery not drawn (or stale): a
+//                 lottery-eligible team's pick can land on any lottery slot, so
+//                 it shows as a RANGE ("pick 1–4"), carried through even rounds
+//                 where the snake puts those slots at the END of the round.
+//                 Non-lottery teams are exact already.
+//   'unordered' — no usable standings: round and ownership only, no numbers.
+//   'none'      — not a snake draft; there is nothing to list.
+//
+// Ranges come from the same arithmetic as the board's overall numbers
+// (overall = (round − 1) × teams + slot), so the two can't disagree.
+
+// The overall-number span the lottery slots occupy in a round. Odd rounds put
+// them first, even rounds (snake) put them last.
+export function lotteryRangeFor(board, round) {
+  const n = board.teams;
+  const N = board.config?.lotteryTeams || 0;
+  if (!n || !N) return null;
+  const start = (round - 1) * n;
+  return round % 2 === 1 ? [start + 1, start + N] : [start + n - N + 1, start + n];
+}
+
+// The number for one original pick (round × original team) on a board:
+// { kind: 'exact', overall, slot } | { kind: 'range', lo, hi } | null (no
+// board). Used by the Picks grid cells and the per-team lists alike.
+export function pickNumberFor(board, round, originalTeamId) {
+  if (!board?.ok) return null;
+  const exact = board.picks.find(p => p.round === round && p.originalTeamId === originalTeamId);
+  if (exact) return { kind: 'exact', overall: exact.overall, slot: exact.slot };
+  if (!board.complete && board.lotteryEligible.includes(originalTeamId)) {
+    const range = lotteryRangeFor(board, round);
+    if (range) return { kind: 'range', lo: range[0], hi: range[1] };
+  }
+  return null;
+}
+
+export function formatPickNumber(num) {
+  if (!num) return null;
+  return num.kind === 'range' ? `${num.lo}–${num.hi}` : String(num.overall);
+}
+
+// Every pick a team currently HOLDS, round by round, with its number (or
+// range) and who it originally belonged to when traded.
+//
+// → { status, picks: [{ round, originalTeamId, via, number, overall, sortKey }] }
+//   `via` is the original owner's id when the pick came by trade, else null.
+//   `number` is pickNumberFor's shape (null in 'unordered').
+export function teamPicks(league, teamId, board = buildDraftBoard(league)) {
+  if (board.format !== 'snake') return { status: 'none', reason: board.reason, picks: [] };
+  const teams = league?.teams || [];
+  const teamIdx = new Map(teams.map((tm, i) => [tm.id, i]));
+  const rounds = board.ok ? board.rounds : getDraftRounds(league);
+  const picks = [];
+  for (let round = 1; round <= rounds; round++) {
+    for (const original of teams) {
+      if (pickOwnerId(league, round, original.id) !== teamId) continue;
+      const number = pickNumberFor(board, round, original.id);
+      picks.push({
+        round,
+        originalTeamId: original.id,
+        via: original.id === teamId ? null : original.id,
+        number,
+        overall: number?.kind === 'exact' ? number.overall : null,
+        sortKey: number ? (number.kind === 'exact' ? number.overall : number.lo) : (round - 1) * teams.length,
+      });
+    }
+  }
+  picks.sort((a, b) => a.round - b.round || a.sortKey - b.sortKey || teamIdx.get(a.originalTeamId) - teamIdx.get(b.originalTeamId));
+  const status = !board.ok ? 'unordered' : board.complete ? 'exact' : 'ranges';
+  return { status, reason: board.reason, picks };
+}
+
+// One line of copy for the list's state — what the numbers mean today.
+export function describePickListStatus(status) {
+  switch (status) {
+    case 'ranges': return 'Lottery not drawn yet — lottery teams show the range their pick can land in.';
+    case 'unordered': return 'Draft order isn’t set yet — rounds and ownership only.';
+    default: return '';
+  }
+}

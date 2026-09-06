@@ -139,6 +139,15 @@ for (const isDark of [true, false]) {
     includes(html, 'regular-season points');
     includes(html, '4-team lottery');
     includes(html, 'playoff finish, then coin flip');
+    // Rows are in DRAFT order (points, worst first), with the base slot in an
+    // Order column, the lottery teams marked, and podium finishes trophied.
+    includes(html, 'Listed in draft order');
+    includes(html, '>Order<');
+    includes(html, 'finished 1st in the playoffs');
+    includes(html, 'finished 3rd in the playoffs');
+    const first = html.indexOf('Treliving it Up'), last = html.indexOf('Da Real Dynasty');
+    assert(first > 0 && last > first, 'the worst team (Treliving) is listed before the champion (Dynasty)');
+    assert((html.match(/>lottery</g) || []).length === 4, 'the four lottery teams are marked');
     const manualHtml = render(h(StandingsCard, { ...props, league: manual }));
     includes(manualHtml, 'Tie to break: Da Real Dynasty / My Cozen Finnie');
   });
