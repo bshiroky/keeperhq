@@ -1150,6 +1150,49 @@ Yahoo work off 47%, not off the optimistic reading.
   three pick states + the contract-year flow + the pool control),
   `smoke-standings` (order column, trophies).
 
+- **Shared-page cost-model fix, draft-board Picks grid, traded-away picks
+  (this branch's PR):** four items, the first a live bug. **(1) A slot league
+  read as auction on the shared page.** Disney on Ice (pre-wizard: no
+  `keeperCostModel` key, term from `contractYears`) showed "Auction · 3-yr
+  terms" with every row at "Keep for $5" while Settings said "Slot only". Both
+  surfaces already called the same function; the INPUT differed. The
+  projection's `jsonb_build_object` emitted an `auctionRules` object with
+  null keys for every league, block or not — a truthy object the shim's
+  legacy fallback took as "auction". Two fixes, both needed: `keeperCostModelOf`
+  now counts a block only when it carries a value (`hasAuctionRulesBlock`), so
+  the page is right the moment it deploys, and
+  **`009_shared_auction_rules_projection.sql`** stops the projection
+  manufacturing the block (run after 008). `test:shared` renders the exact
+  pre-009 projection shape and asserts "Slot only · 3-yr terms", `Y2/3`, and
+  no "Keep for $"; `test:rules` covers the shim. **Lesson: a projection can
+  change the SHAPE of an absent field (null → empty object), and a presence
+  check on the client is then a different check than on the raw blob.**
+  **(2) Sticky-column shadow** on the shared stat table: the 22px edge fade
+  (0.16/0.55 alpha) read as the pinned Cost/On-team columns floating over the
+  stats. Now a 1px rule on the pinned cells' inner edges (scroll mode only)
+  plus a 10px fade at 0.06/0.22 — a hint, not a shadow. **(3) The Picks grid
+  is a draft board** once standings are on file (`DraftBoardGrid`): columns
+  R1..RN, rows = pick slots, each cell the team on the clock with its overall
+  number, reading top to bottom as that round's order. Traded picks are
+  highlighted with their CURRENT owner; whose pick it was is on hover
+  ("originally X's pick"). Before the lottery, each round's lottery slots
+  (first N in odd rounds, last N in even — the snake) merge into ONE
+  `rowSpan` cell headed "Lottery · lo–hi" listing the eligible teams' picks,
+  each still clickable. Without usable standings (or on an unbroken tie) it
+  falls back to the original round × team ownership grid (`OwnershipGrid`)
+  with the reason and where to fix it; that grid's traded cell now reads
+  `→ {owner}` (the old "via {owner}" pointed the wrong way in an
+  original-owner column). Click-to-reassign works in every cell of both
+  layouts through the one `PickCell`. `test:picks-ui` renders all three
+  states. **(4) Traded-away picks on the shared team tab** —
+  `teamTradedAwayPicks` (`draftOrder.js`, same board and numbering as
+  `teamPicks`) feeds a "Traded away" block under the held list: muted,
+  struck-through number, "→ traded to Pedram"; the count line reads
+  "N picks held · M traded away". One row per pick always — two picks in one
+  round are two rows with their own numbers, asserted. Not in this pass: the
+  commissioner and shared pages converging on one tab structure (after the
+  draft).
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -2464,11 +2507,16 @@ copy of a component drifts away from the original.
 - `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the **full-page**
   Picks surface (rendered by `LeagueView` in the Lottery full-page
   pattern): intro card with an editable Rounds input ("auto" note when
-  derived) + the "Paste from Yahoo" button, the round×team ownership
-  grid (sticky round column with opaque layered background — the
-  sticky-transparency rule applies here too; click a cell → inline
-  team select; traded cells `via {owner}` in warning tint), and the
-  Traded Picks roll-up with per-trade undo. Also exports
+  derived) + the "Paste from Yahoo" button, then the grid — a **draft
+  board** (`DraftBoardGrid`: rounds across, pick slots down, each cell the
+  team on the clock with its overall number; traded cells warning-tinted
+  with the current owner, origin on hover; pre-lottery slots merged into
+  one "Lottery" cell per round) when `buildDraftBoard` is ok, otherwise
+  the round×team **ownership grid** (`OwnershipGrid`: sticky round column
+  with opaque layered background — the sticky-transparency rule applies
+  here too; traded cells `→ {owner}`) with the reason and where to fix it.
+  Every cell in both is the one `PickCell` (click → inline owner select),
+  and the Traded Picks roll-up with per-trade undo sits below. Also exports
   `PicksPasteModal` (paste → preview/mapping → confirm, with the
   round-sum and Grid-checksum results shown on the preview step; takes
   `initialText` as a render-test seam) and re-exports
@@ -2491,7 +2539,9 @@ copy of a component drifts away from the original.
   `recordCoinFlip` / `coinFlipOrder` / `tieKey` / `describeTie`,
   `lotteryEligible` / `lotteryDrawOf` (stale-aware, legacy `lotteryResults`
   fallback), `round1Order`, `buildDraftBoard` (snake only, by
-  `draftFormatOf`), `describeBoardReason`. Ties go through the chain
+  `draftFormatOf`), `describeBoardReason`, and the per-team lists
+  `teamPicks` / `teamTradedAwayPicks` (held vs given away, one board, one
+  numbering). Ties go through the chain
   (basis → playoff finish → recorded coin flip) or the manual override;
   never sorted silently. Reads pick ownership through `draftPicks.js`.
 - `src/tabs/LotteryTab.jsx` — the Lottery full page, seeded from
@@ -2501,6 +2551,10 @@ copy of a component drifts away from the original.
   round-1 pick reassignment; the draw as `league.lotteryDraw` on Lock; the
   round-1 order post-draw (or straight away when lottery teams = 0). All
   pick trades go through `reassignPick`.
+- `supabase/migrations/009_shared_auction_rules_projection.sql` — replaces
+  `get_shared_league` so `auctionRules` is projected ONLY when the blob has
+  one (it used to come through as an all-null object, which the shim read as
+  "auction"). No table change. Run after 008.
 - `supabase/migrations/008_shared_draft_order.sql` — replaces
   `get_shared_league` to project the draft-order INPUTS (standings without
   `sourceName`, `draftOrderConfig`, `bottomLotteryTeams`, `lotteryDraw`,

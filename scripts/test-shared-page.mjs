@@ -26,7 +26,8 @@ const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
-  buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, teamPicks, formatPickNumber,
+  buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, teamPicks, teamTradedAwayPicks, formatPickNumber,
+  keeperCostModelOf,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -610,6 +611,49 @@ test('an overridden DRAFTED price flows into the calculated keep cost', () => {
 });
 
 
+// ── The projection must resolve the SAME cost model Settings does ───────────
+// Disney on Ice: a pre-wizard slot league (no keeperCostModel key, term from
+// contractYears). The projection used to emit an auctionRules object with
+// null keys regardless, and the shim read that object as "auction", so the
+// shared page said "Auction · 3-yr terms" with every row at "Keep for $5"
+// while Settings (raw blob) said "Slot only". The fixture is the exact shape
+// get_shared_league returned before migration 009.
+const DISNEY_PROJECTED = {
+  name: 'Disney on Ice', sport: 'hockey', draftType: 'snake',
+  keeperDeadline: null, keeperDeadlineTime: null,
+  contractYears: 3, keeperSlots: 4,
+  keeperCostModel: null, termModel: null, termYears: null, mustFillSlots: null,
+  pickRules: null, rookieRules: null, sharedRulesNote: null, sharedPayoutsNote: null,
+  minKeepers: null, contractsRequired: null,
+  auctionRules: { costIncreasePerYear: null, undraftedStartCost: null },
+  statCategories: null,
+  teams: [
+    { id: 't1', name: 'Alpha', keepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }],
+      priorKeepers: [{ player: 'Nico Hischier', pos: 'C', contractYear: 1, contractLength: 3, keptFor: null, acquisitionRound: null, expired: null }] },
+    { id: 't2', name: 'Beta', keepers: [], roster: [{ player: 'Jesper Bratt', pos: 'LW' }], priorKeepers: [] },
+  ],
+};
+const DISNEY_RAW = { ...DISNEY_PROJECTED };
+delete DISNEY_RAW.auctionRules;
+
+test('cost model: the projected league and the raw blob resolve the same answer', () => {
+  assert.equal(keeperCostModelOf(DISNEY_RAW), 'slot', 'Settings (raw blob) says slot');
+  assert.equal(keeperCostModelOf(DISNEY_PROJECTED), 'slot', 'the shared page (projection) must agree');
+  assert.equal(costColumnLabel(DISNEY_PROJECTED), 'Contract', 'a slot league has no cost column');
+});
+
+test('cost model: Disney on Ice renders as Slot only with contract state, never "Keep for $"', () => {
+  const html = renderPage(DISNEY_PROJECTED, false);
+  assert.ok(html.includes('Hockey · Slot only · 3-yr terms'), 'header names the real model');
+  assert.ok(!html.includes('Auction'), 'no auction anywhere on the page');
+  assert.ok(!html.includes('Keep for $'), 'no dollar figures');
+  assert.ok(html.includes('Y2/3'), 'the under-contract player shows his contract state');
+  assert.ok(html.includes('>Contract<'), 'the column is Contract, not Cost to keep');
+  const rows = buildSharedRows(DISNEY_PROJECTED);
+  assert.equal(rows.find(r => r.player === 'Nico Hischier').kind, 'contract');
+  assert.equal(rows.find(r => r.player === 'Jack Hughes').cost, undefined, 'no undrafted-floor price is invented');
+});
+
 // ── Draft board from the 008 projection ────────────────────────────────────
 // A fixture shaped like what get_shared_league returns after migration 008:
 // ONLY the projected keys. If the board needs something the projection
@@ -748,6 +792,32 @@ test('team picks: no standings — rounds and ownership only, and it says the or
   assert.ok(html.includes('isn’t set yet'));
   assert.ok(html.includes('Round 1') && html.includes('via Alpha'));
   assert.ok(!html.includes('Pick '), 'no numbers without an order');
+});
+
+test('team picks: traded-away picks are listed below the held ones, with their numbers', () => {
+  // Alpha traded its round-2 pick to Delta: Alpha's tab shows it as gone
+  // (pick 5 → Delta), Delta's tab holds it (pick 5 via Alpha). Same number on
+  // both sides, because both lists read the same board.
+  const gone = teamTradedAwayPicks(SNAKE_PROJECTION, 't1');
+  assert.equal(gone.status, 'exact');
+  assert.deepEqual(gone.picks.map(p => [p.round, p.ownerTeamId, formatPickNumber(p.number)]), [[2, 't4', '5']]);
+  const html = renderTeam(SNAKE_PROJECTION, 't1');
+  assert.ok(html.includes('1 pick held · 1 traded away'));
+  assert.ok(html.includes('Traded away'));
+  assert.ok(/Pick 5<\/span>.*traded to Delta/s.test(html), 'R2 · Pick 5 → traded to Delta');
+  assert.equal(teamTradedAwayPicks(SNAKE_PROJECTION, 't4').picks.length, 0, 'Delta gave nothing away');
+  assert.ok(!renderTeam(SNAKE_PROJECTION, 't4').includes('Traded away'), 'no section when nothing was traded away');
+  // Pending lottery: a lottery team's traded-away pick carries the range.
+  const { lotteryDraw, ...pending } = SNAKE_PROJECTION;
+  const lotteryGone = teamTradedAwayPicks({ ...pending, draftPicks: { rounds: 2, ownership: { '1:t4': 't1' } } }, 't4');
+  assert.deepEqual(lotteryGone.picks.map(p => formatPickNumber(p.number)), ['1–2']);
+});
+
+test('team picks: two picks in one round are two rows with distinct numbers, never "×2"', () => {
+  const html = renderTeam(SNAKE_PROJECTION, 't4');
+  assert.equal((html.match(/>R2<\/span>/g) || []).length, 2, 'two R2 rows');
+  assert.ok(html.includes('Pick 5<') && html.includes('Pick 8<'), 'each with its own number');
+  assert.ok(!/×\s*2/.test(html));
 });
 
 test('team picks: an auction league lists nothing', () => {

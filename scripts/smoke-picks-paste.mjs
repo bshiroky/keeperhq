@@ -134,9 +134,55 @@ for (const isDark of [true, false]) {
     assert(/<button[^>]*disabled[^>]*>Apply/.test(html), 'Apply should be disabled while a name is unmapped');
   });
 
-  test(`${theme}: the Picks page still renders`, () => {
+  test(`${theme}: without standings the Picks page falls back to the ownership grid and says so`, () => {
     const html = render(h(DraftPicksPanel, props));
     includes(html, 'Paste from Yahoo');
+    includes(html, 'No standings imported yet.');
+    includes(html, 'Import last season’s standings');
+    includes(html, '>Rd<');
+    excludes(html, 'Draft board');
+    // A traded cell says where the pick WENT, in the original owner's column.
+    includes(html, '→ Alex');
+    excludes(html, 'via ');
+  });
+
+  // Standings for the four teams: Drew worst, Alex best. Two lottery teams.
+  const STANDINGS = {
+    rows: [
+      { teamId: 't1', rank: 1, pts: 40 }, { teamId: 't2', rank: 2, pts: 30 },
+      { teamId: 't3', rank: 3, pts: 20 }, { teamId: 't4', rank: 4, pts: 10 },
+    ],
+  };
+  const ordered = { ...league, standings: STANDINGS, draftOrderConfig: { lotteryTeams: 2 }, draftPicks: { rounds: 3, ownership: league.draftPicks.ownership } };
+
+  test(`${theme}: with standings + lottery the Picks page is a draft board — rounds across, slots down, numbers in the cells`, () => {
+    const drawn = { ...ordered, lotteryDraw: { at: '2026-09-01T00:00:00Z', order: ['t3', 't4'] } };
+    const html = render(h(DraftPicksPanel, { ...props, league: drawn }));
+    includes(html, 'Draft board');
+    includes(html, '>R1<'); includes(html, '>R2<'); includes(html, '>R3<');
+    includes(html, '>Pick<');
+    excludes(html, '>Rd<');
+    excludes(html, 'Lottery');
+    // Round 1 order: Casey (won the lottery), Drew, Blake's pick → Alex, Alex.
+    assert(/>1<\/span><span[^>]*>Casey</.test(html), 'pick 1 is Casey');
+    assert(/>3<\/span><span[^>]*>Alex</.test(html), 'pick 3 (Blake\'s) is now Alex\'s');
+    includes(html, 'originally Blake&#x27;s pick');
+    // Round 2 snakes: Alex picks 5, Blake's pick (6) → Alex, Drew 7, Casey's pick (8) → Drew.
+    assert(/>8<\/span><span[^>]*>Drew</.test(html), 'Casey\'s round-2 pick belongs to Drew');
+    assert(/Pick 8<\/span><span>Casey&#x27;s pick/.test(html), 'the roll-up numbers the traded pick');
+  });
+
+  test(`${theme}: before the lottery the lottery slots merge into one cell listing the eligible teams' picks`, () => {
+    const html = render(h(DraftPicksPanel, { ...props, league: ordered }));
+    includes(html, 'Draft board');
+    includes(html, 'The lottery hasn’t been run yet.');
+    includes(html, 'Lottery · 1–2');   // odd round: slots lead
+    includes(html, 'Lottery · 7–8');   // even round: the snake puts them last
+    includes(html, 'Lottery · 9–10');
+    assert(/rowspan="2"/i.test(html), 'the lottery cell spans its slots');
+    // Non-lottery teams are exact already.
+    assert(/>3<\/span><span[^>]*>Alex</.test(html), 'pick 3 is fixed from standings');
+    assert(/>4<\/span><span[^>]*>Alex</.test(html), 'pick 4 is Alex');
   });
 }
 

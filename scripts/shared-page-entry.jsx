@@ -8,9 +8,10 @@ export {
 export { sortTeamsByName } from '../src/lib/teamOrder.js';
 export { buildTeamPool, EligiblePool } from '../src/tabs/SetKeepersTab.jsx';
 export { setContractYear } from '../src/lib/contractYear.js';
-export { teamPicks, formatPickNumber } from '../src/lib/draftOrder.js';
+export { teamPicks, teamTradedAwayPicks, formatPickNumber } from '../src/lib/draftOrder.js';
 export { buildStatusIndex } from '../src/lib/players.js';
 export { SharedLeaguePage } from '../src/SharedLeaguePage.jsx';
 export { keeperRuleFacts, ruleNotes, hasRuleNotes } from '../src/lib/rulesSummary.js';
+export { keeperCostModelOf, hasAuctionRulesBlock } from '../src/lib/keeperRules.js';
 export { LeagueRulesModal, RulesGrid, RulesButton } from '../src/LeagueRulesModal.jsx';
 export { InvalidLinkPage } from '../src/SharedLeaguePage.jsx';

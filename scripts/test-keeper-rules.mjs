@@ -8,7 +8,7 @@
 
 import {
   keeperCostModelOf, termOf, hasTerm, isFinalYear, keeperValueText,
-  keeperArchetypeOf, draftFormatOf, isAuctionCost, hasKeeperData,
+  keeperArchetypeOf, draftFormatOf, isAuctionCost, hasKeeperData, hasAuctionRulesBlock,
   COST_SLOT, COST_PICKS, COST_AUCTION, TERM_NONE, TERM_FIXED,
 } from '../src/lib/keeperRules.js';
 import { advanceKeeper, startNewSeason } from '../src/lib/season.js';
@@ -52,6 +52,27 @@ eq(isAuctionCost({ keeperCostModel: COST_SLOT, auctionRules: { costIncreasePerYe
 eq(keeperValueText({ keeperCostModel: COST_SLOT, termModel: TERM_FIXED, termYears: 3, auctionRules: { costIncreasePerYear: 5 } },
   { keptFor: 63, contractYear: 2, contractLength: 3 }), 'Y2/3',
   'preserved dollar value stays stored but unread while in slot mode');
+
+// The shared page reads a PROJECTION that (before migration 009) always
+// emitted an auctionRules object with null keys, even for a league that has
+// none. That is what made a pre-wizard slot league read as auction on the
+// shared page while Settings said slot: same function, different input. An
+// all-null block is not a signal.
+section('Projection shape (shared page)');
+const projectedSlot = {
+  draftType: 'snake', contractYears: 3, keeperCostModel: null, termModel: null, termYears: null,
+  auctionRules: { costIncreasePerYear: null, undraftedStartCost: null },
+};
+eq(hasAuctionRulesBlock(projectedSlot), false, 'an all-null auctionRules block is no block');
+eq(keeperCostModelOf(projectedSlot), COST_SLOT, 'projected pre-wizard slot league → slot (not auction)');
+eq(isAuctionCost(projectedSlot), false, '…so nothing prices it in dollars');
+eq(termOf(projectedSlot), { model: TERM_FIXED, years: 3 }, '…and its term still comes from contractYears');
+eq(keeperValueText(projectedSlot, { contractYear: 2, contractLength: 3 }), 'Y2/3', '…rendering the contract state');
+const projectedAuction = { draftType: 'auction', keeperCostModel: null, auctionRules: { costIncreasePerYear: 5, undraftedStartCost: null } };
+eq(hasAuctionRulesBlock(projectedAuction), true, 'a block with any value counts');
+eq(keeperCostModelOf(projectedAuction), COST_AUCTION, 'projected legacy auction league still → auction');
+eq(keeperCostModelOf({ draftType: 'snake', auctionRules: {} }), COST_SLOT, 'an empty block is no block either');
+eq(keeperCostModelOf({ keeperCostModel: COST_SLOT, auctionRules: { costIncreasePerYear: null } }), COST_SLOT, 'explicit key still wins');
 
 // ── Draft format is independent of the cost model ─────────────────────────
 section('draftType is format only');

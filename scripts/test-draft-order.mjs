@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {
   draftOrderConfigOf, rankStandings, baseDraftOrder, lotteryEligible, lotteryDrawOf,
   round1Order, buildDraftBoard, resolveTie, recordCoinFlip, coinFlipOrder, tieKey, describeTie,
-  teamPicks, pickNumberFor, lotteryRangeFor, formatPickNumber,
+  teamPicks, teamTradedAwayPicks, pickNumberFor, lotteryRangeFor, formatPickNumber,
   BASIS_POINTS, BASIS_RANK, TIEBREAK_MANUAL, TIEBREAK_CHAIN,
 } from '../src/lib/draftOrder.js';
 import { reassignPick } from '../src/lib/draftPicks.js';
@@ -276,6 +276,20 @@ test('board: a traded pick shows the original AND the current owner', () => {
   assert.equal(nameOf(p37.ownerTeamId), 'Treliving it Up');
   assert.equal(p37.traded, true);
   assert.equal(b.picks.filter(p => p.traded).length, 1);
+});
+
+test('traded away: the original owner sees the pick leave with the same number the holder sees', () => {
+  let league = { ...drawn, draftPicks: { rounds: 4, ownership: {} } };
+  league = reassignPick(league, 4, idOf('the grit grinders'), idOf('Treliving it Up'));
+  league = reassignPick(league, 2, idOf('the grit grinders'), idOf('Young Berube'));
+  const gone = teamTradedAwayPicks(league, idOf('the grit grinders'));
+  assert.equal(gone.status, 'exact');
+  assert.deepEqual(gone.picks.map(p => [p.round, nameOf(p.ownerTeamId), p.overall]), [[2, 'Young Berube', 13], [4, 'Treliving it Up', 37]]);
+  const held = teamPicks(league, idOf('Treliving it Up')).picks.find(p => p.round === 4 && p.via);
+  assert.equal(held.overall, 37, 'pick 37 on both sides');
+  assert.equal(teamTradedAwayPicks(league, idOf('Young Berube')).picks.length, 0);
+  // Auction: nothing, like teamPicks.
+  assert.equal(teamTradedAwayPicks({ ...league, draftType: 'auction' }, idOf('the grit grinders')).status, 'none');
 });
 
 test('board: round-1 pick trades recorded on the Lottery/Picks page apply to the drawn slot', () => {
