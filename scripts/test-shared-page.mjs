@@ -131,10 +131,11 @@ test('rail: no "drafted last year" chip where keeping costs dollars and nothing 
   const chips = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: AUCTION.teams });
   assert.ok(!chips.some(c => c.id === 'contracts'), 'the redundant chip is gone');
   assert.ok(!chips.some(c => /drafted last year/i.test(c.label)));
-  assert.equal(chips[0].label, 'Rostered',
-    'the default view names what it holds — last season\'s rosters, not "all players"');
-  assert.deepEqual(chips.slice(1).map(c => c.label), ['Alpha', 'Beta', 'Gamma'],
-    'the default view + per-team chips is the whole rail');
+  assert.equal(chips[0].label, 'Overview', 'the card view is the first tab');
+  assert.equal(chips[1].label, 'Rostered',
+    'the list view names what it holds — last season\'s rosters, not "all players"');
+  assert.deepEqual(chips.slice(2).map(c => c.label), ['Alpha', 'Beta', 'Gamma'],
+    'Overview + Rostered + per-team chips is the whole rail');
 });
 
 test('rail: a league WITH a term keeps its "under contract" chip', () => {
@@ -149,18 +150,18 @@ test('rail: the default chip reads the same on every league type', () => {
   // coming eligibility cutoff would contradict "Keepable" in either.
   const auction = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: [] });
   const termed = sharedFilterChips({ league: TERMED, locked: false, termed: true, hasExpired: false, teams: [] });
-  assert.equal(auction[0].label, 'Rostered');
-  assert.equal(termed[0].label, 'Rostered', 'no per-sport variant to re-fix when the cutoff ships');
+  assert.equal(auction[1].label, 'Rostered');
+  assert.equal(termed[1].label, 'Rostered', 'no per-sport variant to re-fix when the cutoff ships');
 
   const lockedAuction = sharedFilterChips({ league: AUCTION, locked: true, termed: false, hasExpired: false, teams: [] });
   const lockedTermed = sharedFilterChips({ league: TERMED, locked: true, termed: true, hasExpired: false, teams: [] });
-  assert.equal(lockedAuction[0].label, 'Final keepers');
-  assert.equal(lockedTermed[0].label, 'Final keepers', 'and post-lock too');
+  assert.equal(lockedAuction[1].label, 'Final keepers');
+  assert.equal(lockedTermed[1].label, 'Final keepers', 'and post-lock too');
 });
 
 test('rail: post-lock the default view relabels, expired stays conditional', () => {
   const locked = sharedFilterChips({ league: AUCTION, locked: true, termed: false, hasExpired: false, teams: [] });
-  assert.equal(locked[0].label, 'Final keepers');
+  assert.equal(locked[1].label, 'Final keepers');
   const withExpired = sharedFilterChips({ league: TERMED, locked: false, termed: true, hasExpired: true, teams: [] });
   assert.ok(withExpired.some(c => c.id === 'expired'));
 });
@@ -190,7 +191,8 @@ test('team chips are alphabetical, not creation order', () => {
   const chips = sharedFilterChips({ league: AUCTION, locked: false, termed: false, hasExpired: false, teams: creationOrder });
   const teamLabels = chips.filter(c => c.id.startsWith('team:')).map(c => c.label);
   assert.deepEqual(teamLabels, ['Ben Sc.', 'Ben Sh.', 'Graham', 'Kyle', 'Mark C', 'Ryan', 'Zach']);
-  assert.equal(chips[0].id, 'keepable', '"All players" stays pinned first');
+  assert.equal(chips[0].id, 'overview', 'Overview stays pinned first');
+  assert.equal(chips[1].id, 'keepable', 'then the Rostered list');
 });
 
 test('sortTeamsByName does not mutate or drop teams', () => {
@@ -240,8 +242,10 @@ test('rostered view pins league-wide keepers above everyone else', () => {
 // runtime error in the flattened table fails here rather than in front of
 // twelve leaguemates.
 
-function renderPage(league, isDark) {
-  return renderToStaticMarkup(React.createElement(SharedLeaguePage, { league, isDark }));
+// The page opens on the Overview tab; these list assertions render the
+// Rostered view explicitly.
+function renderPage(league, isDark, initialFilter = 'keepable') {
+  return renderToStaticMarkup(React.createElement(SharedLeaguePage, { league, isDark, initialFilter }));
 }
 
 test('page renders on both themes with no section labels left', () => {
@@ -526,7 +530,7 @@ test('a hand-set keep cost is marked to members', () => {
   assert.equal(row.costOverridden, true, 'the row carries the marker flag');
 
   // …and it reaches the page, not just the row object.
-  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: edited }));
+  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: edited, initialFilter: 'keepable' }));
   assert.ok(html.includes('Set by commissioner'), 'the marker renders');
   assert.ok(html.includes('Keep for $120'), 'the price in force is what is shown');
   // The page says THAT a price was set by hand, never what it was before —
@@ -540,7 +544,7 @@ test('a hand-set keep cost is marked to members', () => {
 test('an un-edited keep cost is not marked', () => {
   const rows = buildSharedRows(AUCTION);
   rows.forEach(r => assert.ok(!r.costOverridden, `${r.player} should not be marked`));
-  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: AUCTION }));
+  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: AUCTION, initialFilter: 'keepable' }));
   assert.ok(!html.includes('Set by commissioner'), 'no marker anywhere on a clean league');
 });
 
@@ -752,16 +756,24 @@ console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE
 const renderTeam = (league, teamId) => renderToStaticMarkup(
   React.createElement(SharedLeaguePage, { league, isDark: false, initialFilter: `team:${teamId}` }));
 
+// A cell of the picks grid: "R{round}" eyebrow, the number (SrOnly "Pick "
+// before it), then the via / traded-to line. These match one <li> at a time.
+const cellRe = (round, number) => new RegExp(
+  `<li class="kh-share-row"[^>]*>(?:(?!</li>).)*?>R${round}</span>(?:(?!</li>).)*?Pick </span>${number}</div>(?:(?!</li>).)*?</li>`, 's');
+const cellOf = (html, round, number) => (html.match(cellRe(round, number)) || [])[0] || null;
+
 test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none on the Rostered view', () => {
   const html = renderTeam(SNAKE_PROJECTION, 't4');
   assert.ok(html.includes('Draft picks'), 'the section is on the team tab');
   assert.ok(html.includes('3 picks held'));
-  assert.ok(html.includes('Pick 1<'), 'round 1, pick 1 (won the lottery)');
-  assert.ok(html.includes('Pick 5<') && html.includes('via Alpha'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
-  assert.ok(html.includes('Pick 8<'), 'own round-2 pick, last of the round');
+  assert.ok(html.includes('<ul class="kh-share-picks">'), 'the picks are a grid, not a list of rows');
+  assert.ok(cellOf(html, 1, 1), 'round 1, pick 1 (won the lottery)');
+  const p5 = cellOf(html, 2, 5);
+  assert.ok(p5 && p5.includes('via Alpha'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(cellOf(html, 2, 8), 'own round-2 pick, last of the round');
   assert.ok(!/Lottery not drawn|isn’t set yet/.test(html), 'no caveat once the order is final');
   const alpha = renderTeam(SNAKE_PROJECTION, 't1');
-  assert.ok(alpha.includes('1 pick held') && alpha.includes('Pick 4<'), 'Alpha kept only its round-1 pick');
+  assert.ok(alpha.includes('1 pick held') && cellOf(alpha, 1, 4), 'Alpha kept only its round-1 pick');
   assert.ok(!alpha.includes('via '), 'nothing on Alpha’s list came by trade');
   const rostered = renderPage(SNAKE_PROJECTION, false);
   assert.ok(!rostered.includes('Draft picks'), 'the Rostered view carries no picks section');
@@ -777,7 +789,7 @@ test('team picks: lottery pending — lottery teams get a range, carried through
     [2, '7–8', null],        // even round: the snake puts them last
   ]);
   const html = renderTeam(pending, 't4');
-  assert.ok(html.includes('Pick 1–2<') && html.includes('Pick 7–8<'));
+  assert.ok(cellOf(html, 1, '1–2') && cellOf(html, 2, '7–8'), 'ranges render in the cells');
   assert.ok(html.includes('Lottery not drawn yet'));
   const beta = teamPicks(pending, 't2');
   assert.deepEqual(beta.picks.map(p => formatPickNumber(p.number)), ['3', '6'], 'non-lottery teams are exact already');
@@ -790,33 +802,37 @@ test('team picks: no standings — rounds and ownership only, and it says the or
   assert.deepEqual(list.picks.map(p => [p.round, p.number, p.via]), [[1, null, null], [2, null, 't1'], [2, null, null]]);
   const html = renderTeam(none, 't4');
   assert.ok(html.includes('isn’t set yet'));
-  assert.ok(html.includes('Round 1') && html.includes('via Alpha'));
-  assert.ok(!html.includes('Pick '), 'no numbers without an order');
+  assert.ok(html.includes('Round 1,') && html.includes('via Alpha'));
+  assert.ok(!html.includes('Pick </span>'), 'no numbers without an order');
+  assert.ok(html.includes('number not set'), 'the empty number slot says so to a reader');
 });
 
-test('team picks: traded-away picks are listed below the held ones, with their numbers', () => {
-  // Alpha traded its round-2 pick to Delta: Alpha's tab shows it as gone
-  // (pick 5 → Delta), Delta's tab holds it (pick 5 via Alpha). Same number on
-  // both sides, because both lists read the same board.
+test('team picks: a traded-away pick stays in the grid at its round, struck through, with where it went', () => {
+  // Alpha traded its round-2 pick to Delta: Alpha's grid shows it in place
+  // (pick 5 → Delta), Delta's grid holds it (pick 5 via Alpha). Same number on
+  // both sides, because both read the same board.
   const gone = teamTradedAwayPicks(SNAKE_PROJECTION, 't1');
   assert.equal(gone.status, 'exact');
   assert.deepEqual(gone.picks.map(p => [p.round, p.ownerTeamId, formatPickNumber(p.number)]), [[2, 't4', '5']]);
   const html = renderTeam(SNAKE_PROJECTION, 't1');
   assert.ok(html.includes('1 pick held · 1 traded away'));
-  assert.ok(html.includes('Traded away'));
-  assert.ok(/Pick 5<\/span>.*traded to Delta/s.test(html), 'R2 · Pick 5 → traded to Delta');
+  assert.ok(!html.includes('Traded away</h3>'), 'no separate section — the pick sits in the grid');
+  const cell = cellOf(html, 2, 5);
+  assert.ok(cell, 'the traded-away pick is a cell at its round');
+  assert.ok(cell.includes('text-decoration:line-through'), 'struck through');
+  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Delta/.test(cell), 'R2 · 5 → traded to Delta');
   assert.equal(teamTradedAwayPicks(SNAKE_PROJECTION, 't4').picks.length, 0, 'Delta gave nothing away');
-  assert.ok(!renderTeam(SNAKE_PROJECTION, 't4').includes('Traded away'), 'no section when nothing was traded away');
+  assert.ok(!renderTeam(SNAKE_PROJECTION, 't4').includes('traded to'), 'nothing struck when nothing was traded away');
   // Pending lottery: a lottery team's traded-away pick carries the range.
   const { lotteryDraw, ...pending } = SNAKE_PROJECTION;
   const lotteryGone = teamTradedAwayPicks({ ...pending, draftPicks: { rounds: 2, ownership: { '1:t4': 't1' } } }, 't4');
   assert.deepEqual(lotteryGone.picks.map(p => formatPickNumber(p.number)), ['1–2']);
 });
 
-test('team picks: two picks in one round are two rows with distinct numbers, never "×2"', () => {
+test('team picks: two picks in one round are two cells with distinct numbers, never "×2"', () => {
   const html = renderTeam(SNAKE_PROJECTION, 't4');
-  assert.equal((html.match(/>R2<\/span>/g) || []).length, 2, 'two R2 rows');
-  assert.ok(html.includes('Pick 5<') && html.includes('Pick 8<'), 'each with its own number');
+  assert.equal((html.match(/>R2<\/span>/g) || []).length, 2, 'two R2 cells');
+  assert.ok(cellOf(html, 2, 5) && cellOf(html, 2, 8), 'each with its own number');
   assert.ok(!/×\s*2/.test(html));
 });
 
@@ -963,9 +979,9 @@ test('a11y: the view rail is a tablist — alphabetical team tabs, one selected,
   const html = renderPage(A11Y, false);
   assert.ok(html.includes('role="tablist"') && html.includes('aria-label="Views"'), 'tablist with a name');
   const tabs = [...html.matchAll(/<button role="tab" id="([^"]+)" aria-selected="(true|false)"[^>]*tabindex="(0|-1)"[^>]*>([^<]+)<\/button>/g)];
-  assert.deepEqual(tabs.map(t => t[4]), ['Rostered', 'Under contract', 'Alpha', 'Zamboni'], 'tab order = visual order, teams alphabetical');
-  assert.deepEqual(tabs.map(t => t[2]), ['true', 'false', 'false', 'false'], 'exactly the current view is selected');
-  assert.deepEqual(tabs.map(t => t[3]), ['0', '-1', '-1', '-1'], 'only the selected tab is in the Tab order');
+  assert.deepEqual(tabs.map(t => t[4]), ['Overview', 'Rostered', 'Under contract', 'Draft board', 'Alpha', 'Zamboni'], 'tab order = visual order, teams alphabetical');
+  assert.deepEqual(tabs.map(t => t[2]), ['false', 'true', 'false', 'false', 'false', 'false'], 'exactly the current view is selected');
+  assert.deepEqual(tabs.map(t => t[3]), ['-1', '0', '-1', '-1', '-1', '-1'], 'only the selected tab is in the Tab order');
   assert.ok(html.includes('role="tabpanel" aria-labelledby="kh-share-tab-keepable"'), 'the panel is named by the selected tab');
   const team = renderTeam(A11Y, 't2');
   assert.ok(/id="kh-share-tab-team_t2" aria-selected="true"/.test(team) && team.includes('aria-labelledby="kh-share-tab-team_t2"'), 'a team tab selects and labels the panel');
@@ -1011,6 +1027,7 @@ test('a11y: traded picks name their origin in text; the round pill reads as "Rou
   assert.ok(html.includes('originally Alpha’s pick'), 'the held-by-trade pick names whose it was, in the DOM');
   assert.ok(/<span aria-hidden="true">via Alpha<\/span>/.test(html), '"via" stays the visible shorthand');
   assert.ok(/<span aria-hidden="true">R2<\/span><span[^>]*>Round 2,<\/span>/.test(html), 'R2 is read as Round 2');
+  assert.ok(/Pick <\/span>3</.test(html), 'the bare number is read as "Pick 3"');
   const gone = renderTeam(A11Y, 't2');
   assert.ok(/<span aria-hidden="true">→ <\/span>traded to Zamboni/.test(gone), 'the arrow is decoration; "traded to" is the text');
 });
@@ -1030,3 +1047,149 @@ test('a11y: the rules dialog is labelled by its heading, focusable, and its trig
   assert.ok(/<h2 id="kh-rules-title"[^>]*>League rules<\/h2>/.test(open));
   assert.ok(open.includes('aria-label="Close"'));
 });
+
+// ── Header status line ─────────────────────────────────────────────────────
+// One line under the league meta, the same on every tab, so switching tabs
+// never shifts the content. The old "No keepers declared yet — everyone below
+// is still eligible" only appeared on Rostered and is gone.
+
+const statusOf = (html) => (html.match(/class="kh-share-status"[^>]*>((?:(?!<\/div>).)*)<\/div>/s) || [])[1] || null;
+
+test('status line: before the deadline, with nobody declared, it says so and names the deadline', () => {
+  const league = { ...SNAKE_PROJECTION, keeperDeadline: '2099-09-15', keeperDeadlineTime: '23:59' };
+  for (const view of ['overview', 'keepable', 'board', 'team:t1']) {
+    const html = renderPage(league, false, view);
+    assert.equal(statusOf(html), 'Keepers not yet declared · deadline Sep 15', `same line on the ${view} view`);
+  }
+  assert.ok(!renderPage(league, false).includes('everyone below is still eligible'), 'the tab-only notice is gone');
+});
+
+test('status line: with no deadline set it says so; with keepers declared it stops claiming none are', () => {
+  assert.equal(statusOf(renderPage(SNAKE_PROJECTION, false)), 'Keepers not yet declared · deadline not set');
+  const declared = { ...SNAKE_PROJECTION, keeperDeadline: '2099-09-15', teams: SNAKE_PROJECTION.teams.map((tm, i) => (i === 0 ? { ...tm, roster: [{ player: 'Jack Hughes' }], keepers: [{ player: 'Jack Hughes', contractYear: 1, contractLength: 3 }] } : tm)) };
+  assert.equal(statusOf(renderPage(declared, false)), 'Keepers being declared · deadline Sep 15');
+});
+
+test('status line: after lock it reads "Keepers locked · date", once — the countdown block is gone', () => {
+  const league = { ...SNAKE_PROJECTION, keeperDeadline: '2020-09-15', keeperDeadlineTime: '23:59' };
+  const html = renderPage(league, false);
+  assert.ok(/kh-share-status[^>]*><span aria-hidden="true">🔒 <\/span>Keepers locked · Sep 15<\/div>/.test(html));
+  assert.ok(!html.includes('Keeper deadline in'), 'no countdown once locked');
+  // The sticky pill is the only other copy, and it's aria-hidden.
+  assert.equal((html.match(/Keepers locked/g) || []).length, 2);
+});
+
+// ── Draft board tab ────────────────────────────────────────────────────────
+// The commissioner's board, read-only, with a team filter.
+
+const { DraftBoardGrid, KeepersOverview } = await import('../.tmp-shared-bundle.mjs');
+
+test('board tab: present after Under contract only when the board can be built', () => {
+  const ok = sharedFilterChips({ league: SNAKE_PROJECTION, locked: false, termed: true, hasExpired: false, hasBoard: true, teams: SNAKE_PROJECTION.teams });
+  assert.deepEqual(ok.slice(0, 4).map(c => c.label), ['Overview', 'Rostered', 'Under contract', 'Draft board']);
+  const no = sharedFilterChips({ league: SNAKE_PROJECTION, locked: false, termed: true, hasExpired: false, hasBoard: false, teams: [] });
+  assert.ok(!no.some(c => c.id === 'board'));
+  // Through the page: standings on file → tab; no standings → no tab; auction → no tab.
+  assert.ok(/role="tab"[^>]*>Draft board</.test(renderPage(SNAKE_PROJECTION, false)));
+  const { standings, ...none } = SNAKE_PROJECTION;
+  assert.ok(!/>Draft board</.test(renderPage(none, false)));
+  assert.ok(!/>Draft board</.test(renderPage(AUCTION, false)));
+});
+
+test('board tab: the same rounds × slots board, read-only — no buttons, no reassign, no "Run lottery"', () => {
+  const html = renderPage(SNAKE_PROJECTION, false, 'board');
+  const sec = html.slice(html.indexOf('<section aria-label="Draft board"'));
+  assert.ok(sec.includes('>R1<') && sec.includes('>R2<') && sec.includes('>Pick<'), 'rounds across, the slot column');
+  assert.ok(/>5<\/span><span[^>]*>Delta</.test(sec), 'pick 5 is Delta’s now');
+  assert.ok(sec.includes('originally Alpha’s pick'), 'the traded cell names its origin in DOM text');
+  assert.ok(!/<table[^]*<button/.test(sec), 'nothing in the board is clickable');
+  assert.ok(!sec.includes('Click to'), 'no commissioner hover copy');
+  assert.ok(!sec.includes('Run lottery'), 'no link to a page members don’t have');
+  // Pre-lottery: placeholders and the pending line, still no link.
+  const { lotteryDraw, ...pending } = SNAKE_PROJECTION;
+  const ph = renderPage(pending, false, 'board');
+  assert.equal((ph.match(/Lottery pick/g) || []).length, 4, 'two lottery slots in each of two rounds');
+  assert.ok(ph.includes('Lottery not run') && ph.includes('Delta, Gamma'));
+  assert.ok(!ph.includes('Run lottery'));
+});
+
+test('board tab: the team filter is a row of toggle buttons, none pressed, alphabetical', () => {
+  const html = renderPage(SNAKE_PROJECTION, false, 'board');
+  const group = html.slice(html.indexOf('role="group" aria-label="Highlight a team"'), html.indexOf('<table'));
+  const buttons = [...group.matchAll(/<button type="button" aria-pressed="(true|false)"[^>]*>([^<]+)<\/button>/g)];
+  assert.deepEqual(buttons.map(b => b[2]), ['Alpha', 'Beta', 'Delta', 'Gamma']);
+  assert.ok(buttons.every(b => b[1] === 'false'), 'none selected by default');
+});
+
+test('board tab: highlighting a team dims every other cell and leaves its own at full weight', () => {
+  const board = sharedDraftBoard(SNAKE_PROJECTION);
+  const grid = (highlightTeamId) => renderToStaticMarkup(React.createElement(DraftBoardGrid, {
+    league: SNAKE_PROJECTION, board, teams: SNAKE_PROJECTION.teams, isDark: false, readOnly: true, highlightTeamId,
+  }));
+  assert.equal((grid(null).match(/opacity:0\.3/g) || []).length, 0, 'no filter, nothing dimmed');
+  // Delta holds picks 1, 5 (via Alpha) and 8 of the 8.
+  const delta = grid('t4');
+  assert.equal((delta.match(/opacity:0\.3/g) || []).length, 5);
+  const cellFor = (html, n) => (html.match(new RegExp(`<span title="Pick ${n} [^"]*"[^>]*>`)) || [])[0];
+  assert.ok(!cellFor(delta, 5).includes('opacity:0.3'), 'the pick it holds by trade is full weight');
+  assert.ok(cellFor(delta, 4).includes('opacity:0.3'), 'Alpha’s own pick is dimmed');
+  // Alpha holds only pick 4 now.
+  assert.equal((grid('t1').match(/opacity:0\.3/g) || []).length, 7);
+  // Every cell still names its owner in text whether dimmed or not.
+  assert.ok(/opacity:0\.3[^>]*>(?:(?!<\/span>).)*<\/span><span[^>]*>Alpha</.test(delta) || delta.includes('>Alpha</span>'), 'text carries the owner');
+  // Pre-lottery: a lottery team's placeholders in a round stay full weight for it.
+  const { lotteryDraw, ...pending } = SNAKE_PROJECTION;
+  const pboard = sharedDraftBoard(pending);
+  const pgrid = renderToStaticMarkup(React.createElement(DraftBoardGrid, { league: pending, board: pboard, teams: pending.teams, isDark: false, readOnly: true, highlightTeamId: 't4' }));
+  const placeholders = [...pgrid.matchAll(/<span title="Pick \d+ — a lottery slot[^"]*"[^>]*>/g)].map(m => m[0]);
+  assert.equal(placeholders.length, 4);
+  assert.ok(placeholders.every(p => !p.includes('opacity:0.3')), 'Delta is in the lottery — its pick could be any of them');
+  const bgrid = renderToStaticMarkup(React.createElement(DraftBoardGrid, { league: pending, board: pboard, teams: pending.teams, isDark: false, readOnly: true, highlightTeamId: 't2' }));
+  const bph = [...bgrid.matchAll(/<span title="Pick \d+ — a lottery slot[^"]*"[^>]*>/g)].map(m => m[0]);
+  assert.ok(bph.every(p => p.includes('opacity:0.3')), 'Beta isn’t — the placeholders dim for it');
+});
+
+// ── Overview tab ───────────────────────────────────────────────────────────
+// The commissioner's Keepers home, read-only, as the page's first tab.
+
+test('overview tab: one card per team, alphabetical, K1..KN slots, open slots, final year, expiring strip', () => {
+  const league = {
+    ...SNAKE_PROJECTION, keeperSlots: 2,
+    teams: [
+      { id: 't1', name: 'Zamboni', roster: [{ player: 'Jack Hughes' }, { player: 'Nico Hischier' }], priorKeepers: [], keepers: [{ player: 'Jack Hughes', contractYear: 3, contractLength: 3 }] },
+      { id: 't2', name: 'Alpha', roster: [{ player: 'Connor McDavid' }], priorKeepers: [], keepers: [{ player: 'Connor McDavid', contractYear: 1, contractLength: 3 }, { player: 'Leon Draisaitl', contractYear: 2, contractLength: 3 }] },
+    ],
+  };
+  const html = renderPage(league, false, 'overview');
+  assert.ok(html.includes('role="tabpanel" aria-labelledby="kh-share-tab-overview"'), 'the Overview tab owns the panel');
+  const cards = html.indexOf('Alpha</span>');
+  assert.ok(cards > 0 && cards < html.indexOf('Zamboni</span>'), 'cards are alphabetical');
+  assert.equal((html.match(/>K1</g) || []).length, 2, 'K1 on every card');
+  assert.equal((html.match(/>K2</g) || []).length, 2, 'slot count from keeperSlots');
+  assert.ok(!html.includes('>K3<'));
+  assert.ok(html.includes('Open slot'), 'Zamboni’s second slot is open');
+  assert.ok(html.includes('>1/2<') && html.includes('>2/2<'));
+  assert.ok(html.includes('Final yr') && html.includes('>Y3/3<'), 'Hughes is in his final year');
+  assert.ok(html.includes('Expiring after this season') && html.includes('1 going back to the draft'));
+  assert.ok(/Jack Hughes<\/span><span[^>]*>· Zamboni</.test(html), 'the expiring strip names player and team');
+  assert.ok(!html.includes('kh-team-card'), 'cards are not buttons on the member page');
+  assert.ok(!/<button[^>]*>(?:(?!<\/button>).)*>K1</.test(html));
+  // The default render IS the overview.
+  assert.ok(renderToStaticMarkup(React.createElement(SharedLeaguePage, { league, isDark: false })).includes('aria-labelledby="kh-share-tab-overview"'));
+});
+
+test('overview tab: a hand-set keep cost carries the member mark, never the commissioner EditedMark', () => {
+  const league = {
+    ...AUCTION,
+    teams: AUCTION.teams.map((tm, i) => (i === 0 ? { ...tm, keepers: [{ player: "Ja'Marr Chase", keptFor: 95, keptForOverridden: true }] } : tm)),
+  };
+  const html = renderPage(league, false, 'overview');
+  assert.ok(html.includes('$95'));
+  assert.ok(html.includes('Set by commissioner'), 'the member-facing marker');
+  assert.ok(!html.includes('Edited'), 'no commissioner marker and no calculated value');
+  // The commissioner's own render still gets EditedMark.
+  const commish = renderToStaticMarkup(React.createElement(KeepersOverview, { league, accentColor: '#000', isDark: false, onOpenTeam() {} }));
+  assert.ok(commish.includes('kh-team-card') && !commish.includes('Set by commissioner'));
+});
+
+console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS (with the QA-round additions)`);
