@@ -23,6 +23,7 @@
 
 import { normalizeName } from './players.js';
 import { changeEntry } from './changeLog.js';
+import { hasTerm, termOf } from './keeperRules.js';
 
 // The entering-year options a row can be set to: Y1..Ylen. EXPIRED is the
 // one state past that — the contract ran out last season and the player is
@@ -79,6 +80,13 @@ export function setContractYear(league, teamId, playerName, { year, length }) {
   });
 
   if (!patched) {
+    // Entering Y1 at the league's default length IS the no-contract state —
+    // it's exactly what a rostered player with no record already reads as —
+    // so writing a record for it would only make him indistinguishable from a
+    // real prior contract. A true no-op. (Y1 at a NON-default length is a
+    // fact worth a record: the length has to live somewhere.)
+    const defaultLen = termOf(league).years || league?.contractYears || 3;
+    if (!expire && entering === 1 && len === defaultLen) return { league, changes: [] };
     // No record anywhere: the roster team gets one. Position comes from the
     // roster row so the pool entry keeps rendering its chip.
     const rosterRow = (team.roster || []).find(r => normalizeName(r.player) === key);
@@ -101,4 +109,43 @@ export function setContractYear(league, teamId, playerName, { year, length }) {
   });
 
   return { league: { ...league, teams: nextTeams }, changes };
+}
+
+// Unkeep. A keeper in Y1 is under contract ONLY because of this season's
+// keep — removing the declaration removes the contract state with it, so he
+// goes back to "Rostered · no contract" instead of lingering as an "On a
+// contract · Y1/3" row indistinguishable from a real prior deal. A keeper in
+// Y2+ is a contract that predates the decision, and stays.
+//
+// What "clears" is the player's prior record, wherever it lives — but only a
+// record that reads as entering Y1 and carries nothing else. A record with a
+// drafted price or draft round on it came from an import: that's last
+// season's fact, not this season's keep, and it stays untouched (the pool
+// will still show him at Y1 of a deal, which is what an imported draft
+// record means in a termed league).
+//
+// → { league, changes }
+export function clearContractOnUnkeep(league, teamId, keeper) {
+  if (!league || !keeper || !hasTerm(league)) return { league, changes: [] };
+  if ((keeper.contractYear || 1) > 1) return { league, changes: [] };
+  const key = normalizeName(keeper.player);
+  const team = (league.teams || []).find(tm => tm.id === teamId);
+  if (!key || !team) return { league, changes: [] };
+  let cleared = null;
+  const teams = league.teams.map(tm => {
+    const priors = tm.priorKeepers || [];
+    const idx = priors.findIndex(p => normalizeName(p.player) === key);
+    if (idx < 0) return tm;
+    const p = priors[idx];
+    const imported = p.keptFor != null || p.acquisitionRound != null;
+    const enteringY1 = !p.expired && (p.contractYear || 0) === 0;
+    if (imported || !enteringY1) return tm;
+    cleared = p;
+    return { ...tm, priorKeepers: priors.filter((_, i) => i !== idx) };
+  });
+  if (!cleared) return { league, changes: [] };
+  return {
+    league: { ...league, teams },
+    changes: [changeEntry({ kind: 'term', field: 'contractYear', teamId, teamName: team.name, player: keeper.player, from: 1, to: null })],
+  };
 }

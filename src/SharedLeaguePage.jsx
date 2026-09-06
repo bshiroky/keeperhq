@@ -9,7 +9,7 @@ import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
   sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst, expiredLast, sharedDraftBoard,
 } from './lib/sharedLeague.js';
-import { teamPicks, formatPickNumber, describePickListStatus } from './lib/draftOrder.js';
+import { teamPicks, teamTradedAwayPicks, formatPickNumber, describePickListStatus } from './lib/draftOrder.js';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
 // Read-only, public, mobile-first — the member-facing cousin of the
@@ -478,14 +478,18 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
     ...tokens.typeLabelEyebrow, color: t.textMuted,
     borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap',
   };
-  // Edge-fade scroll affordance: a soft gradient shadow hugging the inside
-  // of each sticky boundary, shown only while columns are clipped on that
-  // side. Rendered as overlays (pointer-events: none) so they never block
-  // scrolling, sorting, or row content; opacity-toggled so the appear/
-  // disappear reads as a fade rather than a pop.
-  const fadeShadow = isDark ? 'rgba(0,0,0,0.55)' : 'rgba(26,31,46,0.16)';
+  // The sticky boundaries are drawn as a 1px rule on the pinned cells (Player's
+  // right edge, Cost-to-keep's left edge) plus a FAINT, narrow edge fade that
+  // appears only while columns are clipped on that side. The first version was
+  // a 22px shadow at 0.16/0.55 alpha, which read as the pinned columns
+  // floating over the stats as a separate panel; the rule is what says
+  // "these columns are part of the table", and the fade is a hint, not a
+  // shadow. Overlays are pointer-events: none so they never block scrolling,
+  // sorting, or row content; opacity-toggled so appear/disappear fades.
+  const stickyRule = stretchMode ? 'none' : `1px solid ${t.border}`;
+  const fadeShadow = isDark ? 'rgba(0,0,0,0.22)' : 'rgba(26,31,46,0.06)';
   const edgeFade = (side, on) => ({
-    position: 'absolute', top: 0, bottom: 0, width: 22, zIndex: 5,
+    position: 'absolute', top: 0, bottom: 0, width: 10, zIndex: 5,
     pointerEvents: 'none', opacity: on ? 1 : 0, transition: 'opacity 0.18s',
     ...(side === 'left'
       ? { left: PLAYER_W, background: `linear-gradient(to right, ${fadeShadow}, transparent)` }
@@ -511,7 +515,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
           }}>
             <thead>
               <tr>
-                <th style={{ ...headerCell, position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W }}>
+                <th style={{ ...headerCell, position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderRight: stickyRule }}>
                   Player
                 </th>
                 {cats.map(cat => {
@@ -534,7 +538,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                     </th>
                   );
                 })}
-                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW }}>{costColumnLabel(league)}</th>
+                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW, borderLeft: stickyRule }}>{costColumnLabel(league)}</th>
                 <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{OWNER_COLUMN_LABEL}</th>
               </tr>
             </thead>
@@ -556,7 +560,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                           // same tint opaquely over cardBg.
                           background: kept ? t.successBg : expired ? t.dangerBg : undefined,
                         }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder }}>
+                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, borderRight: stickyRule }}>
                           {isHockey ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
                               <SharedHeadshot rec={rec} isDark={isDark} size={30} />
@@ -593,7 +597,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                             </span>
                           </td>
                         )}
-                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, whiteSpace: 'nowrap' }}>
+                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, borderLeft: stickyRule, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <ContractText row={row} league={league} isDark={isDark} />
                           </span>
@@ -661,17 +665,30 @@ function StatTables({ rows, league, playerMap, isDark, toolbar }) {
 //               saying the order isn't set.
 // Not rendered at all on a non-snake league (nothing to list), and never on
 // the Rostered view — it belongs to a team.
+//
+// Below the held picks, the picks this team TRADED AWAY ("R1 · Pick 8 →
+// traded to Pedram"), visually distinct, so a GM sees both what they have and
+// where the rest went. One row per pick always — two picks in the same round
+// are two rows with their own numbers, never "R3 ×2".
 function TeamPicksSection({ league, board, team, isDark }) {
   const t = makeTheme(isDark);
   const { status, picks } = teamPicks(league, team.id, board);
   if (status === 'none') return null;
+  const gone = teamTradedAwayPicks(league, team.id, board).picks;
   const nameOf = id => league.teams.find(tm => tm.id === id)?.name || '?';
   const note = describePickListStatus(status);
+  const roundPill = (round, muted) => (
+    <span style={{ ...tokens.typePillEmphatic, color: muted ? t.textMuted : t.textSecondary, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0, minWidth: 30, textAlign: 'center', boxSizing: 'border-box' }}>
+      R{round}
+    </span>
+  );
   return (
     <section aria-label={`${team.name} draft picks`} style={{ marginTop: tokens.spaceLg }}>
       <div style={{ marginBottom: tokens.spaceXs, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceSm, flexWrap: 'wrap' }}>
         <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary }}>Draft picks</span>
-        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>{picks.length} pick{picks.length === 1 ? '' : 's'} held</span>
+        <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
+          {picks.length} pick{picks.length === 1 ? '' : 's'} held{gone.length > 0 ? ` · ${gone.length} traded away` : ''}
+        </span>
       </div>
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         {note && (
@@ -693,9 +710,7 @@ function TeamPicksSection({ league, board, team, isDark }) {
                   padding: `${tokens.spaceXs}px 0`,
                   borderBottom: i < picks.length - 1 ? `1px solid ${t.dividerFaint}` : 'none',
                 }}>
-                  <span style={{ ...tokens.typePillEmphatic, color: t.textSecondary, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0, minWidth: 30, textAlign: 'center', boxSizing: 'border-box' }}>
-                    R{p.round}
-                  </span>
+                  {roundPill(p.round, false)}
                   <span style={{ ...tokens.typeBody, color: t.textBody, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     {number
                       ? <span style={{ fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>Pick {number}</span>
@@ -710,6 +725,33 @@ function TeamPicksSection({ league, board, team, isDark }) {
               );
             })}
           </ul>
+        )}
+        {gone.length > 0 && (
+          <div aria-label={`${team.name} picks traded away`} style={{ borderTop: `1px solid ${t.divider}`, background: t.sectionBg }}>
+            <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px 0` }}>Traded away</div>
+            <ul style={{ listStyle: 'none', margin: 0, padding: `0 ${tokens.spaceSm}px` }}>
+              {gone.map((p, i) => {
+                const number = formatPickNumber(p.number);
+                return (
+                  <li key={`gone:${p.round}`} className="kh-share-row" style={{
+                    display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
+                    padding: `${tokens.spaceXs}px 0`,
+                    borderBottom: i < gone.length - 1 ? `1px solid ${t.dividerFaint}` : 'none',
+                  }}>
+                    {roundPill(p.round, true)}
+                    <span style={{ ...tokens.typeBody, color: t.textMuted, flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                      {number
+                        ? <span style={{ fontWeight: 700, whiteSpace: 'nowrap', textDecoration: 'line-through' }}>Pick {number}</span>
+                        : <span style={{ textDecoration: 'line-through' }}>Round {p.round}</span>}
+                      <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        → traded to {nameOf(p.ownerTeamId)}
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
     </section>

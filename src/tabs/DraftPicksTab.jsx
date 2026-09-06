@@ -1,23 +1,22 @@
 import React from 'react';
-import { ArrowRight, ClipboardList, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, ClipboardList, Plus, X } from 'lucide-react';
 import { makeTheme, tokens, NumberInput, Button, ConfirmBody } from '../components.jsx';
 import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPicks } from '../lib/draftPicks.js';
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
 import { parseDraftPicksText } from '../lib/picksParse.js';
-import { buildDraftBoard, pickNumberFor, formatPickNumber, describePickListStatus } from '../lib/draftOrder.js';
+import { buildDraftBoard, pickNumberFor, formatPickNumber, lotteryRangeFor, describeBoardReason } from '../lib/draftOrder.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
 
 // ── Draft Picks panel (the Picks door) ───────────────────────────────────────
-// Commissioner-only round × team grid of pick OWNERSHIP for the upcoming
-// draft. Default state: every team owns its own pick in every round (stored
-// sparsely — see lib/draftPicks.js), so the grid starts all-plain and only
-// hand-recorded trades stand out. Round 1 stays in sync with the Lottery
-// page's reassignment feature (both write through the same helpers).
+// Commissioner-only view of pick OWNERSHIP for the upcoming draft, laid out as
+// a DRAFT BOARD (rounds × slots, each cell the team on the clock) once
+// standings give it an order, and as a round × team ownership grid until
+// then. Ownership is stored sparsely (see lib/draftPicks.js), so the grid
+// starts all-plain and only hand-recorded trades stand out. Round 1 stays in
+// sync with the Lottery page (both write through the same helpers).
 // Foundation for pick-cost keepers and trade validation — no rules logic yet.
-
-const ROUND_W = 44;
-const CELL_W = 92;
 
 // ── Paste-import modal (paste → preview/mapping → confirm) ───────────────────
 // Reads Yahoo's Draft Picks page in its BY ROUND view (the parser lives in
@@ -363,20 +362,314 @@ function PicksPasteModal({ league, isDark, accentColor, onUpdateLeague, onClose,
   );
 }
 
+// ── Draft board ──────────────────────────────────────────────────────────────
+// Once standings are on file the grid IS the draft: columns are rounds, rows
+// are pick slots, so each column reads top to bottom as the order that round
+// will be drafted in. Each cell is the team on the clock, with the overall
+// pick number above the name. A traded pick is highlighted and shows its
+// CURRENT owner (the team that will actually pick); whose pick it was
+// originally is on hover. ONE cell per pick per round, always — nothing
+// merges.
+//
+// Before the lottery is drawn, a round's lottery slots (the first N in odd
+// rounds, the last N in even — the snake) can't be mapped to a team yet, so
+// each is a muted "Lottery pick" placeholder carrying only its overall
+// number. When any lottery team's pick in that round has been traded, every
+// placeholder in that round carries an asterisk, and hovering one says which
+// team will pick somewhere in that range via whom — the trade is real, the
+// slot isn't known yet. A line above the board names the lottery teams and
+// links to the Lottery page; it disappears with the draw, when the
+// placeholders fill with names and the asterisks resolve to specific cells.
+const SLOT_W = 44;
+const CELL_W = 92;
+
+// A pick's original-owner half of the story is what a click edits: the
+// select is always "who now owns {original}'s R{n} pick", whichever cell it
+// was opened from.
+function PickCell({ number, label, traded, title, ariaLabel, editing, ownerId, teams, onEdit, onPick, onBlur, isDark, accentColor }) {
+  const t = makeTheme(isDark);
+  if (editing) {
+    return (
+      <select autoFocus value={ownerId} onChange={e => onPick(e.target.value)} onBlur={onBlur}
+        aria-label={ariaLabel}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${accentColor}`,
+          borderRadius: tokens.radiusSm, padding: '4px 2px', fontSize: 11, fontWeight: 600,
+          color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer',
+        }}>
+        {teams.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+      </select>
+    );
+  }
+  return (
+    <button onClick={onEdit} className={traded ? undefined : 'kh-pick-cell'} title={title} aria-label={ariaLabel}
+      style={{
+        width: '100%', boxSizing: 'border-box',
+        background: traded ? t.warningBg : 'none',
+        border: `1px solid ${traded ? t.warningBorder : 'transparent'}`,
+        borderRadius: tokens.radiusSm, padding: '4px 4px',
+        fontSize: 11, fontWeight: traded ? 700 : 500,
+        color: traded ? t.warning : t.textBody,
+        cursor: 'pointer', fontFamily: 'inherit', textAlign: 'center',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block',
+      }}>
+      {number != null && (
+        <span style={{ display: 'block', ...tokens.typeStatMeta, fontWeight: 700, color: traded ? t.warning : t.textSecondary, marginBottom: 1 }}>
+          {number}
+        </span>
+      )}
+      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+        {label}
+      </span>
+    </button>
+  );
+}
+
+// A lottery slot before the draw: the number is known, the team isn't. Not
+// clickable — a placeholder maps to no owner, so a trade on a lottery team's
+// pick is recorded from the Add-trade control instead. The asterisk marks a
+// round in which a lottery team's pick has been traded; the title says whose.
+function LotteryPlaceholder({ overall, trades, isDark }) {
+  const t = makeTheme(isDark);
+  const marked = trades.length > 0;
+  const title = marked ? trades.join(' ') : `Pick ${overall} — a lottery slot; the team is set when the lottery is run.`;
+  return (
+    <span title={title} aria-label={`Pick ${overall}, lottery slot${marked ? ' — a traded pick lands in this range' : ''}`}
+      style={{
+        display: 'block', width: '100%', boxSizing: 'border-box',
+        border: `1px dashed ${t.border}`, borderRadius: tokens.radiusSm, padding: '4px 4px',
+        textAlign: 'center', whiteSpace: 'nowrap', cursor: marked ? 'help' : 'default',
+      }}>
+      <span style={{ display: 'block', ...tokens.typeStatMeta, fontWeight: 700, color: t.textMuted, marginBottom: 1 }}>
+        {overall}{marked && <span aria-hidden style={{ color: t.warning, marginLeft: 2 }}>*</span>}
+      </span>
+      <span style={{ display: 'block', fontSize: 11, fontWeight: 500, color: t.textMuted, fontStyle: 'italic' }}>Lottery pick</span>
+    </span>
+  );
+}
+
+// "One of picks 25–28 is Corey's, via Pedram." — one sentence per traded
+// lottery-team pick in the round. Exported for the smoke test.
+export function lotteryTradeLines(league, board, round, nameOf) {
+  const range = lotteryRangeFor(board, round);
+  if (!range) return [];
+  const span = range[0] === range[1] ? `pick ${range[0]}` : `picks ${range[0]}–${range[1]}`;
+  return board.lotteryEligible
+    .map(id => ({ original: id, owner: pickOwnerId(league, round, id) }))
+    .filter(p => p.owner !== p.original)
+    .map(p => `One of ${span} is ${nameOf(p.owner)}'s, via ${nameOf(p.original)}.`);
+}
+
+function DraftBoardGrid({ league, board, teams, isDark, accentColor, editing, setEditing, reassign }) {
+  const t = makeTheme(isDark);
+  const nameOf = (id) => teams.find(tm => tm.id === id)?.name || '?';
+  const n = board.teams;
+  const rounds = board.rounds;
+  const roundList = Array.from({ length: rounds }, (_, i) => i + 1);
+  const bySlot = new Map(board.picks.map(p => [`${p.round}:${p.slot}`, p]));
+  const tradeLinesByRound = new Map(roundList.map(r => [r, lotteryTradeLines(league, board, r, nameOf)]));
+  const isEditing = (round, originalTeamId) => !!editing && editing.round === round && editing.originalTeamId === originalTeamId;
+  const stickyBg = { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})` };
+
+  const cellFor = (round, originalTeamId, number) => {
+    const ownerId = pickOwnerId(league, round, originalTeamId);
+    const traded = ownerId !== originalTeamId;
+    const title = traded
+      ? `Pick ${number} — originally ${nameOf(originalTeamId)}'s pick, now ${nameOf(ownerId)}'s. Click to reassign.`
+      : `Pick ${number} — ${nameOf(originalTeamId)}'s own pick. Click to record a trade.`;
+    return (
+      <PickCell number={number} label={nameOf(ownerId)} traded={traded} title={title}
+        ariaLabel={`Owner of ${nameOf(originalTeamId)}'s round ${round} pick`}
+        editing={isEditing(round, originalTeamId)} ownerId={ownerId} teams={teams}
+        onEdit={() => setEditing({ round, originalTeamId })}
+        onPick={id => reassign(round, originalTeamId, id)}
+        onBlur={() => setEditing(null)}
+        isDark={isDark} accentColor={accentColor} />
+    );
+  };
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', width: SLOT_W + rounds * CELL_W }}>
+        <thead>
+          <tr>
+            {/* Sticky cells layer the translucent sectionBg over the opaque
+                cardBg — a bare sectionBg would let scrolled cells ghost through. */}
+            <th style={{ width: SLOT_W, padding: '10px 8px', ...stickyBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'left', position: 'sticky', left: 0, zIndex: 2 }}>Pick</th>
+            {roundList.map(round => (
+              <th key={round} style={{ width: CELL_W, padding: '10px 6px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                R{round}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: n }, (_, i) => i + 1).map(slot => {
+            const rowBorder = slot < n ? `1px solid ${t.dividerFaint}` : 'none';
+            return (
+              <tr key={slot}>
+                <td style={{ padding: '6px 8px', ...stickyBg, borderBottom: rowBorder, ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, position: 'sticky', left: 0, zIndex: 1 }}>
+                  {slot}
+                </td>
+                {roundList.map(round => {
+                  const pick = bySlot.get(`${round}:${slot}`);
+                  return (
+                    <td key={round} style={{ padding: '3px 4px', borderBottom: rowBorder, textAlign: 'center' }}>
+                      {!pick ? null : pick.pending
+                        ? <LotteryPlaceholder overall={pick.overall} trades={tradeLinesByRound.get(round)} isDark={isDark} />
+                        : cellFor(round, pick.originalTeamId, String(pick.overall))}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// The pre-lottery line above the board: who's in the lottery, and the way to
+// run it. Gone once the draw is on file.
+function LotteryPendingLine({ league, board, teams, isDark }) {
+  const t = makeTheme(isDark);
+  const names = sortTeamsByName(teams.filter(tm => board.lotteryEligible.includes(tm.id))).map(tm => tm.name);
+  return (
+    <div style={{ padding: '10px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', ...tokens.typeBodyMeta, color: t.textSecondary }}>
+      <span>
+        <strong style={{ color: t.textPrimary }}>Lottery not run</strong>
+        {names.length > 0 && <> — {names.join(', ')} {names.length === 1 ? 'is' : 'are'} in it.</>}
+      </span>
+      <Link to={`/league/${league.id}/lottery`} style={{ ...tokens.typePill, fontWeight: 700, color: tokens.info, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+        Run lottery →
+      </Link>
+    </div>
+  );
+}
+
+// Record a trade without clicking a cell: round, original owner, new owner.
+// Needed before the lottery (a placeholder maps to no owner) and for the
+// pre-draft trades this page logs as they happen. Writes exactly what a
+// cell click writes.
+function AddTradeControl({ league, teams, rounds, isDark, accentColor, onReassign }) {
+  const t = makeTheme(isDark);
+  const [open, setOpen] = React.useState(false);
+  const [round, setRound] = React.useState(1);
+  const [original, setOriginal] = React.useState(teams[0]?.id || '');
+  const [owner, setOwner] = React.useState(teams[1]?.id || teams[0]?.id || '');
+  const sel = {
+    background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm,
+    padding: '6px 8px', fontSize: 12, color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer',
+  };
+  const canAdd = original && owner && original !== owner;
+  function submit() {
+    if (!canAdd) return;
+    onReassign(Number(round), original, owner);
+    setOpen(false);
+  }
+  if (!open) {
+    return (
+      <Button variant="secondary" size="sm" isDark={isDark} onClick={() => setOpen(true)}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={13} strokeWidth={2.5} /> Add trade</span>
+      </Button>
+    );
+  }
+  return (
+    <form onSubmit={e => { e.preventDefault(); submit(); }} aria-label="Add a pick trade"
+      style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, ...tokens.typeBodyMeta, color: t.textMuted }}>
+        Round
+        <select value={round} onChange={e => setRound(e.target.value)} style={sel} aria-label="Trade round">
+          {Array.from({ length: rounds }, (_, i) => i + 1).map(r => <option key={r} value={r}>R{r}</option>)}
+        </select>
+      </label>
+      <select value={original} onChange={e => setOriginal(e.target.value)} style={sel} aria-label="Original owner">
+        {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}'s pick</option>)}
+      </select>
+      <ArrowRight size={13} strokeWidth={2} color={t.textMuted} />
+      <select value={owner} onChange={e => setOwner(e.target.value)} style={sel} aria-label="New owner">
+        {teams.map(tm => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
+      </select>
+      <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} disabled={!canAdd} onClick={submit}>Record</Button>
+      <Button variant="secondary" size="sm" isDark={isDark} onClick={() => setOpen(false)}>Cancel</Button>
+      {original && original === owner && <span style={{ ...tokens.typeBodyMeta, color: t.danger }}>Pick a different new owner.</span>}
+    </form>
+  );
+}
+
+// ── Ownership grid (fallback) ────────────────────────────────────────────────
+// Without usable standings there is no order to lay the picks out in, so the
+// grid falls back to the ownership view: each column is a team's ORIGINAL
+// picks, round by round, and a traded cell shows where the pick went.
+const ROUND_W = 44;
+
+function OwnershipGrid({ league, teams, rounds, isDark, accentColor, editing, setEditing, reassign }) {
+  const t = makeTheme(isDark);
+  const nameOf = (id) => teams.find(tm => tm.id === id)?.name || '?';
+  const isEditing = (round, originalTeamId) => !!editing && editing.round === round && editing.originalTeamId === originalTeamId;
+  const stickyBg = { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})` };
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', width: ROUND_W + teams.length * CELL_W }}>
+        <thead>
+          <tr>
+            <th style={{ width: ROUND_W, padding: '10px 8px', ...stickyBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'left', position: 'sticky', left: 0, zIndex: 2 }}>Rd</th>
+            {teams.map(tm => (
+              <th key={tm.id} style={{ width: CELL_W, padding: '10px 6px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textSecondary, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tm.name}>
+                {tm.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rounds }, (_, ri) => ri + 1).map(round => (
+            <tr key={round}>
+              <td style={{ padding: '6px 8px', ...stickyBg, borderBottom: round < rounds ? `1px solid ${t.dividerFaint}` : 'none', ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, position: 'sticky', left: 0, zIndex: 1 }}>
+                R{round}
+              </td>
+              {teams.map(tm => {
+                const ownerId = pickOwnerId(league, round, tm.id);
+                const traded = ownerId !== tm.id;
+                return (
+                  <td key={tm.id} style={{ padding: '3px 4px', borderBottom: round < rounds ? `1px solid ${t.dividerFaint}` : 'none', textAlign: 'center' }}>
+                    <PickCell number={null}
+                      // The pick moved TO the owner — an arrow, not "via",
+                      // which pointed the wrong way in this column layout.
+                      label={traded ? `→ ${nameOf(ownerId)}` : tm.name} traded={traded}
+                      title={`${tm.name}'s R${round} pick — ${traded ? `traded to ${nameOf(ownerId)}. Click to reassign.` : 'click to record a trade'}`}
+                      ariaLabel={`Owner of ${tm.name}'s round ${round} pick`}
+                      editing={isEditing(round, tm.id)} ownerId={ownerId} teams={teams}
+                      onEdit={() => setEditing({ round, originalTeamId: tm.id })}
+                      onPick={id => reassign(round, tm.id, id)}
+                      onBlur={() => setEditing(null)}
+                      isDark={isDark} accentColor={accentColor} />
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
-  // Columns are alphabetical — the grid is a lookup, and stored creation order
-  // tells a reader nothing. Display order only; picks are keyed by team id.
+  // Team lists are alphabetical (selects, the fallback grid's columns) — a
+  // lookup, and stored creation order tells a reader nothing. Display order
+  // only; picks are keyed by team id.
   const teams = sortTeamsByName(league.teams || []);
   const rounds = getDraftRounds(league);
-  // Overall pick numbers come from the same board the shared page derives, so
-  // the commissioner sees exactly what the league sees: exact numbers once the
-  // lottery is drawn, a range for lottery teams before it, nothing without
-  // standings.
+  // The board is the same one the shared page derives, so the commissioner
+  // sees exactly what the league sees: the draft order once standings are on
+  // file, exact numbers once the lottery is drawn.
   const board = React.useMemo(() => buildDraftBoard(league), [league]);
-  const numbersStatus = !board.ok ? 'unordered' : board.complete ? 'exact' : 'ranges';
+  const boardReady = board.ok;
   const numberAt = (round, originalTeamId) => formatPickNumber(pickNumberFor(board, round, originalTeamId));
-  const [editing, setEditing] = React.useState(null); // { round, teamId } | null
+  const [editing, setEditing] = React.useState(null); // { round, originalTeamId } | null
   const [showPaste, setShowPaste] = React.useState(false);
 
   const teamName = (id) => teams.find(tm => tm.id === id)?.name || '?';
@@ -408,23 +701,29 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
     );
   }
 
-  const cellSelStyle = {
-    width: '100%', boxSizing: 'border-box',
-    background: isDark ? '#161a22' : '#f7f9fc', border: `1px solid ${accentColor}`,
-    borderRadius: tokens.radiusSm, padding: '4px 2px', fontSize: 11, fontWeight: 600,
-    color: t.textPrimary, fontFamily: 'inherit', cursor: 'pointer',
-  };
+  // Where to go to get the board: standings live on the Import page, a tie
+  // breaks on the Lottery page.
+  const fallbackHint = board.reason === 'unresolved-ties'
+    ? 'Break it on the Lottery page to lay the picks out as a draft board.'
+    : 'Import last season’s standings (Import page) to lay the picks out as a draft board.';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Intro + rounds control */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Who owns which pick</div>
+          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>{boardReady ? 'Draft board' : 'Who owns which pick'}</div>
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
-            <strong style={{ color: t.textSecondary }}>Click any pick to record a trade</strong> — it moves to the team you choose and shows highlighted. Each column is a team's original picks. Round 1 stays in sync with the Lottery page.
-            {numbersStatus === 'unordered' && <> Overall pick numbers appear once standings are imported.</>}
-            {numbersStatus === 'ranges' && <> {describePickListStatus('ranges')}</>}
+            {boardReady ? (
+              <>
+                Columns are rounds, rows are pick slots — each column reads top to bottom as that round&rsquo;s order, and each cell is the team on the clock with its overall pick number. <strong style={{ color: t.textSecondary }}>Click any pick to record a trade</strong> (or use Add trade below); traded picks are highlighted with their current owner, and hovering one says whose pick it was originally.
+                {!board.complete && <> Lottery slots are placeholders until the lottery is run; an asterisk marks a round where a lottery team&rsquo;s pick has been traded.</>}
+              </>
+            ) : (
+              <>
+                <strong style={{ color: t.textSecondary }}>{describeBoardReason(board.reason)}</strong> {fallbackHint} Until then each column is a team&rsquo;s original picks — <strong style={{ color: t.textSecondary }}>click any pick to record a trade</strong>. Round 1 stays in sync with the Lottery page.
+              </>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap' }}>
@@ -449,7 +748,7 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
           onUpdateLeague={onUpdateLeague} onClose={() => setShowPaste(false)} />
       )}
 
-      {/* Round × team ownership grid */}
+      {/* The grid: a draft board once there is an order, ownership by team until then */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
         {/* Hover affordance for the click-to-reassign edit path — untraded
             cells only (traded cells already carry the warning tint). */}
@@ -457,87 +756,31 @@ function DraftPicksPanel({ league, isDark, accentColor, onUpdateLeague }) {
           .kh-pick-cell { transition: background 0.12s, border-color 0.12s, color 0.12s; }
           .kh-pick-cell:hover { background: ${t.sectionBg}; border-color: ${t.border} !important; color: ${t.textPrimary}; }
         `}</style>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'separate', borderSpacing: 0, tableLayout: 'fixed', width: ROUND_W + teams.length * CELL_W }}>
-            <thead>
-              <tr>
-                {/* Sticky cells layer the translucent sectionBg over the opaque
-                    cardBg — a bare sectionBg would let scrolled cells ghost
-                    through (same pitfall as the shared-page stat table). */}
-                <th style={{ width: ROUND_W, padding: '10px 8px', backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})`, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'left', position: 'sticky', left: 0, zIndex: 2 }}>Rd</th>
-                {teams.map(tm => (
-                  <th key={tm.id} style={{ width: CELL_W, padding: '10px 6px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textSecondary, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={tm.name}>
-                    {tm.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: rounds }, (_, ri) => ri + 1).map(round => (
-                <tr key={round}>
-                  <td style={{ padding: '6px 8px', backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})`, borderBottom: round < rounds ? `1px solid ${t.dividerFaint}` : 'none', ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, position: 'sticky', left: 0, zIndex: 1 }}>
-                    R{round}
-                  </td>
-                  {teams.map(tm => {
-                    const ownerId = pickOwnerId(league, round, tm.id);
-                    const isTraded = ownerId !== tm.id;
-                    const isEditing = editing && editing.round === round && editing.teamId === tm.id;
-                    const number = numberAt(round, tm.id);
-                    return (
-                      <td key={tm.id} style={{ padding: '3px 4px', borderBottom: round < rounds ? `1px solid ${t.dividerFaint}` : 'none', textAlign: 'center' }}>
-                        {isEditing ? (
-                          <select autoFocus value={ownerId}
-                            onChange={e => reassign(round, tm.id, e.target.value)}
-                            onBlur={() => setEditing(null)}
-                            style={cellSelStyle} aria-label={`Owner of ${tm.name}'s round ${round} pick`}>
-                            {teams.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                          </select>
-                        ) : (
-                          <button onClick={() => setEditing({ round, teamId: tm.id })}
-                            className={isTraded ? undefined : 'kh-pick-cell'}
-                            title={`${tm.name}'s R${round} pick${number ? ` (pick ${number})` : ''} — ${isTraded ? `now owned by ${teamName(ownerId)}. Click to reassign.` : 'click to record a trade'}`}
-                            style={{
-                              width: '100%', boxSizing: 'border-box',
-                              background: isTraded ? t.warningBg : 'none',
-                              border: `1px solid ${isTraded ? t.warningBorder : 'transparent'}`,
-                              borderRadius: tokens.radiusSm, padding: '4px 4px',
-                              fontSize: 11, fontWeight: isTraded ? 700 : 500,
-                              color: isTraded ? t.warning : t.textMuted,
-                              cursor: 'pointer', fontFamily: 'inherit',
-                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            }}>
-                            {/* The overall number (or lottery range) sits above the
-                                owner so the cell reads the way the shared page's
-                                per-team list does: "29 · via Alex". */}
-                            {number && (
-                              <span style={{ display: 'block', ...tokens.typeStatMeta, fontWeight: 700, color: isTraded ? t.warning : t.textSecondary, marginBottom: 1 }}>
-                                {number}
-                              </span>
-                            )}
-                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {isTraded ? `via ${teamName(ownerId)}` : teamName(ownerId)}
-                            </span>
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {boardReady && !board.complete && (
+          <LotteryPendingLine league={league} board={board} teams={teams} isDark={isDark} />
+        )}
+        {boardReady ? (
+          <DraftBoardGrid league={league} board={board} teams={teams} isDark={isDark} accentColor={accentColor}
+            editing={editing} setEditing={setEditing} reassign={reassign} />
+        ) : (
+          <OwnershipGrid league={league} teams={teams} rounds={rounds} isDark={isDark} accentColor={accentColor}
+            editing={editing} setEditing={setEditing} reassign={reassign} />
+        )}
       </div>
 
       {/* Traded-picks roll-up */}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Traded Picks</div>
-          <div style={{ fontSize: '12px', color: t.textMuted }}>{traded.length === 0 ? 'none' : traded.length}</div>
+        <div style={{ padding: '12px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Traded Picks</div>
+            <div style={{ fontSize: '12px', color: t.textMuted }}>{traded.length === 0 ? 'none' : traded.length}</div>
+          </div>
+          <AddTradeControl league={league} teams={teams} rounds={rounds} isDark={isDark} accentColor={accentColor}
+            onReassign={reassign} />
         </div>
         {traded.length === 0 ? (
           <div style={{ padding: '14px 20px', ...tokens.typeBodyMeta, color: t.textMuted }}>
-            Every team owns its own picks. Record a trade by clicking a pick in the grid above.
+            Every team owns its own picks. Record a trade by clicking a pick in the grid above, or with Add trade.
           </div>
         ) : (
           <div style={{ padding: '6px 20px 10px' }}>

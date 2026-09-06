@@ -20,6 +20,19 @@ export const TERM_FIXED = 'fixed';
 
 const COST_MODELS = [COST_SLOT, COST_PICKS, COST_AUCTION];
 
+// A legacy auctionRules block counts as a signal only when it carries a VALUE.
+// The shared page reads a projection (get_shared_league) that always emits an
+// `auctionRules` object — its keys null when the league has none — so a bare
+// truthiness check read every pre-wizard slot league as auction on the shared
+// page while Settings, reading the raw blob, said slot. Same function, two
+// inputs; this makes the function agree on both. (Migration 009 also stops
+// the projection manufacturing the block, but a client that hasn't been
+// migrated must still resolve correctly.)
+export function hasAuctionRulesBlock(league) {
+  const rules = league?.auctionRules;
+  return !!rules && typeof rules === 'object' && Object.values(rules).some(v => v != null);
+}
+
 // What keeping a player costs. Explicit key wins; otherwise fall back to the
 // legacy signals, where `auctionRules` (or draftType 'auction') was the only
 // way to express an auction league and everything else was contract/snake —
@@ -27,7 +40,7 @@ const COST_MODELS = [COST_SLOT, COST_PICKS, COST_AUCTION];
 export function keeperCostModelOf(league) {
   if (!league) return COST_SLOT;
   if (COST_MODELS.includes(league.keeperCostModel)) return league.keeperCostModel;
-  if (league.auctionRules || league.draftType === 'auction') return COST_AUCTION;
+  if (hasAuctionRulesBlock(league) || league.draftType === 'auction') return COST_AUCTION;
   return COST_SLOT;
 }
 

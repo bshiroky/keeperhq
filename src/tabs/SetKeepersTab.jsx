@@ -8,7 +8,7 @@ import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } fro
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
-import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../lib/contractYear.js';
+import { setContractYear, clearContractOnUnkeep, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../lib/contractYear.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -612,8 +612,16 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
     if (keepingNames.has(normalizeName(entry.player))) return;
     commit([...keepers, makeKeeper(entry, league)]);
   }
+  // Unkeep. A Y1 keeper's contract state exists only because of this keep,
+  // so it goes with the declaration (lib/contractYear decides exactly what
+  // that means); Y2+ predates the decision and stays.
   function removeName(name) {
-    commit(keepers.filter(k => normalizeName(k.player) !== normalizeName(name)));
+    const key = normalizeName(name);
+    const keeper = keepers.find(k => normalizeName(k.player) === key);
+    const nextKeepers = keepers.filter(k => normalizeName(k.player) !== key);
+    const { league: cleared, changes } = clearContractOnUnkeep(league, team.id, keeper);
+    const newTeams = (cleared.teams || teams).map(tm => tm.id === team.id ? { ...tm, keepers: nextKeepers } : tm);
+    onUpdateLeague(appendChanges({ ...cleared, teams: newTeams }, changes));
   }
   function patchAt(i, patch, changes) {
     commit(keepers.map((k, idx) => idx === i ? { ...k, ...patch } : k), changes);

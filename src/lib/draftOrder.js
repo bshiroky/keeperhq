@@ -461,6 +461,33 @@ export function teamPicks(league, teamId, board = buildDraftBoard(league)) {
   return { status, reason: board.reason, picks };
 }
 
+// Every pick a team ORIGINALLY owned but no longer holds — the other half of
+// the team tab's picture ("R1 · pick 8 → traded to Pedram"). Same board, same
+// numbering and states as teamPicks, so the held and traded-away lists can't
+// disagree about a pick's number. A pick whose recorded owner isn't a current
+// team is skipped, as tradedPicks skips it.
+//
+// → { status, picks: [{ round, originalTeamId, ownerTeamId, number, overall, sortKey }] }
+export function teamTradedAwayPicks(league, teamId, board = buildDraftBoard(league)) {
+  if (board.format !== 'snake') return { status: 'none', reason: board.reason, picks: [] };
+  const teams = league?.teams || [];
+  const rounds = board.ok ? board.rounds : getDraftRounds(league);
+  const picks = [];
+  for (let round = 1; round <= rounds; round++) {
+    const ownerTeamId = pickOwnerId(league, round, teamId);
+    if (ownerTeamId === teamId || !teams.some(tm => tm.id === ownerTeamId)) continue;
+    const number = pickNumberFor(board, round, teamId);
+    picks.push({
+      round, originalTeamId: teamId, ownerTeamId, number,
+      overall: number?.kind === 'exact' ? number.overall : null,
+      sortKey: number ? (number.kind === 'exact' ? number.overall : number.lo) : (round - 1) * teams.length,
+    });
+  }
+  picks.sort((a, b) => a.round - b.round || a.sortKey - b.sortKey);
+  const status = !board.ok ? 'unordered' : board.complete ? 'exact' : 'ranges';
+  return { status, reason: board.reason, picks };
+}
+
 // One line of copy for the list's state — what the numbers mean today.
 export function describePickListStatus(status) {
   switch (status) {
