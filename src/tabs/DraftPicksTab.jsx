@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ClipboardList, Plus, X } from 'lucide-react';
-import { makeTheme, tokens, NumberInput, Button, ConfirmBody } from '../components.jsx';
+import { makeTheme, tokens, NumberInput, Button, ConfirmBody, SrOnly } from '../components.jsx';
 import { getDraftRounds, defaultDraftRounds, pickOwnerId, reassignPick, tradedPicks } from '../lib/draftPicks.js';
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
 import { picksImportImpact, picksGuardLines } from '../lib/importGuard.js';
@@ -434,17 +434,22 @@ function LotteryPlaceholder({ overall, trades, isDark }) {
   const t = makeTheme(isDark);
   const marked = trades.length > 0;
   const title = marked ? trades.join(' ') : `Pick ${overall} — a lottery slot; the team is set when the lottery is run.`;
+  // The asterisk's meaning is in the DOM as read-only text, not just in the
+  // hover: a screen reader hears the same sentences a sighted reader gets on
+  // hover ("One of picks 25–28 is Corey's, via Pedram.").
   return (
-    <span title={title} aria-label={`Pick ${overall}, lottery slot${marked ? ' — a traded pick lands in this range' : ''}`}
+    <span title={title}
       style={{
         display: 'block', width: '100%', boxSizing: 'border-box',
         border: `1px dashed ${t.border}`, borderRadius: tokens.radiusSm, padding: '4px 4px',
         textAlign: 'center', whiteSpace: 'nowrap', cursor: marked ? 'help' : 'default',
+        position: 'relative',
       }}>
       <span style={{ display: 'block', ...tokens.typeStatMeta, fontWeight: 700, color: t.textMuted, marginBottom: 1 }}>
         {overall}{marked && <span aria-hidden style={{ color: t.warning, marginLeft: 2 }}>*</span>}
       </span>
       <span style={{ display: 'block', fontSize: 11, fontWeight: 500, color: t.textMuted, fontStyle: 'italic' }}>Lottery pick</span>
+      <SrOnly>{marked ? ` ${trades.join(' ')}` : ' The team is set when the lottery is run.'}</SrOnly>
     </span>
   );
 }
@@ -471,6 +476,7 @@ function DraftBoardGrid({ league, board, teams, isDark, accentColor, editing, se
   const tradeLinesByRound = new Map(roundList.map(r => [r, lotteryTradeLines(league, board, r, nameOf)]));
   const isEditing = (round, originalTeamId) => !!editing && editing.round === round && editing.originalTeamId === originalTeamId;
   const stickyBg = { backgroundColor: t.cardBg, backgroundImage: `linear-gradient(${t.sectionBg}, ${t.sectionBg})` };
+  const roundRule = `1px solid ${t.divider}`;
 
   const cellFor = (round, originalTeamId, number) => {
     const ownerId = pickOwnerId(league, round, originalTeamId);
@@ -478,9 +484,12 @@ function DraftBoardGrid({ league, board, teams, isDark, accentColor, editing, se
     const title = traded
       ? `Pick ${number} — originally ${nameOf(originalTeamId)}'s pick, now ${nameOf(ownerId)}'s. Click to reassign.`
       : `Pick ${number} — ${nameOf(originalTeamId)}'s own pick. Click to record a trade.`;
+    // The accessible name carries everything the hover does — the origin of
+    // a traded pick is only on hover visually, and hover doesn't exist for a
+    // screen reader.
     return (
       <PickCell number={number} label={nameOf(ownerId)} traded={traded} title={title}
-        ariaLabel={`Owner of ${nameOf(originalTeamId)}'s round ${round} pick`}
+        ariaLabel={`Round ${round}, ${title}`}
         editing={isEditing(round, originalTeamId)} ownerId={ownerId} teams={teams}
         onEdit={() => setEditing({ round, originalTeamId })}
         onPick={id => reassign(round, originalTeamId, id)}
@@ -496,9 +505,13 @@ function DraftBoardGrid({ league, board, teams, isDark, accentColor, editing, se
           <tr>
             {/* Sticky cells layer the translucent sectionBg over the opaque
                 cardBg — a bare sectionBg would let scrolled cells ghost through. */}
-            <th style={{ width: SLOT_W, padding: '10px 8px', ...stickyBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'left', position: 'sticky', left: 0, zIndex: 2 }}>Pick</th>
+            <th scope="col" style={{ width: SLOT_W, padding: '10px 4px', ...stickyBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textMuted, textAlign: 'center', position: 'sticky', left: 0, zIndex: 2 }}>Pick</th>
+            {/* A rule on every round column's left edge: rounds-as-columns
+                is the right layout, but fantasy readers know Yahoo's
+                rounds-as-rows, so the columns have to read as distinct at a
+                glance rather than as one undifferentiated grid. */}
             {roundList.map(round => (
-              <th key={round} style={{ width: CELL_W, padding: '10px 6px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, ...tokens.typeLabelEyebrow, color: t.textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
+              <th key={round} scope="col" style={{ width: CELL_W, padding: '10px 6px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, borderLeft: roundRule, ...tokens.typeLabelEyebrow, color: t.textSecondary, textAlign: 'center', whiteSpace: 'nowrap' }}>
                 R{round}
               </th>
             ))}
@@ -509,13 +522,13 @@ function DraftBoardGrid({ league, board, teams, isDark, accentColor, editing, se
             const rowBorder = slot < n ? `1px solid ${t.dividerFaint}` : 'none';
             return (
               <tr key={slot}>
-                <td style={{ padding: '6px 8px', ...stickyBg, borderBottom: rowBorder, ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, position: 'sticky', left: 0, zIndex: 1 }}>
+                <th scope="row" style={{ padding: '6px 4px', ...stickyBg, borderBottom: rowBorder, ...tokens.typeBodyMeta, fontWeight: 700, color: t.textSecondary, textAlign: 'center', position: 'sticky', left: 0, zIndex: 1 }}>
                   {slot}
-                </td>
+                </th>
                 {roundList.map(round => {
                   const pick = bySlot.get(`${round}:${slot}`);
                   return (
-                    <td key={round} style={{ padding: '3px 4px', borderBottom: rowBorder, textAlign: 'center' }}>
+                    <td key={round} style={{ padding: '3px 4px', borderBottom: rowBorder, borderLeft: roundRule, textAlign: 'center' }}>
                       {!pick ? null : pick.pending
                         ? <LotteryPlaceholder overall={pick.overall} trades={tradeLinesByRound.get(round)} isDark={isDark} />
                         : cellFor(round, pick.originalTeamId, String(pick.overall))}

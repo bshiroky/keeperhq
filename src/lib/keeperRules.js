@@ -148,3 +148,17 @@ export function hasKeeperData(league) {
     tm => (tm.keepers || []).length > 0 || (tm.priorKeepers || []).length > 0
   );
 }
+
+// Whether the league has a use for the Last Draft page (the imported
+// prior-year draft and its paste import). The page exists because a draft
+// VALUE sets a keeper's cost — the drafted price on an auction league, the
+// drafted round on a pick-cost league. Where keeping costs a slot, the draft
+// record decides nothing: contract years are entered on the pool row, and the
+// page's "Rd" dropdowns would be a pick-cost affordance on a league without
+// pick costs. Read by the route gate, the section-door row and the Import
+// page's pointer card, so the three can't disagree. Import-time capture of
+// `acquisitionRound` is untouched — that data is for the future pick-cost
+// archetype and doesn't need a surface to be stored.
+export function hasLastDraftPage(league) {
+  return keeperCostModelOf(league) !== COST_SLOT;
+}

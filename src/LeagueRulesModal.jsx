@@ -21,12 +21,12 @@ export function RulesGrid({ league, isDark, accent }) {
   const facts = keeperRuleFacts(league);
   if (facts.length === 0) return null;
   return (
-    <div style={{
+    <ul style={{
       display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-      gap: tokens.spaceSm,
+      gap: tokens.spaceSm, listStyle: 'none', margin: 0, padding: 0,
     }}>
       {facts.map(fact => (
-        <div key={fact.key} style={{
+        <li key={fact.key} style={{
           background: t.sectionBg, border: `1px solid ${t.border}`,
           borderRadius: tokens.radiusMd, padding: `${tokens.spaceSm}px ${tokens.spaceMd}px`,
           minWidth: 0,
@@ -40,9 +40,9 @@ export function RulesGrid({ league, isDark, accent }) {
               {fact.detail}
             </div>
           )}
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -50,9 +50,9 @@ function NoteSection({ note, isDark }) {
   const t = makeTheme(isDark);
   return (
     <div>
-      <div style={{ ...tokens.typeHeadingSection, color: t.textSecondary, marginBottom: tokens.spaceXs }}>
+      <h3 style={{ ...tokens.typeHeadingSection, color: t.textSecondary, margin: `0 0 ${tokens.spaceXs}px` }}>
         {note.title}
-      </div>
+      </h3>
       {/* Commissioner-authored text: newlines are meaningful, so preserve them
           rather than collapsing the note into one paragraph. */}
       <div style={{ ...tokens.typeBody, color: t.textBody, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
@@ -62,46 +62,68 @@ function NoteSection({ note, isDark }) {
   );
 }
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function LeagueRulesModal({ league, isDark, onClose }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league?.sport] || SPORT_CONFIG.hockey;
   const notes = ruleNotes(league);
+  const panelRef = React.useRef(null);
 
-  // Escape closes — this is a read-only overlay on a page members will open
-  // and dismiss repeatedly.
+  // Focus: into the dialog on open, back to whatever opened it on close, and
+  // trapped inside while open (aria-modal tells a screen reader the page
+  // behind is inert; it doesn't stop Tab from wandering there). Escape closes
+  // — this is a read-only overlay on a page members will open and dismiss
+  // repeatedly. Body scroll is locked so the page doesn't move under it.
   React.useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const opener = document.activeElement;
+    const panel = panelRef.current;
+    panel?.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); return; }
+      if (e.key !== 'Tab' || !panel) return;
+      const items = [...panel.querySelectorAll(FOCUSABLE)];
+      if (items.length === 0) { e.preventDefault(); panel.focus(); return; }
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+      if (opener && typeof opener.focus === 'function') opener.focus();
+    };
   }, [onClose]);
 
   return (
     <div
-      role="dialog" aria-modal="true" aria-label="League rules"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{
         position: 'fixed', inset: 0, background: t.scrim, zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: tokens.spaceMd,
       }}
     >
-      <div style={{
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="kh-rules-title" tabIndex={-1} style={{
         background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg,
         width: '100%', maxWidth: 620, maxHeight: '85vh', overflow: 'hidden',
         display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,0.4)',
-        borderTop: `3px solid ${sport.color}`,
+        borderTop: `3px solid ${sport.color}`, outline: 'none',
       }}>
         <div style={{
           padding: `${tokens.spaceSm}px ${tokens.spaceLg}px`, borderBottom: `1px solid ${t.divider}`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: tokens.spaceSm, flexShrink: 0,
         }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ ...tokens.typeHeadingCard, color: t.textPrimary }}>League rules</div>
+            <h2 id="kh-rules-title" style={{ ...tokens.typeHeadingCard, color: t.textPrimary, margin: 0 }}>League rules</h2>
             <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {league?.name}
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, padding: 4, display: 'inline-flex', flexShrink: 0, fontFamily: 'inherit' }}>
+          <button onClick={onClose} aria-label="Close" type="button"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, padding: 4, display: 'inline-flex', flexShrink: 0, fontFamily: 'inherit', borderRadius: tokens.radiusSm }}>
             <X size={18} strokeWidth={2} />
           </button>
         </div>
@@ -132,8 +154,8 @@ export function RulesButton({ league, isDark, defaultOpen = false }) {
   const [open, setOpen] = React.useState(defaultOpen);
   return (
     <>
-      <button className="kh-share-rules-btn" onClick={() => setOpen(true)}
-        aria-label="League rules" aria-haspopup="dialog" title="League rules"
+      <button className="kh-share-rules-btn" onClick={() => setOpen(true)} type="button"
+        aria-label="League rules" aria-haspopup="dialog" aria-expanded={open} title="League rules"
         style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           flexShrink: 0, background: 'transparent', border: `1px solid ${t.border}`,

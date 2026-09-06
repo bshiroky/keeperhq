@@ -830,7 +830,7 @@ test('team picks: an auction league lists nothing', () => {
 // contract · Y1/3". Setting the year on the row (not clicking Keep) must show
 // members the real year, and the final year must render as expiring.
 
-test('contract year: set on a rostered player, the shared page shows Y2/3 — and Y3/3 as Final yr', () => {
+test('contract year: set on a rostered player, the shared page shows Y2/3 — and Y3/3 red with "final year" in the accessible name', () => {
   const base = {
     ...TERMED,
     teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }], keepers: [] }],
@@ -845,7 +845,12 @@ test('contract year: set on a rostered player, the shared page shows Y2/3 — an
   assert.equal(jack.final, true, 'the final year renders as expiring');
   assert.equal(league.teams[0].keepers.length, 0, 'nothing was declared for this season');
   const html = renderPage(league, false);
-  assert.ok(html.includes('Y2/3') && html.includes('Final yr'), 'both reach the page');
+  assert.ok(html.includes('Y2/3') && html.includes('Y3/3'), 'both reach the page');
+  // The visible text is the year alone; the meaning is screen-reader text.
+  assert.ok(!html.includes('Final yr'), 'no visible "Final yr" label');
+  assert.ok(html.includes('final year of contract'), 'the accessible name carries the state');
+  assert.ok(/Y3\/3<span style="position:absolute;width:1px;height:1px[^"]*">, final year of contract<\/span>/.test(html), 'as clipped text adjacent to the value, not an aria-label on a span');
+  assert.ok(html.includes('title="Y3/3 — final year of contract"'), 'and on hover');
 });
 
 test('keep then unkeep a no-contract player: he returns to Rostered, and the shared page shows no year for him', () => {
@@ -919,7 +924,8 @@ test('contract year: Expired set on the row moves the player to the Expired tab 
   const iNico = team.indexOf('Nico Hischier'), iJack = team.indexOf('Jack Hughes'), iBratt = team.indexOf('Jesper Bratt');
   assert.ok(iNico > 0, 'the expired player is on his team tab');
   assert.ok(iNico > iJack && iNico > iBratt, 'pinned below the keepable rows');
-  assert.ok(team.includes('Expired') && team.includes('Y3/3'), 'marked expired, not as a contract year');
+  assert.ok(team.includes('Y3/3') && team.includes('contract expired, can’t be kept'), 'the year plus its meaning in the accessible name');
+  assert.ok(!/>Expired Y3\/3</.test(team), 'no visible "Expired" label on the value');
   assert.ok(team.includes('can’t be kept'), 'and the footer says so');
   assert.ok(team.includes('Y2/3'), 'the under-contract row keeps its own treatment');
   const rostered = renderPage(league, false);
@@ -932,3 +938,95 @@ test('contract year: Expired set on the row moves the player to the Expired tab 
   assert.ok(/<option value="expired">Expired<\/option>/.test(poolHtml), 'Expired is an option beside the years');
 });
 
+// ── Screen-reader pass — asserted on the REAL page render ──────────────────
+// A league member who is blind uses this page. These protect the semantics a
+// screen reader depends on: the view rail is a tablist, the player table has
+// real column/row headers with the sort state announced, the search's row
+// count is a live region, the colour-only states (final year, expired, kept)
+// carry text, and traded picks name their origin without a hover.
+const A11Y = {
+  ...TERMED,
+  keeperDeadline: '2099-09-20', keeperDeadlineTime: '23:59',
+  draftOrderConfig: { basis: 'points', lotteryTeams: 0, tiebreak: 'chain' },
+  draftPicks: { rounds: 2, ownership: { '2:t2': 't1' } },
+  standings: { season: '2025-26', importedAt: '2026-09-01T00:00:00Z', tieResolutions: {}, rows: [
+    { teamId: 't1', rank: 1, wins: 10, losses: 2, ties: 0, pct: 0.833, pts: 40 },
+    { teamId: 't2', rank: 2, wins: 2, losses: 10, ties: 0, pct: 0.167, pts: 10 },
+  ] },
+  teams: [
+    { id: 't1', name: 'Zamboni', roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }], priorKeepers: [{ player: 'Jack Hughes', contractYear: 2, contractLength: 3 }], keepers: [{ player: 'Nico Hischier', contractYear: 1, contractLength: 3 }] },
+    { id: 't2', name: 'Alpha', roster: [{ player: 'Connor McDavid', pos: 'C' }], priorKeepers: [], keepers: [] },
+  ],
+};
+
+test('a11y: the view rail is a tablist — alphabetical team tabs, one selected, roving tabIndex, a labelled panel', () => {
+  const html = renderPage(A11Y, false);
+  assert.ok(html.includes('role="tablist"') && html.includes('aria-label="Views"'), 'tablist with a name');
+  const tabs = [...html.matchAll(/<button role="tab" id="([^"]+)" aria-selected="(true|false)"[^>]*tabindex="(0|-1)"[^>]*>([^<]+)<\/button>/g)];
+  assert.deepEqual(tabs.map(t => t[4]), ['Rostered', 'Under contract', 'Alpha', 'Zamboni'], 'tab order = visual order, teams alphabetical');
+  assert.deepEqual(tabs.map(t => t[2]), ['true', 'false', 'false', 'false'], 'exactly the current view is selected');
+  assert.deepEqual(tabs.map(t => t[3]), ['0', '-1', '-1', '-1'], 'only the selected tab is in the Tab order');
+  assert.ok(html.includes('role="tabpanel" aria-labelledby="kh-share-tab-keepable"'), 'the panel is named by the selected tab');
+  const team = renderTeam(A11Y, 't2');
+  assert.ok(/id="kh-share-tab-team_t2" aria-selected="true"/.test(team) && team.includes('aria-labelledby="kh-share-tab-team_t2"'), 'a team tab selects and labels the panel');
+});
+
+test('a11y: headings give the page a structure — h1 league name, h2 sections', () => {
+  const html = renderTeam(A11Y, 't1');
+  assert.ok(/<h1[^>]*>Termed<\/h1>/.test(html), 'league name is the h1');
+  assert.ok(/<h2[^>]*>Draft picks<\/h2>/.test(html), 'the picks section is an h2');
+  const hockey = renderPage(A11Y, false);
+  assert.ok(/<h2[^>]*>Skaters<\/h2>/.test(hockey), 'the skaters group is an h2');
+});
+
+test('a11y: the player table has real headers, scope, and an announced sort', () => {
+  const html = renderPage(A11Y, false);
+  assert.ok((html.match(/<th scope="col"/g) || []).length >= 13, 'every column header is a scoped th');
+  assert.ok(/<th scope="row"[^>]*>[^]*?Nico Hischier/.test(html), 'the player cell is the row header');
+  assert.ok(html.includes('aria-sort="descending"'), 'the default sort column announces its direction');
+  assert.ok(/aria-sort="descending"[^>]*><button[^>]*aria-label="Sort by PTS"/.test(html), 'on the PTS column, whose button says what it does');
+  assert.ok(html.includes('<span aria-hidden="true"> ▾</span>'), 'the arrow glyph is decoration, not name');
+  assert.ok(html.includes('aria-label="Skaters"'), 'the table is named');
+  assert.ok(/<span role="status" aria-live="polite"[^>]*>3 players<\/span>/.test(html), 'the row count is a live region');
+});
+
+test('a11y: colour-only states carry text — kept rows, final year, expired', () => {
+  const html = renderPage(A11Y, false);
+  assert.ok(/Keeper, <\/span><span[^>]*>Zamboni<\/span>/.test(html), 'a kept row says "Keeper" before the team name');
+  assert.ok(/<svg[^>]*class="lucide lucide-check"[^>]*aria-hidden="true"/.test(html), 'the check glyph is hidden from the name');
+  assert.equal(buildSharedRows(A11Y).find(r => r.player === 'Nico Hischier').kind, 'keeper');
+  // The mobile list is a real list.
+  globalThis.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  try {
+    const mobile = renderTeam(A11Y, 't1');
+    assert.ok(/<ul aria-label="Zamboni players"[^>]*>[^]*?<li class="kh-share-row"/.test(mobile), 'rows are list items in a labelled list');
+    assert.ok(mobile.includes('Keeper, '), 'the kept text equivalent is on mobile rows too');
+  } finally {
+    globalThis.window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+  }
+});
+
+test('a11y: traded picks name their origin in text; the round pill reads as "Round N"', () => {
+  const html = renderTeam(A11Y, 't1');
+  assert.ok(html.includes('originally Alpha’s pick'), 'the held-by-trade pick names whose it was, in the DOM');
+  assert.ok(/<span aria-hidden="true">via Alpha<\/span>/.test(html), '"via" stays the visible shorthand');
+  assert.ok(/<span aria-hidden="true">R2<\/span><span[^>]*>Round 2,<\/span>/.test(html), 'R2 is read as Round 2');
+  const gone = renderTeam(A11Y, 't2');
+  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Zamboni/.test(gone), 'the arrow is decoration; "traded to" is the text');
+});
+
+test('a11y: the countdown reads in context; the sticky duplicate is hidden', () => {
+  const html = renderPage(A11Y, false);
+  assert.ok(html.includes('Keeper deadline in </span>'), 'the number has its subject');
+  assert.ok(/class="kh-share-pill-wrap" aria-hidden="true"/.test(html), 'the floating pill is not read twice');
+});
+
+test('a11y: the rules dialog is labelled by its heading, focusable, and its trigger reports state', () => {
+  const closed = renderToStaticMarkup(React.createElement(RulesButton, { league: A11Y, isDark: false }));
+  assert.ok(closed.includes('aria-haspopup="dialog"') && closed.includes('aria-expanded="false"'));
+  const open = renderToStaticMarkup(React.createElement(RulesButton, { league: A11Y, isDark: false, defaultOpen: true }));
+  assert.ok(open.includes('aria-expanded="true"'));
+  assert.ok(/<div role="dialog" aria-modal="true" aria-labelledby="kh-rules-title" tabindex="-1"/.test(open), 'the dialog panel itself takes focus and is named by its title');
+  assert.ok(/<h2 id="kh-rules-title"[^>]*>League rules<\/h2>/.test(open));
+  assert.ok(open.includes('aria-label="Close"'));
+});

@@ -11,6 +11,7 @@ import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
 import { supabase } from './lib/supabase.js';
 import { fetchLeagues, saveLeague, softDeleteLeague, restoreLeague } from './lib/leagueStore.js';
+import { hasLastDraftPage } from './lib/keeperRules.js';
 
 // Neutral loading placeholder — shown while auth is still resolving (before
 // we know whether to show the landing or My Leagues, so there's no known
@@ -240,6 +241,11 @@ function LeagueRoute({ leagues, isDark, onUpdateLeague, onDeleteLeague }) {
   if (!tab) return <Navigate to="overview" replace />;
   if (!VALID_TABS.includes(tab)) return <Navigate to={`/league/${leagueId}/overview`} replace />;
   if ((tab === 'lottery' || tab === 'picks') && league.draftType !== 'snake') {
+    return <Navigate to={`/league/${leagueId}/overview`} replace />;
+  }
+  // Last Draft is gated on the keeper COST model, not the draft format: a
+  // slot-cost league has nothing for the page to do (see hasLastDraftPage).
+  if (tab === 'draft' && !hasLastDraftPage(league)) {
     return <Navigate to={`/league/${leagueId}/overview`} replace />;
   }
 

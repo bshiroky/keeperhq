@@ -1222,6 +1222,73 @@ Yahoo work off 47%, not off the optimistic reading.
   commissioner and shared pages converging on one tab structure (after the
   draft).
 
+- **League-page polish + shared-page screen-reader pass (this branch's PR):**
+  five items; the fourth is the reason for the branch (a league member is
+  blind and the shared link goes out). **(1) Last Draft is hidden on
+  slot-cost leagues** — page, section door and the Import page's pointer
+  card, all through one gate, `hasLastDraftPage` (`keeperRules.js`): the page
+  exists because a draft VALUE sets a keeper's cost (price on auction, round
+  on pick-cost); where keeping costs a slot it decides nothing and its "Rd"
+  dropdowns were a pick-cost affordance on a league without pick costs.
+  Gated on the COST model, never the draft format; `/draft` redirects to
+  overview like the snake-only routes. Import-time `acquisitionRound`
+  capture is untouched (data for the future pick-cost archetype, no surface
+  needed). **(2) Standings card simplified** — the Rank column is gone (it
+  showed Yahoo's playoff finish beside the draft Order and read as two
+  competing orders); podium trophies sit beside the team name (`role="img"`
+  + label), never in a numeric column; clinched stars are gone everywhere.
+  **(3) Draft board** — the pick number is centred in the sticky first
+  column (now a `<th scope="row">`) and every round column carries a
+  left rule, so rounds-as-columns reads as distinct columns to readers used
+  to Yahoo's rounds-as-rows. **(4) Shared page screen-reader pass**, audited
+  and verified against the REAL page in Chromium (Playwright's ARIA
+  snapshot + keyboard driving; see the harness note below), not a fixture:
+  the view rail is a `role="tablist"` with `aria-selected`, roving
+  `tabIndex` and arrow/Home/End keys that move selection AND focus (order =
+  the alphabetical strip), over a `role="tabpanel"` labelled by the current
+  tab; the player table has `scope="col"` headers, the player cell as
+  `scope="row"`, `aria-sort` on the active column with "Sort by X" buttons
+  and the arrow glyph `aria-hidden`, an `aria-label` per table and `<h2>`
+  group titles (league name is the `<h1>`); the search's row count is a
+  `role="status"` live region; the mobile rows are a labelled `<ul>`;
+  colour-only states got text — kept rows read "Keeper, {team}" (the check
+  glyph is hidden), final year reads "Y3/3, final year of contract",
+  expired "Y3/3, contract expired, can't be kept"; picks read "Round 2,
+  Pick 5, originally Alpha's pick" (the visible `via Alpha` is
+  `aria-hidden` shorthand; the `→` is decoration); the countdown reads
+  "Keeper deadline in 15 days" and the sticky duplicate pill is
+  `aria-hidden`; the Rules dialog moves focus into the panel on open
+  (`tabIndex=-1`, `aria-labelledby` its `<h2>`), traps Tab, restores focus
+  to the button on close, Escape closes, and the trigger carries
+  `aria-expanded`. On the commissioner board every pick button's accessible
+  name is the full hover sentence (origin included) and the lottery
+  placeholder's asterisk explanation is DOM text. **The new primitive is
+  `SrOnly`** (`components.jsx`, inline clip-rect, no stylesheet needed):
+  use it, never `aria-label` on a plain `<span>` — assistive tech ignores
+  aria-label on elements with no role, but never skips DOM text. **(5) The
+  sticky Contract / On-team columns** — the root cause of "the pinned
+  panel looks broken" was SIZING: the fixed-width cells were content-box, so
+  the On-team cell painted 24px over Contract's right edge (`Y2/3` showed as
+  a centred `Y2`) and the Player column ran 28px past the snap boundary
+  (a sliver of the next column peeked out under it). Every fixed-width cell
+  is `box-sizing: border-box` now, so the constants ARE the sticky offsets.
+  Then: the visible stat region is an INTEGER number of columns (the
+  leftover width goes to the Contract column, so the panel's left edge and
+  every snap stop land on a column boundary — nothing half-cut); the edge
+  fades are gone (both versions read as the panel floating on a separate
+  surface — the pinned cells are the row's background with only the 1px
+  rule); `Final yr` / `Expired` are dropped from the visible value (the red
+  `Y3/3` carries it; meaning in the accessible name + hover).
+  **Chromium harness (not committed, in the session scratchpad):** an
+  esbuild IIFE bundle mounting the real `SharedLeaguePage` /
+  `DraftPicksPanel` / `StandingsCard` with fixtures + a tiny
+  `players-nhl.json`, served by `python3 -m http.server`, driven by the
+  globally installed Playwright (`/opt/node22/lib/node_modules/playwright`,
+  `executablePath: '/opt/pw-browsers/chromium'`) for screenshots, cell
+  measurements and `locator.ariaSnapshot()`. Worth recreating for any
+  future sticky-table or a11y work — the SSR tests can't see layout or
+  focus.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1555,7 +1622,7 @@ league page is only ever entered by deep link.
 | `/league/:leagueId` | redirects to `/league/:leagueId/overview` |
 | `/league/:leagueId/overview` | `LeagueView` — Keepers home (Overview/Set-keepers toggle) |
 | `/league/:leagueId/import` | `LeagueView` — **full-page** Import view ("Import last season" headline; per-team roster paste opens a modal over the page; the draft card is a pointer link to `/draft`) — **both draft types** |
-| `/league/:leagueId/draft` | `LeagueView` — **full-page** "Last Draft" takeover (the imported prior-year draft: inline-editable values, in-place name fixes, and the on-page paste import) — **both draft types** |
+| `/league/:leagueId/draft` | `LeagueView` — **full-page** "Last Draft" takeover (the imported prior-year draft: inline-editable values, in-place name fixes, and the on-page paste import) — **both draft formats, but gated on the keeper COST model**: hidden on slot-cost leagues (`hasLastDraftPage`), where it redirects to overview |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
 | `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks view (round×team pick-ownership grid + paste import) with the persistent league nav — **snake only**; auction redirects to overview |
 | `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery view with the persistent league nav — **snake only**; auction redirects to overview |
@@ -2299,9 +2366,10 @@ copy of a component drifts away from the original.
   scrolled columns can't ghost through — and dim/opacity for eligible
   rows goes on cell CONTENT, never on the sticky `<td>` itself, or the
   ghosting comes back through the faded background). **Contract/Status
-  are compact, display-only strings**: contract = `Y1/3` (`Final yr
-  Y3/3` red when final, `Expired Y3/3` on the expired view, muted `—`
-  for uncontracted — no fake year); status pill = the owner name only,
+  are compact, display-only strings**: contract = `Y1/3` (red `Y3/3`
+  when final or expired — no visible label; "final year of contract" /
+  "contract expired" ride in the accessible name via `SrOnly` and on
+  hover; muted `—` for uncontracted — no fake year); status pill = the owner name only,
   color carrying the state (keeper accent for declared keepers and
   under-contract players, readable grey for rostered-only; team-filter
   views show `Keeper` / no pill instead since the name is redundant

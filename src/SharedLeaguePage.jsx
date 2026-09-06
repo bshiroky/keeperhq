@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader, Search, Check } from 'lucide-react';
-import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark } from './components.jsx';
+import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark, SrOnly } from './components.jsx';
 import { normalizeName } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import { RulesButton } from './LeagueRulesModal.jsx';
@@ -172,10 +172,28 @@ function statLineFor(rec) {
 }
 
 // Contract text — compact, value-only (display-only; the underlying kinds are
-// unchanged). Contracted players show just "Y1/3"; the final year keeps the
-// red treatment with a short "Final yr" label; uncontracted players show a
-// muted "—" (no fake year); expired keeps its label so it can't be misread as
-// final-year in mixed lists. Auction leagues show the keep cost instead.
+// unchanged). Contracted players show just "Y1/3"; the final year and an
+// expired contract keep the red treatment but NO visible label — "Y3/3"
+// already says it's the last year, the colour carries the emphasis, and the
+// row's tint / "was {team}" pill / footer separate expired from final on a
+// team tab. The full meaning lives in the accessible name instead: a screen
+// reader hears "Y3/3, final year of contract" where a sighted reader sees red,
+// and the hover carries the same phrase. Uncontracted players show a muted
+// "—" (no fake year). Auction leagues show the keep cost instead.
+const FINAL_YEAR_TEXT = 'final year of contract';
+const EXPIRED_TEXT = 'contract expired, can\u2019t be kept';
+
+function TermText({ row, style }) {
+  const value = `Y${row.year}/${row.len}`;
+  const meaning = row.kind === 'expired' ? EXPIRED_TEXT : row.final ? FINAL_YEAR_TEXT : null;
+  return (
+    <span style={style} title={meaning ? `${value} — ${meaning}` : undefined}>
+      {value}
+      {meaning && <SrOnly>, {meaning}</SrOnly>}
+    </span>
+  );
+}
+
 function ContractText({ row, league, isDark }) {
   const t = makeTheme(isDark);
   if (isAuctionCost(league)) {
@@ -190,9 +208,7 @@ function ContractText({ row, league, isDark }) {
         </span>
         {/* With a term as well as a price, the term rides the second line. */}
         {hasTerm(league) && row.kind !== 'rostered' && (
-          <span style={{ ...tokens.typeStatMeta, color: row.final ? tokens.danger : t.textMuted, whiteSpace: 'nowrap' }}>
-            {row.final ? 'Final yr ' : ''}{`Y${row.year}/${row.len}`}
-          </span>
+          <TermText row={row} style={{ ...tokens.typeStatMeta, color: (row.final || row.kind === 'expired') ? tokens.danger : t.textMuted, whiteSpace: 'nowrap' }} />
         )}
         {row.draftedCost != null && (
           <span style={{ ...tokens.typeStatMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>
@@ -215,14 +231,8 @@ function ContractText({ row, league, isDark }) {
   if (!hasTerm(league)) {
     return <span style={{ ...tokens.typePill, color: t.textMuted }}>{row.kind === 'keeper' ? 'Kept' : '—'}</span>;
   }
-  let label = null, color = tokens.info;
-  if (row.kind === 'expired') { label = 'Expired'; color = tokens.danger; }
-  else if (row.final) { label = 'Final yr'; color = tokens.danger; }
-  return (
-    <span style={{ ...tokens.typePill, color, whiteSpace: 'nowrap' }}>
-      {label && <>{label} </>}<span style={{ fontWeight: 800 }}>{`Y${row.year}/${row.len}`}</span>
-    </span>
-  );
+  const color = (row.kind === 'expired' || row.final) ? tokens.danger : tokens.info;
+  return <TermText row={row} style={{ ...tokens.typePill, fontWeight: 800, color, whiteSpace: 'nowrap' }} />;
 }
 
 // "On team" pill — the OWNER NAME only; color carries the state, and a check
@@ -262,7 +272,10 @@ function RowStatusPill({ row, league, isDark, maxWidth }) {
       boxSizing: 'border-box',
       display: 'inline-flex', alignItems: 'center', gap: 4,
     }}>
-      {kept && <Check size={11} strokeWidth={3} style={{ flexShrink: 0 }} />}
+      {/* The check glyph is the visible "kept" mark; the text equivalent is
+          read-only so the row's meaning doesn't depend on colour or an icon. */}
+      {kept && <Check size={11} strokeWidth={3} aria-hidden style={{ flexShrink: 0 }} />}
+      {kept && <SrOnly>Keeper, </SrOnly>}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
     </span>
   );
@@ -283,7 +296,7 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
   const statLine = isHockey ? statLineFor(rec) : null;
   if (!isHockey) {
     return (
-      <div className="kh-share-row" style={{
+      <li className="kh-share-row" style={{
         display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
         background: kept ? t.successBg : expired ? t.dangerBg : t.cardBg,
         border: `1px solid ${kept ? t.successBorder : expired ? t.dangerBorder : t.border}`,
@@ -296,11 +309,11 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
         </span>
         <ContractText row={row} league={league} isDark={isDark} />
         <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />
-      </div>
+      </li>
     );
   }
   return (
-    <div className="kh-share-row" style={{
+    <li className="kh-share-row" style={{
       display: 'flex', alignItems: 'center', gap: tokens.spaceSm,
       background: kept ? t.successBg : expired ? t.dangerBg : t.cardBg,
       border: `1px solid ${kept ? t.successBorder : expired ? t.dangerBorder : t.border}`,
@@ -325,7 +338,7 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
         <ContractText row={row} league={league} isDark={isDark} />
         <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={190} />
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -352,22 +365,27 @@ function ListSearch({ value, onChange, count, isDark }) {
             fontFamily: 'inherit', outline: 'none',
           }} />
       </div>
-      <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+      {/* Live region: the count is the search's result, so a screen reader
+          hears "3 players" as the filter narrows instead of having to go find
+          the list again. */}
+      <span role="status" aria-live="polite" style={{ ...tokens.typeBodyMeta, color: t.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
         {count} player{count === 1 ? '' : 's'}
       </span>
     </div>
   );
 }
 
-function RowList({ rows, league, playerMap, isDark }) {
+// A real list: a screen reader announces the count on entry and moves row by
+// row, which a stack of divs never gives it.
+function RowList({ rows, league, playerMap, isDark, label }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs }}>
+    <ul aria-label={label} style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs, listStyle: 'none', margin: 0, padding: 0 }}>
       {rows.map(row => (
         <PlayerRow key={`${row.teamId}-${row.player}`} row={row} league={league}
           rec={playerMap?.get(normalizeName(row.player))} isDark={isDark}
           kept={row.kind === 'keeper'} />
       ))}
-    </div>
+    </ul>
   );
 }
 
@@ -383,6 +401,14 @@ function RowList({ rows, league, playerMap, isDark }) {
 // Contract/Status are content-fit now that the wordy labels are gone
 // ("On contract Y1/3" → "Y1/3", "Keeper · Ben" → "Ben") — the freed width
 // goes to the stat group, so rows end flush instead of collecting dead air.
+//
+// Every fixed-width cell is BORDER-BOX. These constants are the sticky
+// offsets too (`left: PLAYER_W`, `right: STATUS_W`, the snap padding), and
+// with content-box sizing the cells rendered wider than the offsets assumed:
+// the On-team cell painted 24px over the Contract cell's right edge (so
+// "Y2/3" read as a centred "Y2"), and the Player column ran 28px past the
+// snap boundary, leaving a sliver of the next stat column peeking out under
+// it. The pixel the offset names has to be the pixel the cell ends on.
 const PLAYER_W = 230;
 const STAT_W = 64;
 const CONTRACT_W = 100;
@@ -398,8 +424,6 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
 
   const scrollRef = React.useRef(null);
   const [containerW, setContainerW] = React.useState(0);
-  const [canLeft, setCanLeft] = React.useState(false);
-  const [canRight, setCanRight] = React.useState(false);
 
   // CONTRACT_W is sized for snake's compact "Y1/3" strings; auction's
   // "Keep for $XX" + "Drafted $XX" pair needs more room or the sticky Status
@@ -409,22 +433,28 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
   const nStats = cats.length;
   const naturalW = PLAYER_W + nStats * STAT_W + contractW + STATUS_W;
   const stretchMode = containerW > 0 && naturalW <= containerW;
+  // Scroll mode: the visible stat region is an INTEGER number of columns.
+  // Whatever width is left over (0 to STAT_W-1 px) goes to the Contract
+  // column, so the pinned panel's left edge lands exactly on a column
+  // boundary and nothing is half-cut under it; scroll-snap then keeps every
+  // stop on a boundary too (the scrollable range is a multiple of STAT_W).
+  const statViewportW = Math.max(0, containerW - PLAYER_W - contractW - STATUS_W);
+  const slack = (!stretchMode && containerW > 0 && nStats > 0) ? statViewportW % STAT_W : 0;
+  const pinnedContractW = contractW + slack;
+  const tableW = naturalW + slack;
 
   React.useEffect(() => {
     function update() {
       const el = scrollRef.current;
       if (!el) return;
       setContainerW(el.clientWidth);
-      setCanLeft(el.scrollLeft > 1);
-      setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
     }
     update();
     const el = scrollRef.current;
     if (!el) return;
-    el.addEventListener('scroll', update);
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => { el.removeEventListener('scroll', update); ro.disconnect(); };
+    return () => { ro.disconnect(); };
   }, [nStats, rows.length]);
 
   function clickSort(cat) {
@@ -478,68 +508,65 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
     ...tokens.typeLabelEyebrow, color: t.textMuted,
     borderBottom: `1px solid ${t.divider}`, whiteSpace: 'nowrap',
   };
-  // The sticky boundaries are drawn as a 1px rule on the pinned cells (Player's
-  // right edge, Cost-to-keep's left edge) plus a FAINT, narrow edge fade that
-  // appears only while columns are clipped on that side. The first version was
-  // a 22px shadow at 0.16/0.55 alpha, which read as the pinned columns
-  // floating over the stats as a separate panel; the rule is what says
-  // "these columns are part of the table", and the fade is a hint, not a
-  // shadow. Overlays are pointer-events: none so they never block scrolling,
-  // sorting, or row content; opacity-toggled so appear/disappear fades.
+  // The sticky boundaries are a 1px rule on the pinned cells (Player's right
+  // edge, Contract's left edge) and NOTHING else: the pinned cells carry the
+  // row's own background, so the only thing separating them from the stats is
+  // the rule. Two earlier versions layered an edge shadow / fade over the
+  // boundary as a scroll affordance, and both read as the pinned columns
+  // floating over the table as a separate surface — which, together with the
+  // sizing overlap above, is what looked broken. The scroll hint is the
+  // native scrollbar and the column snap.
   const stickyRule = stretchMode ? 'none' : `1px solid ${t.border}`;
-  const fadeShadow = isDark ? 'rgba(0,0,0,0.22)' : 'rgba(26,31,46,0.06)';
-  const edgeFade = (side, on) => ({
-    position: 'absolute', top: 0, bottom: 0, width: 10, zIndex: 5,
-    pointerEvents: 'none', opacity: on ? 1 : 0, transition: 'opacity 0.18s',
-    ...(side === 'left'
-      ? { left: PLAYER_W, background: `linear-gradient(to right, ${fadeShadow}, transparent)` }
-      : { right: contractW + STATUS_W, background: `linear-gradient(to left, ${fadeShadow}, transparent)` }),
-  });
+  // Sort state for the column headers — aria-sort on the active header, and
+  // the arrow glyph hidden from the accessible name (it's read as
+  // "black down-pointing small triangle" otherwise).
+  const ariaSortOf = (cat) => (sort.key === cat.key ? (sort.dir === 'desc' ? 'descending' : 'ascending') : 'none');
 
   let renderedSoFar = 0;
   return (
     <div style={{ marginBottom: tokens.spaceLg }}>
-      {title && <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginBottom: tokens.spaceXs }}>{title}</div>}
+      {/* The group title is a real heading — the page's section landmarks for
+          a screen reader (the Rostered view has one table and no title, so
+          the table's own label carries it there). */}
+      {title && <h2 style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, margin: `0 0 ${tokens.spaceXs}px` }}>{title}</h2>}
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusLg, boxShadow: t.cardShadow, overflow: 'hidden', position: 'relative' }}>
         {toolbar}
-        {!stretchMode && <div aria-hidden style={edgeFade('left', canLeft)} />}
-        {!stretchMode && <div aria-hidden style={edgeFade('right', canRight)} />}
         <div ref={scrollRef} style={{
           overflowX: stretchMode ? 'hidden' : 'auto',
           scrollSnapType: stretchMode ? 'none' : 'x mandatory',
           scrollPaddingLeft: stretchMode ? 0 : PLAYER_W,
         }}>
-          <table style={{
-            width: stretchMode ? '100%' : `${naturalW}px`,
+          <table aria-label={title || 'Players'} style={{
+            width: stretchMode ? '100%' : `${tableW}px`,
             tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0,
           }}>
             <thead>
               <tr>
-                <th style={{ ...headerCell, position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderRight: stickyRule }}>
+                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', left: 0, zIndex: 3, textAlign: 'left', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderRight: stickyRule }}>
                   Player
                 </th>
                 {cats.map(cat => {
                   const active = sort.key === cat.key;
                   return (
-                    <th key={cat.key} style={{
-                      ...headerCell, padding: 0,
+                    <th key={cat.key} scope="col" aria-sort={ariaSortOf(cat)} style={{
+                      ...headerCell, padding: 0, boxSizing: 'border-box',
                       width: stretchMode ? 'auto' : STAT_W,
                       minWidth: stretchMode ? 0 : STAT_W,
                       scrollSnapAlign: stretchMode ? 'none' : 'start',
                     }}>
-                      <button onClick={() => clickSort(cat)} style={{
+                      <button onClick={() => clickSort(cat)} aria-label={`Sort by ${cat.label}`} style={{
                         width: '100%', boxSizing: 'border-box', background: 'transparent', border: 'none',
                         padding: '9px 10px', cursor: 'pointer', fontFamily: 'inherit',
                         ...tokens.typeLabelEyebrow, color: active ? t.textPrimary : t.textMuted,
                         textAlign: 'right', whiteSpace: 'nowrap',
                       }}>
-                        {cat.label}{active ? (sort.dir === 'desc' ? ' ▾' : ' ▴') : ''}
+                        {cat.label}{active && <span aria-hidden>{sort.dir === 'desc' ? ' ▾' : ' ▴'}</span>}
                       </button>
                     </th>
                   );
                 })}
-                <th style={{ ...headerCell, position: 'sticky', right: STATUS_W, zIndex: 3, width: contractW, minWidth: contractW, borderLeft: stickyRule }}>{costColumnLabel(league)}</th>
-                <th style={{ ...headerCell, position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{OWNER_COLUMN_LABEL}</th>
+                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', right: STATUS_W, zIndex: 3, width: pinnedContractW, minWidth: pinnedContractW, borderLeft: stickyRule }}>{costColumnLabel(league)}</th>
+                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{OWNER_COLUMN_LABEL}</th>
               </tr>
             </thead>
             <tbody>
@@ -560,7 +587,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                           // same tint opaquely over cardBg.
                           background: kept ? t.successBg : expired ? t.dangerBg : undefined,
                         }}>
-                        <td style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, borderRight: stickyRule }}>
+                        <th scope="row" style={{ position: 'sticky', left: 0, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 14px', width: PLAYER_W, minWidth: PLAYER_W, borderBottom: rowBorder, borderRight: stickyRule, textAlign: 'left', fontWeight: 'inherit' }}>
                           {isHockey ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0, opacity: dim }}>
                               <SharedHeadshot rec={rec} isDark={isDark} size={30} />
@@ -581,7 +608,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                               {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, flexShrink: 0 }}>{pos}</span>}
                             </div>
                           )}
-                        </td>
+                        </th>
                         {nStats === 0 ? null : rec ? (
                           cats.map(cat => (
                             <td key={cat.key} style={{ padding: '9px 10px', textAlign: 'right', ...tokens.typeStatMeta, fontSize: '11px', color: sort.key === cat.key ? t.textPrimary : t.textBody, borderBottom: rowBorder, whiteSpace: 'nowrap', opacity: dim }}>
@@ -597,12 +624,12 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                             </span>
                           </td>
                         )}
-                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), padding: '9px 10px', textAlign: 'right', width: contractW, minWidth: contractW, borderBottom: rowBorder, borderLeft: stickyRule, whiteSpace: 'nowrap' }}>
+                        <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 10px', textAlign: 'right', width: pinnedContractW, minWidth: pinnedContractW, borderBottom: rowBorder, borderLeft: stickyRule, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <ContractText row={row} league={league} isDark={isDark} />
                           </span>
                         </td>
-                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(row), padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
+                        <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
                             <RowStatusPill row={row} league={league} isDark={isDark} />
                           </span>
@@ -679,13 +706,20 @@ function TeamPicksSection({ league, board, team, isDark }) {
   const note = describePickListStatus(status);
   const roundPill = (round, muted) => (
     <span style={{ ...tokens.typePillEmphatic, color: muted ? t.textMuted : t.textSecondary, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '2px 7px', flexShrink: 0, minWidth: 30, textAlign: 'center', boxSizing: 'border-box' }}>
-      R{round}
+      <span aria-hidden>R{round}</span><SrOnly>Round {round},</SrOnly>
+    </span>
+  );
+  // "via X" is the visible shorthand; the read-out says what it means.
+  const origin = (id) => (
+    <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+      title={`originally ${nameOf(id)}\u2019s pick`}>
+      <span aria-hidden>via {nameOf(id)}</span><SrOnly>originally {nameOf(id)}\u2019s pick</SrOnly>
     </span>
   );
   return (
     <section aria-label={`${team.name} draft picks`} style={{ marginTop: tokens.spaceLg }}>
       <div style={{ marginBottom: tokens.spaceXs, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: tokens.spaceSm, flexWrap: 'wrap' }}>
-        <span style={{ ...tokens.typeHeadingSection, color: t.textSecondary }}>Draft picks</span>
+        <h2 style={{ ...tokens.typeHeadingSection, color: t.textSecondary, margin: 0 }}>Draft picks</h2>
         <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
           {picks.length} pick{picks.length === 1 ? '' : 's'} held{gone.length > 0 ? ` · ${gone.length} traded away` : ''}
         </span>
@@ -715,11 +749,7 @@ function TeamPicksSection({ league, board, team, isDark }) {
                     {number
                       ? <span style={{ fontWeight: 800, color: t.textPrimary, whiteSpace: 'nowrap' }}>Pick {number}</span>
                       : <span style={{ color: t.textMuted }}>Round {p.round}</span>}
-                    {p.via && (
-                      <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        via {nameOf(p.via)}
-                      </span>
-                    )}
+                    {p.via && origin(p.via)}
                   </span>
                 </li>
               );
@@ -728,7 +758,7 @@ function TeamPicksSection({ league, board, team, isDark }) {
         )}
         {gone.length > 0 && (
           <div aria-label={`${team.name} picks traded away`} style={{ borderTop: `1px solid ${t.divider}`, background: t.sectionBg }}>
-            <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px 0` }}>Traded away</div>
+            <h3 style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px 0`, margin: 0 }}>Traded away</h3>
             <ul style={{ listStyle: 'none', margin: 0, padding: `0 ${tokens.spaceSm}px` }}>
               {gone.map((p, i) => {
                 const number = formatPickNumber(p.number);
@@ -744,7 +774,7 @@ function TeamPicksSection({ league, board, team, isDark }) {
                         ? <span style={{ fontWeight: 700, whiteSpace: 'nowrap', textDecoration: 'line-through' }}>Pick {number}</span>
                         : <span style={{ textDecoration: 'line-through' }}>Round {p.round}</span>}
                       <span style={{ ...tokens.typeBodyMeta, color: tokens.warning, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        → traded to {nameOf(p.ownerTeamId)}
+                        <span aria-hidden>→ </span>traded to {nameOf(p.ownerTeamId)}
                       </span>
                     </span>
                   </li>
@@ -764,7 +794,7 @@ function ViewHeader({ title, subtitle, danger, isDark }) {
   const t = makeTheme(isDark);
   return (
     <div style={{ marginBottom: tokens.spaceSm }}>
-      <div style={{ ...tokens.typeHeadingSection, color: danger ? tokens.danger : t.textSecondary }}>{title}</div>
+      <h2 style={{ ...tokens.typeHeadingSection, color: danger ? tokens.danger : t.textSecondary, margin: 0 }}>{title}</h2>
       {subtitle && <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 3 }}>{subtitle}</div>}
     </div>
   );
@@ -824,7 +854,11 @@ function InvalidLinkPage({ isDark }) {
   );
 }
 
-function FilterChip({ label, active, danger, onClick, isDark }) {
+// One chip of the view rail. The rail is a tablist (roving tabIndex: the
+// selected tab is the only one in the Tab order, arrows move between them),
+// so a screen reader announces "tab, 2 of 7, selected" and the chip order it
+// hears is the alphabetical order the strip shows.
+function FilterChip({ id, label, active, danger, onClick, isDark }) {
   const t = makeTheme(isDark);
   let colors;
   if (danger) {
@@ -837,12 +871,33 @@ function FilterChip({ label, active, danger, onClick, isDark }) {
       : { background: t.cardBg, color: t.textSecondary, border: `1px solid ${t.border}` };
   }
   return (
-    <button onClick={onClick} style={{
+    <button role="tab" id={chipDomId(id)} aria-selected={active} aria-controls={PANEL_ID} tabIndex={active ? 0 : -1}
+      onClick={onClick} style={{
       ...tokens.typePill, fontWeight: 600, borderRadius: tokens.radiusPill,
       padding: '6px 13px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
       fontFamily: 'inherit', ...colors,
     }}>{label}</button>
   );
+}
+
+const PANEL_ID = 'kh-share-panel';
+const chipDomId = (id) => `kh-share-tab-${String(id).replace(/[^a-z0-9_-]/gi, '_')}`;
+
+// Arrow keys move selection AND focus along the rail (Home/End jump to the
+// ends); selecting on arrow, not just on Enter, matches how native tab strips
+// behave and means a keyboard user never lands on a chip that isn't showing.
+function railKeyDown(e, chips, filter, setFilter) {
+  const idx = chips.findIndex(c => c.id === filter);
+  let next = null;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % chips.length;
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + chips.length) % chips.length;
+  else if (e.key === 'Home') next = 0;
+  else if (e.key === 'End') next = chips.length - 1;
+  if (next == null) return;
+  e.preventDefault();
+  setFilter(chips[next].id);
+  const el = e.currentTarget.querySelector(`#${chipDomId(chips[next].id)}`);
+  if (el) el.focus();
 }
 
 // ── The page ────────────────────────────────────────────────────────────────
@@ -978,7 +1033,8 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
       ) : (
         <div>
           <div style={{ marginBottom: tokens.spaceXs }}>{searchBar}</div>
-          <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark} />
+          <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
+            label={filterTeam ? `${filterTeam.name} players` : 'Players'} />
         </div>
       )}
 
@@ -1014,9 +1070,9 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, minWidth: 0 }}>
-                <span style={{ ...LEAGUE_NAME_TYPE, color: t.textPrimary, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <h1 style={{ ...LEAGUE_NAME_TYPE, color: t.textPrimary, lineHeight: 1.2, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {league.name}
-                </span>
+                </h1>
                 <RulesButton league={league} isDark={isDark} />
               </div>
               <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>
@@ -1028,10 +1084,12 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               {locked ? (
                 <span style={{ ...tokens.typeBody, fontWeight: 600, color: t.textSecondary, whiteSpace: 'nowrap' }}>
-                  🔒 Keepers locked · {cd.dateShort}
+                  <span aria-hidden>🔒 </span>Keepers locked · {cd.dateShort}
                 </span>
               ) : (
                 <>
+                  {/* "15 days" alone is meaningless read out of context. */}
+                  <SrOnly>Keeper deadline in </SrOnly>
                   <div style={{ ...COUNTDOWN_TYPE, color: sport.color, whiteSpace: 'nowrap' }}>{cd.label}</div>
                   <div style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, marginTop: 1, whiteSpace: 'nowrap' }}>{cd.dateLabel}</div>
                 </>
@@ -1041,9 +1099,11 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
         </div>
       </div>
 
-      {/* Sticky countdown pill — floats in once the band scrolls off */}
+      {/* Sticky countdown pill — floats in once the band scrolls off. A
+          visual duplicate of the band's countdown, so hidden from assistive
+          tech (it would otherwise read the deadline twice). */}
       {cd && (
-        <div className="kh-share-pill-wrap" style={{
+        <div className="kh-share-pill-wrap" aria-hidden style={{
           position: 'sticky', top: tokens.spaceXs, zIndex: 60, height: 0,
           display: 'flex', justifyContent: 'center', pointerEvents: 'none',
           visibility: pillOn ? 'visible' : 'hidden',
@@ -1074,15 +1134,19 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
       {/* Filter rail + list */}
       <div style={{ flex: 1, width: '100%', maxWidth: 1100, margin: '0 auto', padding: `${tokens.spaceMd}px ${tokens.spaceLg}px 0`, boxSizing: 'border-box' }}>
         <div className="kh-share-rail" style={{ marginBottom: tokens.spaceMd }}>
-          <div className="kh-share-rail-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 0' }}>
+          <div className="kh-share-rail-scroll" role="tablist" aria-label="Views"
+            onKeyDown={e => railKeyDown(e, chips, filter, setFilter)}
+            style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 0' }}>
             {chips.map(chip => (
-              <FilterChip key={chip.id} label={chip.label} danger={chip.danger}
+              <FilterChip key={chip.id} id={chip.id} label={chip.label} danger={chip.danger}
                 active={filter === chip.id} isDark={isDark}
                 onClick={() => setFilter(chip.id)} />
             ))}
           </div>
         </div>
-        {body}
+        <div id={PANEL_ID} role="tabpanel" aria-labelledby={chipDomId(filter)}>
+          {body}
+        </div>
       </div>
 
       <FooterMark isDark={isDark} />

@@ -8,7 +8,7 @@
 
 import {
   keeperCostModelOf, termOf, hasTerm, isFinalYear, keeperValueText,
-  keeperArchetypeOf, draftFormatOf, isAuctionCost, hasKeeperData, hasAuctionRulesBlock,
+  keeperArchetypeOf, draftFormatOf, isAuctionCost, hasKeeperData, hasAuctionRulesBlock, hasLastDraftPage,
   COST_SLOT, COST_PICKS, COST_AUCTION, TERM_NONE, TERM_FIXED,
 } from '../src/lib/keeperRules.js';
 import { advanceKeeper, startNewSeason } from '../src/lib/season.js';
@@ -145,6 +145,17 @@ section('cost-model lock gate');
 eq(hasKeeperData({ teams: [{ keepers: [], priorKeepers: [] }] }), false, 'no keepers → unlocked');
 eq(hasKeeperData({ teams: [{ keepers: [{ player: 'A' }] }] }), true, 'declared keepers → locked');
 eq(hasKeeperData({ teams: [{ priorKeepers: [{ player: 'A' }] }] }), true, 'imported prior draft → locked');
+
+// ── hasLastDraftPage — the Last Draft page + Import pointer gate ──────────
+// Gated on the keeper COST model: a draft value sets a keeper's cost on
+// auction (price) and pick-cost (round) leagues, never on a slot league.
+eq(hasLastDraftPage({ keeperCostModel: 'auction', draftType: 'auction' }), true, 'auction cost → page');
+eq(hasLastDraftPage({ keeperCostModel: 'picks', draftType: 'snake' }), true, 'pick cost → page');
+eq(hasLastDraftPage({ keeperCostModel: 'slot', draftType: 'snake', termModel: 'fixed', termYears: 3 }), false, 'slot cost with terms → no page');
+eq(hasLastDraftPage({ keeperCostModel: 'slot', draftType: 'auction' }), false, 'slot cost on an auction-format draft → still no page (format is not cost)');
+// Pre-wizard rows resolve through the shim first.
+eq(hasLastDraftPage({ draftType: 'snake', contractYears: 3 }), false, 'legacy snake + contractYears reads as slot → no page');
+eq(hasLastDraftPage({ draftType: 'auction', auctionRules: { costIncreasePerYear: 5 } }), true, 'legacy auction block → page');
 
 // ── buildLeague (optional — needs the esbuild bundle) ─────────────────────
 let buildLeague = null;
