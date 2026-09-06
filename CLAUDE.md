@@ -1189,7 +1189,21 @@ Yahoo work off 47%, not off the optimistic reading.
   `teamPicks`) feeds a "Traded away" block under the held list: muted,
   struck-through number, "→ traded to Pedram"; the count line reads
   "N picks held · M traded away". One row per pick always — two picks in one
-  round are two rows with their own numbers, asserted. Not in this pass: the
+  round are two rows with their own numbers, asserted. **(5) Unkeep clears a
+  Y1 contract.** Keep a no-contract player → Y1/3 (right); unkeep him → he
+  lingered as "On a contract · Y1/3", indistinguishable from a real prior
+  deal. Rule, in `clearContractOnUnkeep` (`src/lib/contractYear.js`, called
+  from the workbench's `removeName`): a keeper in **Y1** is under contract
+  only because of this season's keep, so unkeeping removes the price-less,
+  round-less Y1 prior record with it (logged as a `term` change); **Y2+**
+  predates the decision and stays; a record carrying a drafted price or round
+  came from an import and is never touched. Bundled: `setContractYear` with
+  **Y1 at the default length on a player with no record is a true no-op** —
+  that state IS "no contract", and writing a record for it was the one live
+  path that created the lingering row (Y1 at a non-default length still
+  writes one, since the length has to live somewhere). `test:contracts`
+  covers both directions; `test:shared` renders keep → unkeep and asserts the
+  page shows the muted dash, never `Y1/3`, for him. Not in this pass: the
   commissioner and shared pages converging on one tab structure (after the
   draft).
 

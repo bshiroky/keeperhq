@@ -3,7 +3,7 @@
 // last season, separate from this season's keep decision, so it lands on the
 // prior-keeper record (where the pool reads it) and never declares a keeper.
 import assert from 'node:assert/strict';
-import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../src/lib/contractYear.js';
+import { setContractYear, clearContractOnUnkeep, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../src/lib/contractYear.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -82,6 +82,54 @@ test('expiring a player never touches a keeper declaration', () => {
   const { league: next } = setContractYear(declared, 'a', 'Jack Hughes', { year: EXPIRED, length: 3 });
   assert.deepEqual(next.teams[0].keepers[0], { player: 'Jack Hughes', contractYear: 2, contractLength: 3 });
   assert.equal(next.teams[1].priorKeepers[0].expired, true);
+});
+
+test('Y1 at the default length on a no-record player is the no-contract state — no record is written', () => {
+  const same = setContractYear(league, 'a', 'Nico Hischier', { year: 1, length: 3 });
+  assert.equal(same.league, league, 'unchanged');
+  assert.deepEqual(same.changes, []);
+  // A non-default length is a fact the record has to hold.
+  const { league: next } = setContractYear(league, 'a', 'Nico Hischier', { year: 1, length: 4 });
+  assert.deepEqual(next.teams[0].priorKeepers.find(p => p.player === 'Nico Hischier'), { player: 'Nico Hischier', contractYear: 0, contractLength: 4, pos: 'C' });
+});
+
+// ── Unkeep ──────────────────────────────────────────────────────────────────
+// Keep a no-contract player → Y1/3. Unkeep him → he must go back to
+// "Rostered · no contract", not linger as an on-contract Y1/3 row.
+const Y1_RECORD = { player: 'Nico Hischier', contractYear: 0, contractLength: 3, pos: 'C' };
+const withY1 = { ...league, teams: league.teams.map(tm => tm.id === 'a'
+  ? { ...tm, priorKeepers: [Y1_RECORD], keepers: [{ player: 'Nico Hischier', contractYear: 1, contractLength: 3 }] }
+  : tm) };
+
+test('unkeep at Y1 clears the contract state — the Y1 record goes, and it is logged', () => {
+  const keeper = withY1.teams[0].keepers[0];
+  const { league: next, changes } = clearContractOnUnkeep(withY1, 'a', keeper);
+  assert.deepEqual(next.teams[0].priorKeepers, [], 'the record that only existed because of the keep is gone');
+  assert.equal(next.teams[0].keepers.length, 1, 'the caller removes the declaration itself');
+  assert.deepEqual(changes.map(c => [c.kind, c.field, c.player, c.from, c.to]), [['term', 'contractYear', 'Nico Hischier', 1, null]]);
+});
+
+test('unkeep at Y2+ leaves the contract alone — it predates the decision', () => {
+  const y2 = { ...withY1, teams: withY1.teams.map(tm => tm.id === 'a'
+    ? { ...tm, priorKeepers: [{ ...Y1_RECORD, contractYear: 1 }], keepers: [{ player: 'Nico Hischier', contractYear: 2, contractLength: 3 }] }
+    : tm) };
+  const same = clearContractOnUnkeep(y2, 'a', y2.teams[0].keepers[0]);
+  assert.equal(same.league, y2);
+  assert.deepEqual(same.changes, []);
+  assert.equal(same.league.teams[0].priorKeepers[0].contractYear, 1, 'still entering Y2');
+});
+
+test('unkeep at Y1 never touches an imported record (price or round on it), nor a term-less league', () => {
+  // Hughes: drafted by Beta with a price, entering Y1 — last season's fact.
+  const declared = { ...league, teams: league.teams.map(tm => tm.id === 'a' ? { ...tm, keepers: [{ player: 'Jack Hughes', contractYear: 1, contractLength: 3 }] } : tm) };
+  const same = clearContractOnUnkeep(declared, 'a', declared.teams[0].keepers[0]);
+  assert.equal(same.league, declared);
+  assert.deepEqual(declared.teams[1].priorKeepers[0], { player: 'Jack Hughes', contractYear: 0, contractLength: 3, keptFor: 40 });
+  const rounded = { ...withY1, teams: withY1.teams.map(tm => tm.id === 'a' ? { ...tm, priorKeepers: [{ ...Y1_RECORD, acquisitionRound: 3 }] } : tm) };
+  assert.equal(clearContractOnUnkeep(rounded, 'a', rounded.teams[0].keepers[0]).league, rounded, 'a draft-round record stays');
+  const noTerm = { ...withY1, termModel: 'none', termYears: null };
+  assert.equal(clearContractOnUnkeep(noTerm, 'a', noTerm.teams[0].keepers[0]).league, noTerm);
+  assert.equal(clearContractOnUnkeep(withY1, 'a', null).league, withY1, 'no keeper, nothing to do');
 });
 
 test('options: Y1..Ylen, lengths 1..5', () => {

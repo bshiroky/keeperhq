@@ -26,7 +26,7 @@ const {
   buildSharedRows, sortRowsDefault, sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL,
   keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
-  buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, teamPicks, teamTradedAwayPicks, formatPickNumber,
+  buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, clearContractOnUnkeep, teamPicks, teamTradedAwayPicks, formatPickNumber,
   keeperCostModelOf,
 } = await import('../.tmp-shared-bundle.mjs');
 
@@ -846,6 +846,40 @@ test('contract year: set on a rostered player, the shared page shows Y2/3 — an
   assert.equal(league.teams[0].keepers.length, 0, 'nothing was declared for this season');
   const html = renderPage(league, false);
   assert.ok(html.includes('Y2/3') && html.includes('Final yr'), 'both reach the page');
+});
+
+test('keep then unkeep a no-contract player: he returns to Rostered, and the shared page shows no year for him', () => {
+  const base = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }], keepers: [] }],
+  };
+  // Keep: the declaration reads Y1 from the row (nextYear 1, the no-contract default).
+  const pool = buildTeamPool(base, base.teams[0]);
+  const entry = pool.rosteredNoContract.find(e => e.player === 'Nico Hischier');
+  assert.equal(entry.nextYear, 1);
+  const keeper = { player: entry.player, contractYear: entry.nextYear, contractLength: entry.length };
+  // …and a Y1 record on file (the pool row's control used to write one; the
+  // draft-prep migration path can leave one too).
+  const kept = { ...base, teams: [{ ...base.teams[0], keepers: [keeper], priorKeepers: [{ player: 'Nico Hischier', contractYear: 0, contractLength: 3, pos: 'C' }] }] };
+  assert.equal(buildSharedRows(kept).find(r => r.player === 'Nico Hischier').kind, 'keeper');
+  assert.ok(renderPage(kept, false).includes('Y1/3'), 'kept: Y1/3 on the page');
+  // Unkeep: the declaration goes, and with it the Y1 contract state.
+  const { league: cleared } = clearContractOnUnkeep(kept, 't1', keeper);
+  const unkept = { ...cleared, teams: [{ ...cleared.teams[0], keepers: [] }] };
+  const after = buildTeamPool(unkept, unkept.teams[0]);
+  assert.ok(after.rosteredNoContract.some(e => e.player === 'Nico Hischier'), 'back in Rostered · no contract');
+  assert.ok(!after.onContract.some(e => e.player === 'Nico Hischier'), 'not on a contract');
+  const row = buildSharedRows(unkept).find(r => r.player === 'Nico Hischier');
+  assert.equal(row.kind, 'rostered');
+  const html = renderPage(unkept, false);
+  assert.ok(!html.includes('Y1/3'), 'no year rendered for a no-contract player');
+  assert.ok(html.includes('Nico Hischier') && html.includes('>—<'), 'the contract cell is the muted dash');
+  // The same unkeep on a Y2 keeper leaves his contract where it was.
+  const y2 = { ...kept, teams: [{ ...kept.teams[0], keepers: [{ ...keeper, contractYear: 2 }], priorKeepers: [{ player: 'Nico Hischier', contractYear: 1, contractLength: 3, pos: 'C' }] }] };
+  const { league: kept2 } = clearContractOnUnkeep(y2, 't1', y2.teams[0].keepers[0]);
+  const unkept2 = { ...kept2, teams: [{ ...kept2.teams[0], keepers: [] }] };
+  assert.equal(buildSharedRows(unkept2).find(r => r.player === 'Nico Hischier').kind, 'contract');
+  assert.ok(renderPage(unkept2, false).includes('Y2/3'), 'Y2 survives the unkeep');
 });
 
 test('contract year: the pool row carries the control, and Keep reads the year from it', () => {

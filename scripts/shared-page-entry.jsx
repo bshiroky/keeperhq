@@ -7,7 +7,7 @@ export {
 } from '../src/lib/sharedLeague.js';
 export { sortTeamsByName } from '../src/lib/teamOrder.js';
 export { buildTeamPool, EligiblePool } from '../src/tabs/SetKeepersTab.jsx';
-export { setContractYear } from '../src/lib/contractYear.js';
+export { setContractYear, clearContractOnUnkeep } from '../src/lib/contractYear.js';
 export { teamPicks, teamTradedAwayPicks, formatPickNumber } from '../src/lib/draftOrder.js';
 export { buildStatusIndex } from '../src/lib/players.js';
 export { SharedLeaguePage } from '../src/SharedLeaguePage.jsx';
