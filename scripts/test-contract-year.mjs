@@ -3,7 +3,7 @@
 // last season, separate from this season's keep decision, so it lands on the
 // prior-keeper record (where the pool reads it) and never declares a keeper.
 import assert from 'node:assert/strict';
-import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS } from '../src/lib/contractYear.js';
+import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../src/lib/contractYear.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -60,6 +60,28 @@ test('nothing to do returns the league unchanged', () => {
   assert.deepEqual(same.changes, []);
   const noop = setContractYear(league, 'a', 'Jack Hughes', { year: 1, length: 3 });
   assert.deepEqual(noop.changes, [], 'setting the value already on file logs nothing');
+});
+
+test('EXPIRED is settable directly: flagged, every year served, logged, and reversible', () => {
+  const { league: next, changes } = setContractYear(league, 'a', 'Nico Hischier', { year: EXPIRED, length: 3 });
+  const rec = next.teams[0].priorKeepers.find(p => p.player === 'Nico Hischier');
+  assert.equal(rec.expired, true);
+  assert.equal(rec.contractYear, 3, 'all three years served — reads expired under either check');
+  assert.equal(rec.contractLength, 3);
+  assert.equal(changes[0].to, 'expired');
+  // …and back to a live year clears it.
+  const { league: revived, changes: back } = setContractYear(next, 'a', 'Nico Hischier', { year: 2, length: 3 });
+  const rec2 = revived.teams[0].priorKeepers.find(p => p.player === 'Nico Hischier');
+  assert.equal('expired' in rec2, false);
+  assert.equal(rec2.contractYear, 1);
+  assert.deepEqual([back[0].from, back[0].to], ['expired', 2]);
+});
+
+test('expiring a player never touches a keeper declaration', () => {
+  const declared = { ...league, teams: league.teams.map(tm => tm.id === 'a' ? { ...tm, keepers: [{ player: 'Jack Hughes', contractYear: 2, contractLength: 3 }] } : tm) };
+  const { league: next } = setContractYear(declared, 'a', 'Jack Hughes', { year: EXPIRED, length: 3 });
+  assert.deepEqual(next.teams[0].keepers[0], { player: 'Jack Hughes', contractYear: 2, contractLength: 3 });
+  assert.equal(next.teams[1].priorKeepers[0].expired, true);
 });
 
 test('options: Y1..Ylen, lengths 1..5', () => {

@@ -1098,11 +1098,23 @@ Yahoo work off 47%, not off the optimistic reading.
   record stays on A with its price and B's pool still reads it), or a new
   record on the roster team when none exists; a declared keeper on the team is
   patched to match so slot and row can't disagree; an `expired` flag is
-  cleared by a live year; the edit is logged as `term` entries. Keep still
+  cleared by a live year; the edit is logged as `term` entries. **"Expired"
+  is an option beside the years** (`EXPIRED`): a player whose contract ran
+  out last season is marked directly from the row (stored as every year
+  served PLUS the explicit `expired` flag, so either check reads it), moves
+  to the Expired tab, and comes back by picking a year there; expiring never
+  touches a keeper declaration (removing one is the slot's × — a separate,
+  visible act). Keep still
   reads `nextYear` from the pool, so a Y3/3 row keeps as Y3/3 and renders
   expiring everywhere (pool, keeper slot, Overview card, shared page
   `Final yr Y3/3`). Overview cards were NOT given the control — the pool is
-  the one place, per the one-editor rule. **(2) Picks on the shared page** —
+  the one place, per the one-editor rule. **Shared page: expired players now
+  show on their TEAM tab** — pinned last (`expiredLast`), danger tint,
+  red `Expired Y3/3`, the `was {team}` pill, and a footer saying they can't be
+  kept — so a GM reading "my team" sees who is heading back to the draft. The
+  Rostered (trade) view still excludes them, and the Expired chip still lists
+  them league-wide; this supersedes the old "expired never leaks into team
+  views" rule for the team tab only. **(2) Picks on the shared page** —
   each team tab gets a "Draft picks" section under the roster
   (`TeamPicksSection` in `SharedLeaguePage.jsx`; never on the Rostered view,
   never on an auction league): one line per pick held — `R2 · Pick 17 ·

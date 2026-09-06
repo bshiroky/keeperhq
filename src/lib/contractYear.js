@@ -24,8 +24,12 @@
 import { normalizeName } from './players.js';
 import { changeEntry } from './changeLog.js';
 
-// The entering-year options a row can be set to: Y1..Ylen. Y(len+1) would be
-// "expired", which is the Expired tab's business, not this control's.
+// The entering-year options a row can be set to: Y1..Ylen. EXPIRED is the
+// one state past that — the contract ran out last season and the player is
+// back in the draft. It's the same state the Expired tab shows, exposed on
+// the row so a migrated league can mark it directly.
+export const EXPIRED = 'expired';
+
 export function contractYearOptions(length) {
   return Array.from({ length: Math.max(1, length || 1) }, (_, i) => i + 1);
 }
@@ -33,15 +37,21 @@ export function contractYearOptions(length) {
 export const CONTRACT_LENGTH_OPTIONS = [1, 2, 3, 4, 5];
 
 // → { league, changes }  — `changes` are change-log entries (kind 'term')
-// for what actually moved; empty when nothing did.
+// for what actually moved; empty when nothing did. `year` is an entering
+// year (1..length) or EXPIRED.
 export function setContractYear(league, teamId, playerName, { year, length }) {
   const teams = league?.teams || [];
   const key = normalizeName(playerName);
   const team = teams.find(tm => tm.id === teamId);
   if (!team || !key) return { league, changes: [] };
   const len = Math.max(1, Math.floor(length || 1));
-  const entering = Math.min(Math.max(1, Math.floor(year || 1)), len);
+  const expire = year === EXPIRED;
+  // Expired is stored as every year served PLUS the explicit flag buildTeamPool
+  // already reads — either alone would do; both means the record reads the
+  // same under either check.
+  const entering = expire ? len + 1 : Math.min(Math.max(1, Math.floor(year || 1)), len);
   const served = entering - 1;
+  const logged = expire ? EXPIRED : entering;
 
   const changes = [];
   const logTerm = (from, to, field) => {
@@ -57,12 +67,14 @@ export function setContractYear(league, teamId, playerName, { year, length }) {
     if (idx < 0) return tm;
     patched = true;
     const prior = priors[idx];
+    const wasExpired = !!prior.expired || (prior.contractYear || 0) + 1 > (prior.contractLength || len);
     // Log in the row's vocabulary: the entering year, not the stored count.
-    logTerm((prior.contractYear || 0) + 1, entering, 'contractYear');
+    logTerm(wasExpired ? EXPIRED : (prior.contractYear || 0) + 1, logged, 'contractYear');
     logTerm(prior.contractLength ?? null, len, 'contractLength');
     const next = { ...prior, contractYear: served, contractLength: len };
     // A record flagged expired that's explicitly given a live year is live.
-    if (next.expired) delete next.expired;
+    if (expire) next.expired = true;
+    else if (next.expired) delete next.expired;
     return { ...tm, priorKeepers: priors.map((p, i) => (i === idx ? next : p)) };
   });
 
@@ -71,15 +83,18 @@ export function setContractYear(league, teamId, playerName, { year, length }) {
     // roster row so the pool entry keeps rendering its chip.
     const rosterRow = (team.roster || []).find(r => normalizeName(r.player) === key);
     const record = { player: rosterRow?.player || playerName, contractYear: served, contractLength: len };
+    if (expire) record.expired = true;
     if (rosterRow?.pos) record.pos = rosterRow.pos;
-    logTerm(1, entering, 'contractYear');
+    logTerm(1, logged, 'contractYear');
     logTerm(null, len, 'contractLength');
     nextTeams = nextTeams.map(tm => (tm.id === teamId ? { ...tm, priorKeepers: [...(tm.priorKeepers || []), record] } : tm));
   }
 
-  // A keeper already declared on this team reads the same fact.
+  // A keeper already declared on this team reads the same fact. (Expiring a
+  // declared keeper leaves the keeper record alone — removing a declaration
+  // is the slot's × button, a separate, visible act.)
   nextTeams = nextTeams.map(tm => {
-    if (tm.id !== teamId) return tm;
+    if (tm.id !== teamId || expire) return tm;
     const keepers = tm.keepers || [];
     if (!keepers.some(k => normalizeName(k.player) === key)) return tm;
     return { ...tm, keepers: keepers.map(k => (normalizeName(k.player) === key ? { ...k, contractYear: entering, contractLength: len } : k)) };

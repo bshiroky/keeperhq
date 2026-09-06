@@ -7,7 +7,7 @@ import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABE
 import { RulesButton } from './LeagueRulesModal.jsx';
 import {
   fetchSharedLeague, buildSharedRows, statCategoriesFor, formatStat, sortRowsDefault,
-  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst, sharedDraftBoard,
+  sharedFilterChips, costColumnLabel, OWNER_COLUMN_LABEL, keepersFirst, expiredLast, sharedDraftBoard,
 } from './lib/sharedLeague.js';
 import { teamPicks, formatPickNumber, describePickListStatus } from './lib/draftOrder.js';
 
@@ -850,15 +850,18 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
     return () => io.disconnect();
   }, [cd != null]);
 
-  // Row selection per filter. Expired players never leak into keepable or
-  // team views; post-deadline the default view narrows to declared keepers.
+  // Row selection per filter. Expired players stay out of the Rostered view
+  // (the trade view — nobody can keep them) but DO show on their team's tab,
+  // pinned last and marked not keepable, so a GM reading "my team" sees who
+  // is heading back to the draft. Post-deadline the default view narrows to
+  // declared keepers.
   let rows;
   if (filter === 'expired') {
     rows = allRows.filter(r => r.kind === 'expired');
   } else if (filter === 'contracts') {
     rows = allRows.filter(r => r.kind === 'keeper' || r.kind === 'contract');
   } else if (teamFilterId) {
-    rows = allRows.filter(r => r.teamId === teamFilterId && r.kind !== 'expired');
+    rows = allRows.filter(r => r.teamId === teamFilterId);
     if (locked) rows = rows.filter(r => r.kind === 'keeper');
   } else {
     rows = locked ? allRows.filter(r => r.kind === 'keeper') : allRows.filter(r => r.kind !== 'expired');
@@ -871,7 +874,7 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
   // keepers) and the Rostered view (every declared keeper in the league). The
   // row highlight carries the meaning, so the list stays flat.
   const sortedRows = React.useMemo(
-    () => keepersFirst(sortRowsDefault(rows, playerMap, league)),
+    () => expiredLast(keepersFirst(sortRowsDefault(rows, playerMap, league))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [allRows, filter, locked, search, playerMap, league]
   );
@@ -940,8 +943,8 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'keepable' }) {
       {filter === 'expired' && (
         <ViewFooter isDark={isDark}>These contracts ended this season. The full draft pool is set once keepers lock.</ViewFooter>
       )}
-      {filterTeam && termed && teamHasExpired && (
-        <ViewFooter isDark={isDark}>{filterTeam.name}&rsquo;s expired contracts are under the Expired filter.</ViewFooter>
+      {filterTeam && termed && teamHasExpired && !locked && (
+        <ViewFooter isDark={isDark}>Expired contracts can&rsquo;t be kept — those players go back into the draft.</ViewFooter>
       )}
       {/* Below the roster on a team tab only — the picks belong to a team,
           not to the Rostered view. */}

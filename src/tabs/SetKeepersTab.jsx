@@ -8,7 +8,7 @@ import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } fro
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXED } from '../lib/keeperRules.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
-import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS } from '../lib/contractYear.js';
+import { setContractYear, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../lib/contractYear.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -303,12 +303,14 @@ function KeeperSlot({ index, keeper, league, accentColor, gridAccent, isDark, on
 // The contract-year control on a pool row: Y{year} / {length} as two selects.
 // This records a FACT from last season (where the player is in his deal),
 // not this season's keep decision — Keep stays the declaration and reads the
-// year from the row. A blocked (expired) row offers the years as a way to
-// revive a record the import got wrong; its length is locked until then.
+// year from the row. "Expired" sits alongside the years: the contract ran out
+// last season and the player is back in the draft (the Expired tab's state,
+// settable directly). A blocked (expired) row offers the years as the way
+// back; its length is locked until then.
 function TermControl({ entry, blocked, gridAccent, isDark, onChange }) {
   const t = makeTheme(isDark);
   const length = entry.length || 3;
-  const year = blocked ? '' : (entry.nextYear ?? entry.year ?? 1);
+  const year = blocked ? EXPIRED : (entry.nextYear ?? entry.year ?? 1);
   const color = entry.final ? t.danger : gridAccent;
   const sel = {
     background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm,
@@ -318,10 +320,14 @@ function TermControl({ entry, blocked, gridAccent, isDark, onChange }) {
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, flexShrink: 0 }}
       onClick={e => e.stopPropagation()}>
       <select value={year} aria-label={`${entry.player} — contract year`}
-        onChange={e => { const y = parseInt(e.target.value); if (Number.isFinite(y)) onChange({ year: y, length }); }}
-        style={{ ...sel, color, fontWeight: 700 }}>
-        {blocked && <option value="">Expired</option>}
+        onChange={e => {
+          if (e.target.value === EXPIRED) { onChange({ year: EXPIRED, length }); return; }
+          const y = parseInt(e.target.value);
+          if (Number.isFinite(y)) onChange({ year: y, length });
+        }}
+        style={{ ...sel, color: blocked ? t.danger : color, fontWeight: 700 }}>
         {contractYearOptions(length).map(v => <option key={v} value={v}>Y{v}</option>)}
+        <option value={EXPIRED}>Expired</option>
       </select>
       <span style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>/</span>
       <select value={length} aria-label={`${entry.player} — contract length`} disabled={blocked}

@@ -796,3 +796,35 @@ test('contract year: the pool row carries the control, and Keep reads the year f
   assert.equal(pool.onContract[0].nextYear, 2, 'Keep would declare him at Y2 — the row’s year');
 });
 
+test('contract year: Expired set on the row moves the player to the Expired tab and marks him not keepable on his team tab', () => {
+  const base = {
+    ...TERMED,
+    teams: [{ id: 't1', name: 'Alpha', priorKeepers: [], roster: [{ player: 'Nico Hischier', pos: 'C' }, { player: 'Jack Hughes', pos: 'C' }, { player: 'Jesper Bratt', pos: 'LW' }], keepers: [] }],
+  };
+  let { league } = setContractYear(base, 't1', 'Nico Hischier', { year: 'expired', length: 3 });
+  ({ league } = setContractYear(league, 't1', 'Jack Hughes', { year: 2, length: 3 }));
+  const pool = buildTeamPool(league, league.teams[0]);
+  assert.deepEqual(pool.expired.map(e => e.player), ['Nico Hischier'], 'the Expired tab holds him');
+  assert.ok(!pool.onContract.some(e => e.player === 'Nico Hischier') && !pool.rosteredNoContract.some(e => e.player === 'Nico Hischier'), 'and My roster does not');
+  // The pool control on the Expired tab shows "Expired" selected, with the years as the way back.
+  const rows = buildSharedRows(league);
+  const nico = rows.find(r => r.player === 'Nico Hischier');
+  assert.equal(nico.kind, 'expired');
+  // Team tab: present, last, marked. Rostered view: absent.
+  const team = renderTeam(league, 't1');
+  const iNico = team.indexOf('Nico Hischier'), iJack = team.indexOf('Jack Hughes'), iBratt = team.indexOf('Jesper Bratt');
+  assert.ok(iNico > 0, 'the expired player is on his team tab');
+  assert.ok(iNico > iJack && iNico > iBratt, 'pinned below the keepable rows');
+  assert.ok(team.includes('Expired') && team.includes('Y3/3'), 'marked expired, not as a contract year');
+  assert.ok(team.includes('can’t be kept'), 'and the footer says so');
+  assert.ok(team.includes('Y2/3'), 'the under-contract row keeps its own treatment');
+  const rostered = renderPage(league, false);
+  assert.ok(!rostered.includes('Nico Hischier'), 'the Rostered (trade) view still excludes him');
+  // The pool row's control offers Expired everywhere and shows it selected on the Expired tab.
+  const poolHtml = renderToStaticMarkup(React.createElement(EligiblePool, {
+    league, team: league.teams[0], accentColor: '#000', gridAccent: '#000', isDark: false,
+    keepingNames: new Set(), keptAnywhere: new Set(), isFull: false, onAdd() {}, onRemoveName() {}, onSetTerm() {},
+  }));
+  assert.ok(/<option value="expired">Expired<\/option>/.test(poolHtml), 'Expired is an option beside the years');
+});
+
