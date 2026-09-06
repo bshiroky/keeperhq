@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardList, Star, Trophy } from 'lucide-react';
+import { ClipboardList, Trophy } from 'lucide-react';
 import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
 import { parseStandingsText } from '../lib/standingsParse.js';
 import { resolveTeamNames, rememberYahooTeams } from '../lib/teamMap.js';
@@ -370,7 +370,7 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
                       return (
                         <tr key={`${r.rank}:${r.team}`}>
                           <td style={{ ...td, fontWeight: 700, color: t.textPrimary, whiteSpace: 'nowrap' }}>
-                            {r.rank}{r.clinched && <Star size={11} strokeWidth={2} fill="currentColor" style={{ marginLeft: 4, color: t.success, verticalAlign: '-1px' }} aria-label="clinched playoff spot" />}
+                            {r.rank}
                           </td>
                           <td style={{ ...td, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.team}>{r.team}</td>
                           <td style={td}>
@@ -434,8 +434,8 @@ export function StandingsPasteModal({ league, isDark, accentColor, onUpdateLeagu
 }
 
 // ── Import-page card ─────────────────────────────────────────────────────────
-// Standings on file (rank · team · W-L-T · Pct · Pts, ★ = clinched) with the
-// paste button. The draft-order settings line points at Settings; a tie that
+// Standings on file (order · team · W-L-T · Pct · Pts, trophies on the
+// playoff podium; no Rank column, no clinched stars) with the paste button. The draft-order settings line points at Settings; a tie that
 // still needs breaking points at the Lottery page, where it's resolved.
 export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
   const t = makeTheme(isDark);
@@ -446,9 +446,10 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
   const config = draftOrderConfigOf(league);
   const ranked = standings ? rankStandings(league) : null;
   // Rows in the order the DRAFT uses — the configured basis, worst first —
-  // not Yahoo's Rank, which reflects the playoffs. The rank stays as a column,
-  // and a podium finish gets its trophy there. When the order can't be built
-  // (a team missing, nothing to sort on) fall back to rank order.
+  // not Yahoo's Rank, which reflects the playoffs. Rank is not a column (it
+  // contradicted the Order column beside it); a podium finish is a trophy on
+  // the team name. When the order can't be built (a team missing, nothing to
+  // sort on) fall back to rank order.
   const base = standings ? baseDraftOrder(league) : null;
   const byOrder = base && base.order.length === standings.rows.length;
   const rowById = new Map((standings?.rows || []).map(r => [r.teamId, r]));
@@ -489,8 +490,8 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
           <div style={{ overflowX: 'auto' }}>
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead><tr>
-                {byOrder && <th style={th} title="Draft order before the lottery — 1 picks first">Order</th>}
-                <th style={th}>Rank</th><th style={th}>Team</th><th style={th}>W-L-T</th><th style={th}>Pct</th><th style={th}>Pts</th>
+                {byOrder && <th scope="col" style={th} title="Draft order before the lottery — 1 picks first">Order</th>}
+                <th scope="col" style={th}>Team</th><th scope="col" style={th}>W-L-T</th><th scope="col" style={th}>Pct</th><th scope="col" style={th}>Pts</th>
               </tr></thead>
               <tbody>
                 {rows.map((r, i) => (
@@ -501,11 +502,12 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
                         {r.slot}{r.lottery && <span style={{ ...tokens.typeLabelEyebrow, color: accentColor, marginLeft: 5 }}>lottery</span>}
                       </td>
                     )}
-                    <td style={{ ...td, fontWeight: 700, color: t.textPrimary, whiteSpace: 'nowrap', borderBottom: i < rows.length - 1 ? td.borderBottom : 'none' }}>
-                      {MEDAL[r.rank] && <Trophy size={12} strokeWidth={2.25} style={{ marginRight: 5, color: MEDAL[r.rank], verticalAlign: '-2px' }} aria-label={`finished ${r.rank === 1 ? '1st' : r.rank === 2 ? '2nd' : '3rd'} in the playoffs`} />}
-                      {r.rank}{r.clinched && <Star size={11} strokeWidth={2} fill="currentColor" style={{ marginLeft: 4, color: t.success, verticalAlign: '-1px' }} aria-label="clinched playoff spot" />}
-                    </td>
                     <td style={{ ...td, fontWeight: 600, color: t.textPrimary, borderBottom: i < rows.length - 1 ? td.borderBottom : 'none' }}>
+                      {/* The podium finish rides beside the name, not in a
+                          numeric column — a Rank column beside Order read as
+                          two competing orders ("why is he 10th but picking
+                          9th"), when the card exists to show the draft order. */}
+                      {MEDAL[r.rank] && <Trophy size={12} strokeWidth={2.25} role="img" style={{ marginRight: 5, color: MEDAL[r.rank], verticalAlign: '-2px' }} aria-label={`finished ${r.rank === 1 ? '1st' : r.rank === 2 ? '2nd' : '3rd'} in the playoffs`} />}
                       {nameOf(r.teamId)}
                       {r.sourceName && r.sourceName !== nameOf(r.teamId) && <span style={{ ...tokens.typeBodyMeta, color: t.textMuted, marginLeft: 6 }}>as “{r.sourceName}”</span>}
                     </td>
@@ -518,7 +520,7 @@ export function StandingsCard({ league, isDark, accentColor, onUpdateLeague }) {
             </table>
           </div>
           <div style={{ padding: '10px 20px', background: t.sectionBg, borderTop: `1px solid ${t.divider}`, ...tokens.typeBodyMeta, color: t.textMuted, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span>{byOrder ? 'Listed in draft order: ' : 'Draft order sorts on '}<strong style={{ color: t.textSecondary }}>{BASIS_LABEL[config.basis].toLowerCase()}</strong>{byOrder ? ', worst first' : ''} · {config.lotteryTeams > 0 ? `${config.lotteryTeams}-team lottery` : 'no lottery'} · ties: {TIEBREAK_LABEL[config.tiebreak].toLowerCase()} — set in Settings. Rank is the playoff finish.</span>
+            <span>{byOrder ? 'Listed in draft order: ' : 'Draft order sorts on '}<strong style={{ color: t.textSecondary }}>{BASIS_LABEL[config.basis].toLowerCase()}</strong>{byOrder ? ', worst first' : ''} · {config.lotteryTeams > 0 ? `${config.lotteryTeams}-team lottery` : 'no lottery'} · ties: {TIEBREAK_LABEL[config.tiebreak].toLowerCase()} — set in Settings. Trophies mark the playoff podium.</span>
             {ranked && ranked.unresolvedTies.length > 0 && (
               <span style={{ color: t.warning, fontWeight: 600 }}>
                 Tie to break: {ranked.unresolvedTies.map(tie => tie.teams.map(nameOf).join(' / ')).join('; ')} — on the Lottery page.

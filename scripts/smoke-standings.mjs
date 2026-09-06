@@ -143,8 +143,15 @@ for (const isDark of [true, false]) {
     // Order column, the lottery teams marked, and podium finishes trophied.
     includes(html, 'Listed in draft order');
     includes(html, '>Order<');
-    includes(html, 'finished 1st in the playoffs');
+    // No Rank column (it contradicted Order beside it) and no clinched
+    // stars; the podium finish is a trophy on the team name, with its
+    // meaning in the accessible name.
+    excludes(html, '>Rank<');
+    excludes(html, 'clinched playoff spot');
+    includes(html, 'Trophies mark the playoff podium');
+    assert(/role="img"[^>]*aria-label="finished 1st in the playoffs"[^>]*>[^]*?<\/svg>Da Real Dynasty/.test(html), 'the champion\'s trophy sits beside the team name');
     includes(html, 'finished 3rd in the playoffs');
+    excludes(html, 'Rank is the playoff finish');
     const first = html.indexOf('Treliving it Up'), last = html.indexOf('Da Real Dynasty');
     assert(first > 0 && last > first, 'the worst team (Treliving) is listed before the champion (Dynasty)');
     assert((html.match(/>lottery</g) || []).length === 4, 'the four lottery teams are marked');

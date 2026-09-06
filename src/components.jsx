@@ -663,6 +663,25 @@ function ConfirmModal(props) {
   );
 }
 
+// ── Screen-reader-only text ─────────────────────────────────────────────────
+// Text that is read but not seen: the accessible half of a state the visible
+// design carries by colour or glyph alone (a red "Y3/3" is the final year; a
+// check glyph is "keeper"; an asterisk is "a traded pick lands here"). Inline
+// styles rather than a class, so it works on every surface and in a server
+// render with no stylesheet — the standard clip-rect recipe. Prefer this over
+// `aria-label` on a plain span: assistive tech reliably ignores aria-label on
+// elements with no role, but it never skips text in the DOM.
+function SrOnly({ children }) {
+  return (
+    <span style={{
+      position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden',
+      clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', whiteSpace: 'nowrap', border: 0,
+    }}>
+      {children}
+    </span>
+  );
+}
+
 // ── "Edited" marker ─────────────────────────────────────────────────────────
 // Marks a dollar value the commissioner typed rather than one the app worked
 // out, wherever that value appears. Neutral, not warning-coloured: an override
@@ -1670,7 +1689,7 @@ export {
   sportTint, sportBorder, sportFill,
   TradingCard, paymentsOf, GRAIN_SVG, CARD_STYLES,
   MOTION_STYLES, SaveToast, Toast, ConfirmBody, ConfirmModal,
-  EditedMark, PriceMarkSlot, CommissionerSetMark,
+  EditedMark, PriceMarkSlot, CommissionerSetMark, SrOnly,
   nextAction, leagueFlavor, leagueVoiceColor,
   KeepersCelebration,
 };

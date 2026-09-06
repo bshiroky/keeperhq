@@ -18,7 +18,7 @@ import { RulesGrid } from './LeagueRulesModal.jsx';
 import { startNewSeason } from './lib/season.js';
 import { changeLogOf, describeChange, formatChangeTime, CHANGE_LOG_LIMIT } from './lib/changeLog.js';
 import { overriddenPricesIn } from './lib/priceProvenance.js';
-import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
+import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, hasLastDraftPage, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
 import { fetchShareToken, regenerateShareToken } from './lib/leagueStore.js';
 import { sortTeamsByName } from './lib/teamOrder.js';
@@ -959,7 +959,7 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
     { value: 'snake', label: 'Snake' },
     { value: 'auction', label: 'Auction' },
   ];
-  const draftFormatHelp = 'How the draft itself runs. Safe to change any time — it sets vocabulary and how the Last Draft page reads an import. It owns no keeper data.';
+  const draftFormatHelp = 'How the draft itself runs. Safe to change any time — it sets vocabulary and how an imported draft is read. It owns no keeper data.';
   const costHelp = costLocked
     ? 'Locked — this league has keepers recorded. Switching the cost model would leave those values with no meaning (dollars can\u2019t convert to rounds), and there is no way to recover them. Clear the recorded keepers first if you truly need to change it.'
     : 'What keeping a player costs. Can be changed until the first keepers are recorded.';
@@ -1293,7 +1293,10 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
       {isNflSport(league.sport) && <NflDirectoryCard isDark={isDark} accentColor={accentColor} />}
 
       {/* Last year's draft lives on its own page — this is a pointer, not a
-          flow. What the import is FOR differs by league type. */}
+          flow. What the import is FOR differs by league type; on a slot-cost
+          league the page doesn't exist (nothing about the draft sets a
+          cost), so neither does the pointer. */}
+      {hasLastDraftPage(league) && (
       <div style={{ background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 10, boxShadow: t.cardShadow, padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <ClipboardList size={18} strokeWidth={1.5} color={t.textSecondary} />
         <div style={{ flex: 1, minWidth: 220 }}>
@@ -1301,13 +1304,14 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
           <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
             {keeperCostModelOf(league) === COST_AUCTION
               ? "Attaches each player's drafted price — this is how keeper costs are calculated."
-              : 'Optional for your league type: records draft rounds (used by pick-based keeper rules) and can carry forward existing terms.'}
+              : "Records each player's drafted round — this is what keeping him costs — and can carry forward existing terms."}
             {' '}View, edit, and paste it on the Last Draft page.
           </div>
         </div>
         <Button variant="secondary" size="sm" isDark={isDark}
           onClick={() => navigate(`/league/${league.id}/draft`)} style={{ flexShrink: 0 }}>Open Last Draft →</Button>
       </div>
+      )}
 
       {/* Last season's standings — the draft order's input. Both draft types
           (standings are last-season data); the ORDER built from them is
@@ -1612,9 +1616,10 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
     // Last Draft — the imported prior-year draft's home (full page, both
-    // draft types). "Last" keeps it distinct from Picks (upcoming-draft
-    // pick ownership).
-    { id: 'draft',    label: 'Last Draft', Icon: History },
+    // draft FORMATS, but only where a draft value sets a keeper's cost:
+    // hidden on slot-cost leagues, see hasLastDraftPage). "Last" keeps it
+    // distinct from Picks (upcoming-draft pick ownership).
+    ...(hasLastDraftPage(league) ? [{ id: 'draft', label: 'Last Draft', Icon: History }] : []),
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
     // Picks + Lottery are snake-only (round-based draft picks don't exist in
     // an auction; the route gate mirrors this) and both open as FULL PAGES,
@@ -1660,7 +1665,7 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   // full page exactly as on the Keepers home, with the current door active.
   // No "Back" button — any door/tab navigates directly. Sheets (Pool /
   // Settings) still overlay the Keepers home.
-  const fullPage = (activeTab === 'draft' || activeTab === 'import')
+  const fullPage = (activeTab === 'import' || (activeTab === 'draft' && hasLastDraftPage(league)))
     ? activeTab
     : ((activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
       ? activeTab
