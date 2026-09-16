@@ -15,3 +15,5 @@ export { keeperRuleFacts, ruleNotes, hasRuleNotes } from '../src/lib/rulesSummar
 export { keeperCostModelOf, hasAuctionRulesBlock } from '../src/lib/keeperRules.js';
 export { LeagueRulesModal, RulesGrid, RulesButton } from '../src/LeagueRulesModal.jsx';
 export { InvalidLinkPage } from '../src/SharedLeaguePage.jsx';
+export { DraftBoardGrid } from '../src/tabs/DraftBoardGrid.jsx';
+export { KeepersOverview } from '../src/tabs/OverviewTab.jsx';

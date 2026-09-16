@@ -127,8 +127,12 @@ export function buildSharedRows(league) {
 // distinction that doesn't exist where keeping costs dollars and nothing else.
 // Where a TERM exists, being under contract is a real, separate state, so the
 // chip stays there.
-export function sharedFilterChips({ league, locked, termed, hasExpired, teams = [] }) {
+export function sharedFilterChips({ league, locked, termed, hasExpired, hasBoard = false, teams = [] }) {
   return [
+    // Overview first: the same one-card-per-team view the commissioner's
+    // Keepers home opens on — declared keepers in their slots, so "who's
+    // actually kept" is readable without scanning the flat list.
+    { id: 'overview', label: 'Overview' },
     // "Rostered", not "All players" (it isn't everyone) and not "Eligible" /
     // "Keepable" (a keeper-eligibility cutoff is coming, so eligibility becomes
     // something a ROW shows rather than something the tab claims). One label
@@ -137,6 +141,10 @@ export function sharedFilterChips({ league, locked, termed, hasExpired, teams = 
     // the cutoff rule will contradict an eligibility claim in either.
     { id: 'keepable', label: locked ? 'Final keepers' : 'Rostered' },
     ...(termed ? [{ id: 'contracts', label: 'Under contract' }] : []),
+    // The draft board only once it can be laid out (snake, standings on
+    // file, ties broken) — a tab that would show nothing but a reason is
+    // clutter, and the team tabs already say the order isn't set.
+    ...(hasBoard ? [{ id: 'board', label: 'Draft board' }] : []),
     ...(hasExpired ? [{ id: 'expired', label: 'Expired', danger: true }] : []),
     // Alphabetical: the strip is a lookup ("where's my team?"), and stored
     // creation order tells a reader nothing.

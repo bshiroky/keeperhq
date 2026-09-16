@@ -1289,6 +1289,74 @@ Yahoo work off 47%, not off the optimistic reading.
   future sticky-table or a11y work — the SSR tests can't see layout or
   focus.
 
+- **Shared-page QA round: status line, compact contract column, picks grid,
+  Draft board tab, Overview tab (this branch's PR):** five member-facing
+  changes from real QA, all read-only. **(1) Contract column sized to
+  content** — `CONTRACT_W` 100 → 84 (measured in Chromium with the real
+  font: the "CONTRACT" header is the widest thing in the column at 81px,
+  cells are 46px); auction keeps 132 for the `Keep for $X` pair. The scroll-
+  mode slack (leftover width under an integer column count) now goes to the
+  **Player** column, not Contract, so Contract is genuinely content-width
+  and names get the room; `pinnedPlayerW` is the snap padding and the sticky
+  "No stats" offset. Same constant drives the goalie table. **(2) A stable
+  status line in the header** under "Hockey · Slot only · 3-yr terms", on
+  every tab: `Keepers not yet declared · deadline Sep 15` (or `· deadline
+  not set`), **`Keepers being declared · …` once any team has** (a third
+  state, not in the spec: with the Overview tab showing declared keepers
+  right below, "not yet declared" would be a false claim), and `🔒 Keepers
+  locked · Sep 15` after lock. The tab-only "No keepers declared yet —
+  everyone below is still eligible" notice is gone, and the right-hand
+  countdown block renders pre-deadline only (locked, the status line carries
+  the date; the aria-hidden sticky pill still says it). **(3) Per-team picks
+  are a grid** (`PickTile` inside `TeamPicksSection`): `.kh-share-picks` is
+  `repeat(auto-fill, minmax(108px, 1fr))` — 9 per row at the page's 1060px
+  content width, 3 per row on a phone (96px minimum under 640px). Each cell:
+  `R2` eyebrow, the number or range (SrOnly "Pick " before it; "—" +
+  "number not set" when unordered), and a RESERVED sub-line (`via Alex` in
+  the board's warning tint, or `→ Alex` struck through for a pick traded
+  away) so a row of cells shares one height. Traded-away picks sit in the
+  grid at their round — the separate "Traded away" section is gone. Two
+  picks in one round are two cells. The accessible sentence is unchanged
+  from the list version ("Round 2, Pick 5, originally Alpha's pick").
+  **(4) A "Draft board" tab** after Under contract, only when the board can
+  be built (`hasBoard` in `sharedFilterChips`; snake + standings + ties
+  broken — a tab holding only a reason would be clutter). It is the
+  **commissioner's `DraftBoardGrid`**, extracted to
+  `src/tabs/DraftBoardGrid.jsx` (with `PickCell`, `LotteryPlaceholder`,
+  `lotteryTradeLines`, `LotteryPendingLine`; `DraftPicksTab` imports it),
+  in a `readOnly` mode: each cell is a `<span>` with the hover title and, for
+  a traded pick, its origin as SrOnly DOM text (`aria-label` on a span is
+  ignored by assistive tech — the SrOnly rule), no reassign path, and the
+  pending line without its "Run lottery" link (`showLink={false}`).
+  Placeholders, asterisks and hover origins are as built. Above it a
+  **team filter**: `role="group"` of `aria-pressed` toggle buttons,
+  alphabetical, none pressed by default, click again to clear;
+  `highlightTeamId` dims every cell that isn't that team's to opacity 0.3
+  (its own picks, the ones it holds by trade, and — pre-lottery — the
+  placeholders in any round where a lottery-team pick it holds could land
+  stay full weight). The dim is decoration only: every cell names its
+  owner in text and the origin is DOM text, verified by `test:shared`.
+  **(5) An "Overview" tab, first and the DEFAULT view** — the commissioner's
+  `KeepersOverview` (`OverviewTab.jsx`) in a new `member` mode: the card
+  root is a `div` (a button that opens nothing lies to a screen reader),
+  no hover lift, and a hand-set price carries `CommissionerSetMark` instead
+  of `EditedMark` (the projection has no calculated value to show, and the
+  two marks answer to different information rules). Cards alphabetical,
+  K1..KN from `keeperSlots`, `Final yr` red, "Open slot" placeholders, and
+  the "Expiring after this season" strip — **same derivation as the
+  commissioner's: declared keepers in their final year** (an undeclared
+  final-year contract isn't "expiring after this season", it's back in the
+  draft now if unkept). Print resets to the default view, now Overview.
+  `SharedLeaguePage`'s `initialFilter` default is `'overview'`; the test
+  helper renders `'keepable'` explicitly for the list assertions. 80 tests
+  in `test:shared` (was 54), including the status line on four views, the
+  board tab's read-only invariants, the highlight counts, and both marks.
+  Verified in Chromium (harness pattern from the a11y pass): Contract 84px
+  on both tables with the stat region an integer 9 columns; picks grid
+  9 × 2 rows desktop / 3 × 6 phone at a uniform 63px; the filter toggles by
+  click and by Space on the focused chip. Not in this pass: lottery reveal
+  animation, commissioner/shared page convergence.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -2385,8 +2453,17 @@ copy of a component drifts away from the original.
   (`ListSearch`), not a floating control. Team chips are alphabetical
   (`sortTeamsByName`). The grid renders IDENTICALLY on every view — no
   team-tab special casing, no per-view header block; only the row set changes.
-  A **Rules** button beside the league name opens `LeagueRulesModal`. Print: filter rail + search hidden, default
-  view forced via `beforeprint`, rows `break-inside: avoid`. The
+  A **Rules** button beside the league name opens `LeagueRulesModal`. Under
+  the league meta a **status line** that never moves: not yet declared /
+  being declared / locked, with the deadline date. The rail opens on
+  **Overview** (the commissioner's `KeepersOverview` in `member` mode —
+  team cards with declared keepers, the expiring strip), then Rostered,
+  Under contract, **Draft board** (the read-only `DraftBoardGrid` with an
+  `aria-pressed` team filter that dims other teams' cells; only when the
+  board can be built), Expired, team tabs. A team tab's picks are a GRID
+  (`PickTile`), traded-away picks struck through in place. Print: filter
+  rail + search hidden, default (Overview) view forced via `beforeprint`,
+  rows `break-inside: avoid`. The
   mascot empty state is the page's one mascot-*speech* surface and
   renders ONLY when there is nothing else to show (no rows at all);
   a populated list with zero declared keepers gets a one-line quiet
@@ -2601,11 +2678,20 @@ copy of a component drifts away from the original.
   failing a directory match. Unit tests:
   `npm run test:parser` → `scripts/test-draft-parser.mjs` (plain
   node, fixtures for 3 sports × both views + failure modes).
+- `src/tabs/DraftBoardGrid.jsx` — the draft board itself, shared by the
+  commissioner's Picks page and the shared page's Draft board tab:
+  `DraftBoardGrid` (rounds across, slots down; `readOnly` for members,
+  `highlightTeamId` dims every cell that isn't that team's), `PickCell`
+  (button with an edit select, or a read-only span whose traded-pick origin
+  is SrOnly DOM text), `LotteryPlaceholder`, `lotteryTradeLines`, and
+  `LotteryPendingLine` (`showLink` off on the shared page). One component,
+  never a lookalike — the member view can't drift from the commissioner's.
 - `src/tabs/DraftPicksTab.jsx` — `DraftPicksPanel`, the **full-page**
   Picks surface (rendered by `LeagueView` in the Lottery full-page
   pattern): intro card with an editable Rounds input ("auto" note when
   derived) + the "Paste from Yahoo" button, then the grid — a **draft
-  board** (`DraftBoardGrid`: rounds across, pick slots down, each cell the
+  board** (`DraftBoardGrid`, now in `DraftBoardGrid.jsx`: rounds across,
+  pick slots down, each cell the
   team on the clock with its overall number; traded cells warning-tinted
   with the current owner, origin on hover; pre-lottery slots are muted
   "Lottery pick" placeholders, one per slot, starred when a lottery team's
