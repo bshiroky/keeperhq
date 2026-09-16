@@ -8,6 +8,7 @@ import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { LandingPage } from './LandingPage.jsx';
 import { SharedLeagueRoute } from './SharedLeaguePage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
+import { ContractBackfillCard } from './tabs/ContractBackfillCard.jsx';
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
 import { supabase } from './lib/supabase.js';
 import { fetchLeagues, saveLeague, softDeleteLeague, restoreLeague } from './lib/leagueStore.js';
@@ -491,6 +492,12 @@ function App() {
             options={[{value:'dark',label:'Dark'},{value:'light',label:'Light'}]}
             onChange={v => setTweak('theme', v)}
           />
+        </TweakSection>
+        {/* One-time contract-anchoring backfill. The card computes nothing
+            until its Preview button is pressed, and writes nothing until a
+            second, separate confirm — see ContractBackfillCard. */}
+        <TweakSection label="Contract anchoring">
+          <ContractBackfillCard leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} />
         </TweakSection>
         {!session && (
           <TweakSection label="Data">

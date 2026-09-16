@@ -1289,6 +1289,89 @@ Yahoo work off 47%, not off the optimistic reading.
   future sticky-table or a11y work — the SSR tests can't see layout or
   focus.
 
+- **Season-anchored contracts + two missing lifecycle rules (this branch's PR):**
+  `contractYear` was a RELATIVE COUNTER, correct only if Start New Season was
+  pressed exactly as many times as seasons actually elapsed — press it twice and
+  every contract in the league jumped two years, undetectably and
+  irreversibly. Contracts are now anchored to a FACT. Six parts.
+  **(1) `startSeason` on contract records** (`src/lib/contractSeason.js`, pure,
+  zero imports — bottom of the dependency graph): the season label of the
+  contract's Y1, in the league's own label format. The entering year is
+  arithmetic — `(current season start − startSeason start) + 1` — so a
+  miscounted rollover is repaired by **correcting the season label alone**,
+  touching no record. **Anchor wins; the stored counter is the fallback, byte
+  for byte as before**, so anchored and un-anchored records coexist
+  indefinitely and the backfill is optional. The two stored conventions are
+  unchanged and now named at every read: `keepers[].contractYear` is the
+  ENTERING year (`BASIS_ENTERING` / `keeperEnteringYear`),
+  `priorKeepers[].contractYear` is years SERVED (`BASIS_SERVED` /
+  `priorEnteringYear`). `counterEnteringYear` reads the counter *ignoring* the
+  anchor — only the backfill needs it, to tell whether an existing anchor
+  agrees with the counter it would have been computed from (without it that
+  comparison fed itself and could never fire).
+  **(2) The rollover stops advancing a counter.** `advanceKeeper` leaves an
+  anchored contract's term alone — the label moved, the contract did not.
+  Auction cost escalation is untouched: that is genuine per-season state with
+  no anchor that could derive it. **Bundled fix: a real off-by-one.** The old
+  code did `contractYear + 1` on a value read from `keepers` (entering-year
+  convention) and wrote it into `priorKeepers` (years-served convention), so
+  **every rollover skipped a year** — a keeper entering Y1 of 3 came out the
+  other side reading as his final year. The value carries across unchanged
+  now; the EXPIRY condition is identical.
+  **(3) Expired contracts are preserved, not deleted.** `advanceKeeper`
+  returned `null` and `startNewSeason` filtered it out — the one place in the
+  app that broke preserve-don't-delete, and unrecoverable (no version history
+  anywhere). They now carry `contractStatus: 'expired'` +
+  `expiredAfterSeason`. **Preserving them is invisible**: `buildTeamPool`
+  skips archived records at the single point every surface derives from, so no
+  live view gains a row. `archiveContract` ALSO sets the legacy `expired: true`
+  **on purpose** — a reader that has never heard of `contractStatus` (the
+  shared page before 010) would otherwise print a dead deal as live; with the
+  legacy flag it degrades to "expired", wrong only in being visible. Same
+  failure-asymmetry rule as the price fields. Also fixed: unkept live
+  contracts used to be silently overwritten at rollover; they are archived now.
+  **(4) A rollover guard.** `canStartNewSeason` refuses a rollover with **no
+  declared keepers** — it has nothing to carry forward and could only end every
+  contract, which is exactly what an accidental second press does and the one
+  thing the anchor cannot undo (correcting the label restores a contract's
+  YEAR, not a contract the rollover ended). A blocked `startNewSeason` returns
+  the league by identity, so a call site that forgets to check can do no
+  damage; `{force: true}` exists for a genuine zero-keeper season and nothing
+  in the UI passes it. The Settings button disables with the reason stated.
+  **(5) Unkept at the deadline voids the contract** (`src/lib/keeperDeadline.js`).
+  Nothing treated the deadline as an EVENT before — it only drove a countdown —
+  so a player on Y2/3 nobody kept still read as under contract, and the shared
+  page's "Under contract" tab listed players who by the league's own rule no
+  longer had one. Fixed-term leagues only. **Entirely DERIVED** — no record is
+  touched, so moving the deadline later restores the prior state exactly, and
+  `deadlineMoment` mirrors the shared page's countdown (date-only = 11:59 PM).
+  Only the TERM is voided: the dollar fields ride through untouched, because a
+  void contract is not a repricing and dropping a player to the undrafted floor
+  because a date passed would be a money bug. Wired in `buildTeamPool`, so the
+  commissioner's pool and the member page get it from one place.
+  **(6) `buildTeamPool` extracted to `src/lib/teamPool.js`** — it was pure logic
+  in a JSX file and therefore untestable without a bundler. Behaviour unchanged;
+  `SetKeepersTab` re-exports it.
+  **Migration `010_season_anchored_contracts.sql` must be run** (after 009) or
+  none of this reaches the shared page: the projection is a whitelist, so
+  `startSeason` / `contractStatus` / `expiredAfterSeason` have to be named on
+  both `keepers` and `priorKeepers`.
+  **Backfill: dry run by default, never automatic.** `src/lib/contractBackfill.js`
+  is pure (`planBackfill` / `planBackfillAll` / `applyBackfill`); the card lives
+  in the **Tweaks panel**, not a league's Settings, because confirming the
+  term-less leagues are untouched is half of what the dry run is for and a
+  per-league surface could not show it. No effect, no timer, no call on mount —
+  Preview is the only entry point and the write is a separate second action
+  behind its own confirm. It **flags rather than guesses** (unreadable season
+  label, a contract year outside its own term, an existing anchor that
+  contradicts its counter) and flagged rows are excluded from the write by
+  construction. Apply checks the player name at each index, so a league edited
+  between preview and apply can't get the wrong contract anchored, and every
+  write goes to the change log on the same `onUpdateLeague` call.
+  Not in scope, deliberately: displaying expiry seasons, a
+  contracts-by-expiry-year view, any tab or navigation change.
+  **227 pure tests + 86 shared-page tests** (`npm test`; `npm run test:season`).
+
 - **Shared-page QA round: status line, compact contract column, picks grid,
   Draft board tab, Overview tab (this branch's PR):** five member-facing
   changes from real QA, all read-only. **(1) Contract column sized to
@@ -1437,6 +1520,11 @@ headless.
 - `npm run test:contracts` — contract year set on a pool row: where the
   record lands, years-served storage, keeper patched to match, expired flag
   cleared (`scripts/test-contract-year.mjs`; plain node)
+- `npm run test:season` — season anchoring, the keeper deadline as an event,
+  and the backfill planner: label parsing, anchor-beats-counter, archived
+  records staying out of every live view, unkept-at-the-deadline voiding (and
+  that moving the deadline restores the prior state byte for byte), and the dry
+  run's flag-don't-guess rules (`scripts/test-contract-season.mjs`; plain node)
 - `npm run test:draft-order` — the draft-order engine: config defaults, the
   points/rank basis, the tiebreak chain (playoff finish, then a reproducible
   coin flip), the manual override, lottery eligibility, stale draws, the
@@ -2575,6 +2663,42 @@ copy of a component drifts away from the original.
   `saveRules` writes only the ACTIVE cost model's rule block and leaves the
   others intact (see the preserve-don't-delete rule).
 
+- `src/lib/contractSeason.js` — season-anchored contracts, pure, **zero
+  imports** (bottom of the dependency graph — keeperRules, season, teamPool and
+  the shared page all read it). Season-label math (`seasonStartYear`,
+  `seasonsBetween`, `seasonLabelFrom`), the entering-year reads
+  (`enteringYearIn`, `enteringYearOf`, `priorEnteringYear`,
+  `keeperEnteringYear`, `counterEnteringYear`, `anchorFor`, the `BASIS_*`
+  constants) and the archived-contract pair (`isArchivedContract`,
+  `archiveContract`). **The anchor always wins; the stored counter is the
+  fallback and is never re-keyed** — that is what makes this a read-time
+  resolution rather than a data migration.
+- `src/lib/keeperDeadline.js` — the keeper deadline as an EVENT.
+  `deadlineMoment` / `isDeadlinePassed` (mirrors the shared page's countdown,
+  date-only = 11:59 PM), `declaredKeeperNames`, `voidingActive` (hoist once per
+  league), `contractVoided` (per player), `isContractVoided` (one-shot; not for
+  loops). **Everything is derived — the deadline is an input to a read, never a
+  trigger for a write**, so moving it restores the prior state with no data loss.
+- `src/lib/teamPool.js` — `buildTeamPool`, extracted from `SetKeepersTab.jsx`
+  (pure logic that happened to live in a JSX file, so it needed a bundler to
+  test). **The one place ownership, price, contract year, expiry, archived
+  records and the keeper deadline are resolved** — every surface reads it, so
+  none of them can disagree. `SetKeepersTab` re-exports it for existing imports.
+- `src/lib/contractBackfill.js` — the one-time `startSeason` backfill, pure.
+  `planBackfill` (one league) / `planBackfillAll` (the report) write nothing;
+  `applyBackfill` returns a new league + change-log entries and writes only
+  rows the plan marked `set`. **Flags rather than guesses** — a wrong anchor is
+  silently authoritative, while no anchor just falls back to today's behaviour.
+- `src/tabs/ContractBackfillCard.jsx` — the backfill's only control surface, in
+  the **Tweaks panel** (it reports across every league; a per-league Settings
+  card could not confirm the term-less ones are untouched). Preview is the only
+  entry point; the write is a separate second action behind its own confirm.
+- `supabase/migrations/010_season_anchored_contracts.sql` — replaces
+  `get_shared_league` to project `startSeason`, `contractStatus` and
+  `expiredAfterSeason` on both `keepers` and `priorKeepers`. No table change.
+  Run after 009. **Without it the shared page still reads the counter** (and,
+  after a rollover, would show archived contracts as merely expired rather than
+  hidden — see the legacy-flag note in the shipped-work bullet).
 - `src/lib/keeperRules.js` — **the single read path for keeper cost + term**,
   and the legacy shim. `keeperCostModelOf` (`'slot'|'picks'|'auction'`),
   `termOf` → `{model, years}`, `hasTerm`, `isAuctionCost`, `isPickCost`,

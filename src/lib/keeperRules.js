@@ -11,6 +11,8 @@
 // identically. Nothing here writes: resolution happens at read time only, so
 // existing leagues need no data migration.
 
+import { keeperEnteringYear } from './contractSeason.js';
+
 export const COST_SLOT = 'slot';
 export const COST_PICKS = 'picks';
 export const COST_AUCTION = 'auction';
@@ -98,7 +100,9 @@ export function keeperValueText(league, keeper) {
   const term = termOf(league);
   if (term.model === TERM_FIXED) {
     const len = keeper?.contractLength || term.years || 3;
-    parts.push(`Y${keeper?.contractYear || 1}/${len}`);
+    // Season-anchored when the record carries a startSeason; otherwise the
+    // stored counter, exactly as before.
+    parts.push(`Y${keeperEnteringYear(league, keeper) || 1}/${len}`);
   }
   return parts.length ? parts.join(' · ') : '1 slot';
 }
@@ -110,7 +114,7 @@ export function isFinalYear(league, keeper) {
   const term = termOf(league);
   if (term.model !== TERM_FIXED) return false;
   const len = keeper?.contractLength || term.years || 3;
-  return (keeper?.contractYear || 0) >= len;
+  return (keeperEnteringYear(league, keeper) || 0) >= len;
 }
 
 export const COST_LABEL = {
