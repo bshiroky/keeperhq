@@ -1,7 +1,8 @@
 import { supabase } from './supabase.js';
 import { normalizeName } from './players.js';
-import { buildTeamPool } from '../tabs/SetKeepersTab.jsx';
+import { buildTeamPool } from './teamPool.js';
 import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
+import { keeperEnteringYear } from './contractSeason.js';
 import { isPriceOverridden } from './priceProvenance.js';
 import { sortTeamsByName } from './teamOrder.js';
 import { buildDraftBoard, standingsOf } from './draftOrder.js';
@@ -63,7 +64,7 @@ export function buildSharedRows(league) {
       put({
         kind: 'keeper', player: k.player, pos: k.pos,
         teamId: owner.id, teamName: owner.name,
-        year: k.contractYear || 1, len,
+        year: keeperEnteringYear(league, k) || 1, len,
         final: isFinalYear(league, k),
         cost: k.keptFor,
         // Whether the commissioner set this keep cost directly instead of

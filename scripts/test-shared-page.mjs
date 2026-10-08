@@ -1193,3 +1193,99 @@ test('overview tab: a hand-set keep cost carries the member mark, never the comm
 });
 
 console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE TESTS PASS (with the QA-round additions)`);
+
+// ── Season-anchored contracts + the deadline as an event ────────────────────
+// Two rules the page reads through buildTeamPool, so the commissioner's
+// workbench and the member view cannot disagree about either.
+
+const ANCHOR_LEAGUE = {
+  name: 'Contracts', sport: 'hockey', draftType: 'snake',
+  keeperCostModel: 'slot', termModel: 'fixed', termYears: 3, keeperSlots: 4, season: '2026-27',
+  teams: [
+    {
+      id: 't1', name: 'Alpha',
+      roster: [{ player: 'Jack Hughes', pos: 'C' }, { player: 'Nico Hischier', pos: 'C' }],
+      priorKeepers: [
+        // Anchored two seasons back: entering Y3 in 2026-27, whatever the counter says.
+        { player: 'Jack Hughes', startSeason: '2024-25', contractYear: 0, contractLength: 3 },
+        { player: 'Nico Hischier', contractYear: 1, contractLength: 3 },
+      ],
+      keepers: [],
+    },
+    { id: 't2', name: 'Beta', roster: [], priorKeepers: [], keepers: [] },
+  ],
+};
+const contractRows = (league) => buildSharedRows(league).filter(r => r.kind === 'contract');
+
+test('shared page: the contract year comes from the anchor, not the stored counter', () => {
+  const hughes = contractRows(ANCHOR_LEAGUE).find(r => r.player === 'Jack Hughes');
+  assert.equal(hughes.year, 3, 'anchored to 2024-25 in a 2026-27 season → Y3');
+  assert.equal(hughes.final, true, 'and therefore his final year');
+  const nico = contractRows(ANCHOR_LEAGUE).find(r => r.player === 'Nico Hischier');
+  assert.equal(nico.year, 2, 'un-anchored records still read off the counter, exactly as before');
+});
+
+test('shared page: correcting a wrong season label fixes every contract at once', () => {
+  // The failure this design exists to survive: the rollover ran twice, so the
+  // label is a year ahead and every contract reads a year further on.
+  const drifted = { ...ANCHOR_LEAGUE, season: '2027-28' };
+  const driftedHughes = buildSharedRows(drifted).find(r => r.player === 'Jack Hughes');
+  assert.equal(driftedHughes.kind, 'expired',
+    'a label one season ahead reads a Y3-of-3 deal as already run out — the damage a double rollover does');
+
+  const fixed = { ...drifted, season: '2026-27' };
+  const fixedHughes = buildSharedRows(fixed).find(r => r.player === 'Jack Hughes');
+  assert.equal(fixedHughes.kind, 'contract', 'and the repair is one label edit…');
+  assert.equal(fixedHughes.year, 3, '…with no record touched');
+  assert.deepEqual(drifted.teams, ANCHOR_LEAGUE.teams, 'nothing was mutated in either direction');
+});
+
+test('shared page: THE BUG — "Under contract" stops listing players nobody kept, once the deadline passes', () => {
+  const before = { ...ANCHOR_LEAGUE, keeperDeadline: '2099-09-15' };
+  assert.equal(contractRows(before).length, 2, 'before the deadline both are under contract');
+
+  const after = { ...ANCHOR_LEAGUE, keeperDeadline: '2020-09-15' };
+  assert.equal(contractRows(after).length, 0, 'after it, an undeclared contract is void');
+
+  // …and only for players nobody kept.
+  const kept = {
+    ...after,
+    teams: after.teams.map(tm => (tm.id === 't1'
+      ? { ...tm, keepers: [{ player: 'Jack Hughes', contractYear: 3, contractLength: 3 }] }
+      : tm)),
+  };
+  const rows = buildSharedRows(kept);
+  assert.equal(rows.find(r => r.player === 'Jack Hughes').kind, 'keeper', 'the declared keeper is unaffected');
+  assert.equal(rows.find(r => r.player === 'Nico Hischier').kind, 'rostered', 'the undeclared one lost his contract');
+});
+
+test('shared page: voiding is derived — the records are identical either side of the deadline', () => {
+  const after = { ...ANCHOR_LEAGUE, keeperDeadline: '2020-09-15' };
+  assert.deepEqual(after.teams, ANCHOR_LEAGUE.teams, 'reading the page mutated nothing');
+});
+
+test('shared page: a term-less league is never touched by the deadline rule', () => {
+  // AUCTION is the term-less fixture at the top of this file.
+  const locked = { ...AUCTION, keeperDeadline: '2020-09-15' };
+  assert.deepEqual(
+    buildSharedRows(locked).map(r => `${r.player}:${r.kind}`).sort(),
+    buildSharedRows(AUCTION).map(r => `${r.player}:${r.kind}`).sort(),
+    'no contracts to void where keeping costs dollars',
+  );
+});
+
+test('shared page: an archived contract renders nowhere — preserving it shows members nothing new', () => {
+  const withArchived = {
+    ...ANCHOR_LEAGUE,
+    teams: ANCHOR_LEAGUE.teams.map(tm => (tm.id === 't1'
+      ? { ...tm, priorKeepers: [{ ...tm.priorKeepers[0], contractStatus: 'expired', expiredAfterSeason: '2025-26', expired: true }, tm.priorKeepers[1]] }
+      : tm)),
+  };
+  const rows = buildSharedRows(withArchived);
+  const hughes = rows.find(r => r.player === 'Jack Hughes');
+  assert.equal(hughes.kind, 'rostered', 'he is on the roster with no contract, not on one and not expired');
+  const html = renderToStaticMarkup(React.createElement(SharedLeaguePage, { league: withArchived, isDark: false, initialFilter: 'keepable' }));
+  assert.ok(!html.includes('Y3/3'), 'the dead contract prints no year anywhere');
+});
+
+console.log(`\nALL ${passed} SHARED-PAGE TESTS PASS (with season anchoring)`);

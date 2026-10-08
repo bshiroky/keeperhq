@@ -11,7 +11,8 @@ import {
   keeperArchetypeOf, draftFormatOf, isAuctionCost, hasKeeperData, hasAuctionRulesBlock, hasLastDraftPage,
   COST_SLOT, COST_PICKS, COST_AUCTION, TERM_NONE, TERM_FIXED,
 } from '../src/lib/keeperRules.js';
-import { advanceKeeper, startNewSeason } from '../src/lib/season.js';
+import { advanceKeeper, startNewSeason, canStartNewSeason } from '../src/lib/season.js';
+import { CONTRACT_EXPIRED, isArchivedContract, priorEnteringYear } from '../src/lib/contractSeason.js';
 
 let pass = 0, fail = 0;
 function eq(actual, expected, label) {
@@ -111,19 +112,31 @@ const k = { player: 'A', keptFor: 58, yearsKept: 1, contractYear: 1, contractLen
 
 const advAuctionTermed = advanceKeeper(k, { ...auctionTermed, auctionRules: { costIncreasePerYear: 5 } });
 eq(advAuctionTermed.keptFor, 63, 'auction + term: price climbs');
-eq(advAuctionTermed.contractYear, 2, 'auction + term: TERM YEAR ADVANCES (the defect)');
+// The value CARRIES ACROSS rather than incrementing, and that is the fix, not
+// a regression. `keepers[].contractYear` is the ENTERING year; the record this
+// produces lands in `priorKeepers`, where the convention is years SERVED. A
+// keeper entering Y1 has served 1 once the season ends. The old `+ 1` wrote 2
+// into a field read as "2 served, entering Y3", so every rollover skipped a
+// year — a keeper entering Y1 of 3 came out reading as his final year.
+eq(advAuctionTermed.contractYear, 1, 'auction + term: entering Y1 → 1 year served (no skipped year)');
 
 const advAuctionNoTerm = advanceKeeper(k, { keeperCostModel: COST_AUCTION, termModel: TERM_NONE, auctionRules: { costIncreasePerYear: 5 } });
 eq(advAuctionNoTerm.keptFor, 63, 'auction, no term: price climbs');
 eq(advAuctionNoTerm.contractYear, 1, 'auction, no term: term year untouched');
 
-// Expiry on the auction+term path — previously unreachable.
-eq(advanceKeeper({ ...k, contractYear: 3 }, { ...auctionTermed, auctionRules: { costIncreasePerYear: 5 } }), null,
-  'auction + term: term runs out → back to the draft');
+// Expiry on the auction+term path — previously unreachable. The CONDITION is
+// unchanged (entering the final year means the deal ends after it); what
+// changed is that the record is now PRESERVED with a status instead of being
+// returned as null and dropped — there is no undo in this app, so a contract
+// that ran its course must still be on file afterwards.
+const expiredAuction = advanceKeeper({ ...k, contractYear: 3 }, { ...auctionTermed, auctionRules: { costIncreasePerYear: 5 } });
+eq(expiredAuction === null, false, 'auction + term: an expired contract is kept, not dropped');
+eq(expiredAuction.contractStatus, CONTRACT_EXPIRED, 'auction + term: term runs out → marked expired');
+eq(isArchivedContract(expiredAuction), true, 'an expired contract reads as archived');
 
-// Legacy snake behaviour must be unchanged.
-eq(advanceKeeper(k, legacySnake).contractYear, 2, 'legacy snake: year advances');
-eq(advanceKeeper({ ...k, contractYear: 3 }, legacySnake), null, 'legacy snake: expires at length');
+// Legacy snake behaviour — same two corrections.
+eq(advanceKeeper(k, legacySnake).contractYear, 1, 'legacy snake: entering Y1 → 1 year served');
+eq(advanceKeeper({ ...k, contractYear: 3 }, legacySnake).contractStatus, CONTRACT_EXPIRED, 'legacy snake: expires at length');
 eq(advanceKeeper(k, legacyAuction).keptFor, 63, 'legacy auction: price climbs');
 eq(advanceKeeper(k, legacyAuction).contractYear, 1, 'legacy auction: no term, year untouched');
 
@@ -132,13 +145,53 @@ const slotNone = { keeperCostModel: COST_SLOT, termModel: TERM_NONE };
 eq(advanceKeeper(k, slotNone).contractYear, 1, 'slot/no-term: nothing advances');
 eq(advanceKeeper(k, slotNone) !== null, true, 'slot/no-term: never expires');
 
-// startNewSeason drops only what advanceKeeper drops.
+// startNewSeason preserves what advanceKeeper expires.
 const rolled = startNewSeason({
-  season: '2026-27', teams: [{ id: 't1', keepers: [{ ...k, contractYear: 3 }, { ...k, contractYear: 1 }] }],
+  season: '2026-27', teams: [{ id: 't1', keepers: [{ ...k, player: 'Done', contractYear: 3 }, { ...k, player: 'Live', contractYear: 1 }] }],
   ...auctionTermed, auctionRules: { costIncreasePerYear: 5 },
 });
-eq(rolled.teams[0].priorKeepers.length, 1, 'rollover drops the expired auction+term keep');
+const rolledPriors = rolled.teams[0].priorKeepers;
+eq(rolledPriors.length, 2, 'rollover keeps BOTH records — the expired one is not deleted');
+eq(rolledPriors.filter(p => !isArchivedContract(p)).length, 1, 'only the live contract carries forward as live');
+eq(rolledPriors.find(p => p.player === 'Done').expiredAfterSeason, '2026-27', 'the expired record names the season it ended after');
 eq(rolled.season, '2027-28', 'season label advances');
+
+// ── Season anchoring: a rollover run twice must not cost a year ───────────
+// This is the whole point of `startSeason`. The counter could not survive a
+// double press; the anchor does, because the season LABEL is the only thing
+// that moved and correcting it corrects every contract at once.
+section('season anchoring');
+const anchored = {
+  season: '2026-27', ...auctionTermed, auctionRules: { costIncreasePerYear: 5 },
+  teams: [{ id: 't1', priorKeepers: [], keepers: [
+    { player: 'Anchored', startSeason: '2026-27', contractYear: 1, contractLength: 3, keptFor: 10 },
+  ] }],
+};
+const once = startNewSeason(anchored);
+eq(once.season, '2027-28', 'one rollover: label advances');
+eq(priorEnteringYear(once, once.teams[0].priorKeepers[0]), 2, 'one rollover: the anchored contract enters Y2');
+
+// The accidental second press. It is REFUSED — with nothing declared there is
+// nothing to carry forward, so a rollover could only end every contract.
+eq(canStartNewSeason(once).ok, false, 'a rollover with no declared keepers is refused');
+const twice = startNewSeason(once);
+eq(twice === once, true, 'the refused rollover returns the league untouched');
+eq(twice.season, '2027-28', 'season label did not drift');
+eq(priorEnteringYear(twice, twice.teams[0].priorKeepers[0]), 2, 'the contract is still entering Y2, not Y3');
+
+// And if a label is wrong for any other reason, correcting it is the whole
+// repair — no record has to be edited.
+const mislabelled = { ...twice, season: '2029-30' };
+eq(priorEnteringYear(mislabelled, mislabelled.teams[0].priorKeepers[0]), 4, 'a wrong label reads wrong…');
+eq(priorEnteringYear({ ...mislabelled, season: '2027-28' }, mislabelled.teams[0].priorKeepers[0]), 2, '…and correcting the label alone fixes it');
+
+// An un-anchored record still rolls over on the counter, unchanged.
+const legacyRoll = startNewSeason({
+  season: '2026-27', ...auctionTermed, auctionRules: { costIncreasePerYear: 5 },
+  teams: [{ id: 't1', priorKeepers: [], keepers: [{ player: 'Legacy', contractYear: 1, contractLength: 3, keptFor: 10 }] }],
+});
+eq(legacyRoll.teams[0].priorKeepers[0].startSeason, undefined, 'the rollover does not invent an anchor');
+eq(priorEnteringYear(legacyRoll, legacyRoll.teams[0].priorKeepers[0]), 2, 'un-anchored: counter fallback gives the same answer');
 
 // ── hasKeeperData — the Settings cost-model lock ──────────────────────────
 section('cost-model lock gate');

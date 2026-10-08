@@ -15,7 +15,7 @@ import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx
 import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
 import { isNflSport } from './lib/nflDirectory.js';
 import { RulesGrid } from './LeagueRulesModal.jsx';
-import { startNewSeason } from './lib/season.js';
+import { startNewSeason, canStartNewSeason } from './lib/season.js';
 import { changeLogOf, describeChange, formatChangeTime, CHANGE_LOG_LIMIT } from './lib/changeLog.js';
 import { overriddenPricesIn } from './lib/priceProvenance.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, hasLastDraftPage, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
@@ -931,7 +931,13 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
   const teams = league.teams || [];
   const [showRolloverConfirm, setShowRolloverConfirm] = React.useState(false);
 
+  // A rollover with nothing declared has nothing to carry forward and can only
+  // destroy — it is the accidental second press. Blocked here with the reason
+  // shown, rather than silently doing nothing.
+  const rollover = canStartNewSeason(league);
+
   function rolloverSeason() {
+    if (!rollover.ok) return;
     onUpdateLeague(startNewSeason(league));
     setShowRolloverConfirm(false);
   }
@@ -1238,10 +1244,15 @@ function SettingsPanel({ league, isDark, onUpdateLeague, accentColor, onSaved, o
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color: t.textPrimary }}>Start New Season</div>
             <div style={{ fontSize: '12px', color: t.textMuted, marginTop: 2 }}>
-              Advances {league.season} to {/* show next */}the next year. Current keepers move to last-season history (contract years +1, expired contracts dropped). Keeper submissions reset.
+              Advances {league.season} to the next year. Current keepers move to last-season history; contracts anchored to their start season simply read a year further on. Contracts that ended — a term run out, or a player nobody kept — are marked ended and kept on file, not deleted. Keeper submissions reset.
             </div>
+            {!rollover.ok && (
+              <div style={{ ...tokens.typeBodyMeta, color: t.warning, marginTop: 6, lineHeight: 1.5 }}>{rollover.reason}</div>
+            )}
           </div>
-          <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} onClick={() => setShowRolloverConfirm(true)} style={{ flexShrink: 0 }}>
+          <Button variant="primary" size="sm" accent={accentColor} isDark={isDark} disabled={!rollover.ok}
+            title={rollover.reason || undefined}
+            onClick={() => rollover.ok && setShowRolloverConfirm(true)} style={{ flexShrink: 0 }}>
             Start New Season
           </Button>
         </div>
