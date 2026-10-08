@@ -8,6 +8,7 @@
 // so none of them can disagree about when a draft record still counts.
 
 import { normalizeName } from './players.js';
+import { appendChanges, changeEntry } from './changeLog.js';
 
 // A roster is "on file" once an import or a hand edit has touched it. Presence
 // of players is enough on its own (every roster that predates this field);
@@ -47,23 +48,6 @@ export function draftRecordStands(index, team, key) {
   return !index.onFile.has(team?.id);
 }
 
-// Draft records that are attached to no roster on a team whose roster IS on
-// file: invisible in every pool by design. Listed so a surface (or a human)
-// can check them — the usual cause is a spelling that differs between the two
-// pastes ("Jaime Jaquez Jr." vs "Jaime Jaquez"), which no pool can fix.
-export function draftOnlyRecords(league) {
-  const index = rosterIndex(league);
-  const out = [];
-  for (const tm of league?.teams || []) {
-    for (const p of tm.priorKeepers || []) {
-      const k = normalizeName(p.player);
-      if (!k || p.expired) continue;
-      if (!index.owners.has(k) && index.onFile.has(tm.id)) out.push({ teamId: tm.id, teamName: tm.name, player: p.player });
-    }
-  }
-  return out;
-}
-
 // ── Hand removals ──
 // `team.rosterRemovals: [{player, at}]`. A log of what was taken off by hand,
 // kept only so a re-import can warn that the paste brings them back. It never
@@ -85,9 +69,20 @@ export function withRosterImport(league, teamId, roster, at = new Date().toISOSt
 
 // A hand edit: `next` computes the new roster from the old one. `removed` /
 // `added` name the player so the removal record stays in step — removing
-// appends, re-adding the same player clears it.
+// appends, re-adding the same player clears it. The change-log entry is written
+// HERE, on the same update, so no editor can change a roster without leaving a
+// record of it. Only a real membership change is logged (removing someone who
+// isn't on the roster, or adding someone already on it, is a no-op).
+//
+// Nothing here touches priorKeepers: a removed player's drafted price stays on
+// file, so re-adding him brings the price back with no re-import.
 export function withRosterEdit(league, teamId, next, { removed, added, at = new Date().toISOString() } = {}) {
-  return mapTeam(league, teamId, tm => {
+  const team = (league.teams || []).find(tm => tm.id === teamId);
+  const had = (name) => (team?.roster || []).some(r => normalizeName(r.player) === normalizeName(name));
+  const entries = [];
+  if (removed && had(removed)) entries.push(changeEntry({ kind: 'rosterRemove', teamId, teamName: team?.name, player: removed, at }));
+  if (added && !had(added)) entries.push(changeEntry({ kind: 'rosterAdd', teamId, teamName: team?.name, player: added, at }));
+  const edited = mapTeam(league, teamId, tm => {
     let removals = (tm.rosterRemovals || []).slice();
     if (added) removals = removals.filter(r => normalizeName(r.player) !== normalizeName(added));
     if (removed && !removals.some(r => normalizeName(r.player) === normalizeName(removed))) removals.push({ player: removed, at });
@@ -95,4 +90,14 @@ export function withRosterEdit(league, teamId, next, { removed, added, at = new 
     if (removals.length) out.rosterRemovals = removals; else delete out.rosterRemovals;
     return out;
   });
+  return appendChanges(edited, entries);
+}
+
+// Standing state for the Settings roll-up: who is off a roster by hand RIGHT
+// NOW, per team — the question the log can't answer once a player has been
+// re-added or a roster re-imported.
+export function handRemovalsByTeam(league) {
+  return (league?.teams || [])
+    .map(tm => ({ teamId: tm.id, teamName: tm.name, players: recordedRemovals(tm) }))
+    .filter(t => t.players.length > 0);
 }

@@ -1455,11 +1455,17 @@ Yahoo work off 47%, not off the optimistic reading.
   an import or by re-adding) purely so the roster-import confirm can name
   removed players the paste brings back (`rosterImportImpact.removedReturning`)
   — it never affects membership. Also: Set-keepers' "Drafted $X →" lookup now
-  reads every team's draft records, not just the keeper's own. **Known
-  residual:** draft and roster spellings that normalize differently ("Jaime
-  Jaquez Jr." vs "Jaime Jaquez") no longer show under the drafter, but the
-  rostering team prices him at the $5 floor; `draftOnlyRecords(league)` lists
-  these for review (not yet surfaced in UI). `npm run test:membership`.
+  reads every team's draft records, not just the keeper's own. **A removal
+  never touches the draft record** — the drafted price stays on `priorKeepers`
+  until the draft, so re-adding a player brings his price (and the keep price
+  derived from it) back with no re-import (pinned in `test:membership`).
+  **Roster edits are in the change log**: `withRosterEdit` — the one roster
+  write path — appends `rosterRemove` / `rosterAdd` entries (team, player,
+  time) on the same update, and the Settings Change Log card shows a standing
+  "N players removed from rosters by hand" roll-up per team plus a "Show roster
+  edits only" filter. `npm run test:membership`. (The originally reported
+  second symptom was the same removal bug, not a name mismatch; no name-matching
+  work was done.)
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -2710,7 +2716,7 @@ copy of a component drifts away from the original.
   league), `contractVoided` (per player), `isContractVoided` (one-shot; not for
   loops). **Everything is derived — the deadline is an input to a read, never a
   trigger for a write**, so moving it restores the prior state with no data loss.
-- `src/lib/rosterMembership.js` — pure: `hasRosterOnFile`, `rosterIndex`, `draftRecordStands` (does a draft record still put the player in a team's pool), `draftOnlyRecords`, and the roster writers `withRosterImport` / `withRosterEdit` (stamp `rosterLoadedAt`, maintain `rosterRemovals`).
+- `src/lib/rosterMembership.js` — pure: `hasRosterOnFile`, `rosterIndex`, `draftRecordStands` (does a draft record still put the player in a team's pool), `handRemovalsByTeam`, and the roster writers `withRosterImport` / `withRosterEdit` (stamp `rosterLoadedAt`, maintain `rosterRemovals`).
 - `src/lib/teamPool.js` — `buildTeamPool`, extracted from `SetKeepersTab.jsx`
   (pure logic that happened to live in a JSX file, so it needed a bundler to
   test). **The one place ownership, price, contract year, expiry, archived

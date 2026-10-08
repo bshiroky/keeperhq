@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import {
   buildTeamPool, buildStatusIndex, buildSharedRows, rosterImportImpact, rosterGuardLines,
-  hasRosterOnFile, withRosterEdit, withRosterImport, recordedRemovals, draftOnlyRecords,
+  hasRosterOnFile, withRosterEdit, withRosterImport, recordedRemovals, handRemovalsByTeam, describeChange, changeLogOf,
 } from '../.tmp-membership-bundle.mjs';
 
 let passed = 0;
@@ -110,14 +110,55 @@ test('re-import applied: roster replaced, removal record cleared; re-adding by h
   assert.deepEqual(recordedRemovals(readded.teams[0]), []);
 });
 
-test('draft records on a team whose roster is on file but match no roster are listed for review', () => {
+test('the draft record survives a removal: remove, re-add, price and keep price are intact', () => {
   const lg = league();
-  lg.teams[1].priorKeepers.push(draft('Jaime Jaquez Jr.', 25)); // roster paste spells him 'Jaime Jaquez'
-  lg.teams[0].roster.push({ player: 'Jaime Jaquez' });
-  assert.deepEqual(draftOnlyRecords(lg).map(r => [r.teamName, r.player]), [['Amar', 'Jaime Jaquez Jr.']]);
-  // ...and the spelling mismatch is the ONE way a rostered player loses his drafted price
-  const e = buildTeamPool(lg, lg.teams[0]).rosteredNoContract.find(x => x.player === 'Jaime Jaquez');
-  assert.equal(e.nextCost, 5, 'falls to the undrafted floor — the review list is how this gets caught');
+  const draftBefore = JSON.stringify(lg.teams[0].priorKeepers);
+  const gone = removeByHand(lg, 'ben', 'Isaiah Hartenstein');
+  assert.equal(JSON.stringify(gone.teams[0].priorKeepers), draftBefore, 'draft records untouched by the removal');
+  assert.ok(!poolNames(gone, 'ben').includes('Isaiah Hartenstein'), 'not keepable while removed');
+  const back = withRosterEdit(gone, 'ben', r => [...r, { player: 'Isaiah Hartenstein' }], { added: 'Isaiah Hartenstein' });
+  assert.equal(JSON.stringify(back.teams[0].priorKeepers), draftBefore, 'still untouched after re-adding');
+  const e = buildTeamPool(back, back.teams[0]).onContract.find(x => x.player === 'Isaiah Hartenstein');
+  assert.equal(e.wasCost, 20, 'drafted price is back');
+  assert.equal(e.nextCost, 25, 'and the keep price derived from it ($20 + $5)');
+  // re-added on a DIFFERENT team (he was traded): the price follows him
+  const moved = withRosterEdit(gone, 'cory', r => [...r, { player: 'Isaiah Hartenstein' }], { added: 'Isaiah Hartenstein' });
+  const m = buildTeamPool(moved, moved.teams[2]).onContract.find(x => x.player === 'Isaiah Hartenstein');
+  assert.equal(m.nextCost, 25);
+});
+
+test('a hand-set drafted price survives a removal too (priceOf reads the value in force)', () => {
+  const lg = league();
+  lg.teams[0].priorKeepers[0] = { player: 'Isaiah Hartenstein', keptFor: 22, keptForComputed: 20, keptForOverridden: true };
+  const back = withRosterEdit(removeByHand(lg, 'ben', 'Isaiah Hartenstein'), 'ben', r => [...r, { player: 'Isaiah Hartenstein' }], { added: 'Isaiah Hartenstein' });
+  const e = buildTeamPool(back, back.teams[0]).onContract.find(x => x.player === 'Isaiah Hartenstein');
+  assert.equal(e.nextCost, 27); assert.equal(e.wasCostOverridden, true);
+});
+
+test('change log: hand removals and additions are recorded (what, team, player, when)', () => {
+  let lg = removeByHand(league(), 'ben', 'Isaiah Hartenstein');
+  lg = removeByHand(lg, 'amar', 'Nikola Jokic');
+  lg = withRosterEdit(lg, 'ben', r => [...r, { player: 'Isaiah Hartenstein' }], { added: 'Isaiah Hartenstein' });
+  const log = changeLogOf(lg);
+  assert.deepEqual(log.map(e => [e.kind, e.teamName, e.player]), [
+    ['rosterAdd', 'Ben Sh.', 'Isaiah Hartenstein'],
+    ['rosterRemove', 'Amar', 'Nikola Jokic'],
+    ['rosterRemove', 'Ben Sh.', 'Isaiah Hartenstein'],
+  ], 'newest first');
+  assert.ok(log.every(e => Date.parse(e.at) > 0), 'timestamped');
+  assert.match(describeChange(log[1]).action, /removed from roster/);
+  assert.equal(describeChange(log[1]).where, 'Amar');
+  // no-ops leave no entry
+  const noop = removeByHand(lg, 'ben', 'Someone Not There');
+  assert.equal(changeLogOf(noop).length, 3);
+});
+
+test('standing roll-up: who is off a roster by hand right now, per team', () => {
+  let lg = removeByHand(league(), 'ben', 'Isaiah Hartenstein');
+  lg = removeByHand(lg, 'amar', 'Nikola Jokic');
+  assert.deepEqual(handRemovalsByTeam(lg).map(t => [t.teamName, t.players]), [['Ben Sh.', ['Isaiah Hartenstein']], ['Amar', ['Nikola Jokic']]]);
+  const re = withRosterImport(lg, 'ben', [{ player: 'Jalen Brunson' }]);
+  assert.deepEqual(handRemovalsByTeam(re).map(t => t.teamName), ['Amar'], 'a re-import supersedes that team\'s removals');
 });
 
 console.log(`${passed} passed`);
