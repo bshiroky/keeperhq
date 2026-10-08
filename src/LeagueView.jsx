@@ -17,6 +17,7 @@ import { isNflSport } from './lib/nflDirectory.js';
 import { RulesGrid } from './LeagueRulesModal.jsx';
 import { startNewSeason, canStartNewSeason } from './lib/season.js';
 import { changeLogOf, describeChange, formatChangeTime, CHANGE_LOG_LIMIT } from './lib/changeLog.js';
+import { handRemovalsByTeam } from './lib/rosterMembership.js';
 import { overriddenPricesIn } from './lib/priceProvenance.js';
 import { keeperCostModelOf, termOf, hasTerm, isFinalYear, hasKeeperData, hasLastDraftPage, draftFormatOf, keeperArchetypeOf, COST_LABEL, COST_SLOT, COST_PICKS, COST_AUCTION, TERM_FIXED, TERM_NONE } from './lib/keeperRules.js';
 import { supabase } from './lib/supabase.js';
@@ -862,7 +863,12 @@ function DeleteLeagueCard({ league, isDark, onDeleteLeague }) {
 function ChangeLogCard({ league, isDark }) {
   const t = makeTheme(isDark);
   const [expanded, setExpanded] = React.useState(false);
-  const log = changeLogOf(league);
+  const [rosterOnly, setRosterOnly] = React.useState(false);
+  const fullLog = changeLogOf(league);
+  const isRosterEntry = (e) => e.kind === 'rosterRemove' || e.kind === 'rosterAdd' || (e.kind === 'import' && e.field === 'roster');
+  const log = rosterOnly ? fullLog.filter(isRosterEntry) : fullLog;
+  const removedByTeam = handRemovalsByTeam(league);
+  const removedCount = removedByTeam.reduce((n, t) => n + t.players.length, 0);
   const SHORT = 8;
   const shown = expanded ? log : log.slice(0, SHORT);
   // Standing state, not history: which prices are hand-set RIGHT NOW. It's the
@@ -875,7 +881,7 @@ function ChangeLogCard({ league, isDark }) {
       <div style={{ padding: '14px 20px', background: t.sectionBg, borderBottom: `1px solid ${t.divider}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <div style={{ fontSize: '13px', fontWeight: 700, color: t.textSecondary, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Change Log</div>
         <div style={{ ...tokens.typeBodyMeta, color: t.textMuted }}>
-          {log.length === 0 ? 'nothing yet' : `${log.length}${log.length >= CHANGE_LOG_LIMIT ? '+' : ''} recorded`}
+          {log.length === 0 ? (rosterOnly ? 'no roster edits' : 'nothing yet') : `${log.length}${log.length >= CHANGE_LOG_LIMIT && !rosterOnly ? '+' : ''} ${rosterOnly ? 'roster edits' : 'recorded'}`}
         </div>
       </div>
       <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -886,9 +892,26 @@ function ChangeLogCard({ league, isDark }) {
             {' '}They're marked wherever they appear, and a re-import refreshes the calculated price underneath without replacing them.
           </div>
         )}
+        {removedCount > 0 && (
+          <div style={{ background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '9px 11px', ...tokens.typeBodyMeta, color: t.textBody, lineHeight: 1.6 }}>
+            <strong style={{ color: t.textPrimary }}>{removedCount} player{removedCount === 1 ? ' is' : 's are'} removed from rosters by hand</strong> right now,
+            {' '}so {removedCount === 1 ? 'he is' : 'they are'} not keepable (draft prices stay on file). Re-adding on the Import page brings {removedCount === 1 ? 'him' : 'them'} back.
+            {removedByTeam.map(tm => (
+              <div key={tm.teamId}><strong style={{ color: t.textPrimary }}>{tm.teamName}:</strong> {tm.players.join(', ')}</div>
+            ))}
+          </div>
+        )}
+        {fullLog.some(isRosterEntry) && (
+          <button onClick={() => setRosterOnly(!rosterOnly)} style={{
+            alignSelf: 'flex-start', background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            fontFamily: 'inherit', ...tokens.typeBodyMeta, fontWeight: 600, color: t.textSecondary, textDecoration: 'underline',
+          }}>
+            {rosterOnly ? 'Show all changes' : 'Show roster edits only'}
+          </button>
+        )}
         {log.length === 0 ? (
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, lineHeight: 1.5 }}>
-            Price edits, term changes, and imports are recorded here as you make them.
+            {rosterOnly ? 'No roster edits recorded.' : 'Price edits, term changes, roster edits, and imports are recorded here as you make them.'}
           </div>
         ) : (
           <>

@@ -11,3 +11,4 @@ dist
 .tmp-shared-bundle.mjs
 .tmp-provenance-bundle.mjs
 .tmp-picks-bundle.mjs
+.tmp-membership-bundle.mjs

@@ -98,6 +98,10 @@ export function describeChange(entry) {
         detail: `${entry.from == null ? '—' : `R${entry.from}`} → ${entry.to == null ? '—' : `R${entry.to}`}`,
         where,
       };
+    case 'rosterRemove':
+      return { subject: entry.player, action: 'removed from roster by hand', detail: '', where };
+    case 'rosterAdd':
+      return { subject: entry.player, action: 'added to roster by hand', detail: '', where };
     case 'season':
       return {
         subject: 'Season',

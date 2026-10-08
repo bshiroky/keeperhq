@@ -465,16 +465,25 @@ test('ownership: a declared keeper still wins — that is an explicit act', () =
   assert.equal(row.teamName, 'Alpha', 'a declared keeper is deliberate and stands');
 });
 
-test('ownership: a drafted player on NOBODY\'s roster stays with the drafting team', () => {
-  // Rosters can be incomplete mid-import. Dropping him silently would be
-  // worse than showing him under the team that paid for him.
-  const cut = {
+test('ownership: drafted, on NOBODY\'s roster — stays only while the drafting team\'s roster is not imported', () => {
+  // Mid-import: Alpha's roster hasn't been pasted, so its absence says nothing
+  // and dropping him silently would be worse than showing him.
+  const notImported = {
     ...TRADED,
-    teams: [TRADED.teams[0], { ...TRADED.teams[1], roster: [{ player: 'Beta Own Guy' }] }],
+    teams: [{ ...TRADED.teams[0], roster: undefined }, { ...TRADED.teams[1], roster: [{ player: 'Beta Own Guy' }] }],
   };
-  const row = buildSharedRows(cut).find(r => r.player === 'Caleb Williams');
-  assert.ok(row, 'not dropped');
+  const row = buildSharedRows(notImported).find(r => r.player === 'Caleb Williams');
+  assert.ok(row, 'not dropped while Alpha is still mid-import');
   assert.equal(row.teamName, 'Alpha');
+
+  // Alpha's roster IS on file and he isn't on it (or anyone's): a draft record
+  // is only a price, so he is in nobody's pool and on no row.
+  const imported = {
+    ...TRADED,
+    teams: [{ ...TRADED.teams[0], roster: [{ player: 'Alpha Own Guy' }] }, { ...TRADED.teams[1], roster: [{ player: 'Beta Own Guy' }] }],
+  };
+  assert.equal(buildSharedRows(imported).find(r => r.player === 'Caleb Williams'), undefined,
+    'a player on no roster is not a row once the drafting team\'s roster is imported');
 });
 
 test('ownership: a draft-only league (no rosters imported) is unaffected', () => {

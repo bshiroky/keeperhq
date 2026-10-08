@@ -8,6 +8,7 @@ import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '.
 import { lookupByNames, fetchDirectoryStatus, directoryConfigured } from '../lib/nflDirectoryStore.js';
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
 import { rosterImportImpact, rosterGuardLines } from '../lib/importGuard.js';
+import { withRosterEdit, withRosterImport } from '../lib/rosterMembership.js';
 import '../claudeStub.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
 
@@ -75,14 +76,14 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
   const roster = team?.roster || [];
   const nfl = isNflSport(league.sport);
 
-  function setRoster(next) {
-    onUpdateLeague({
-      ...league,
-      teams: (league.teams || []).map(tm => tm.id === team.id ? { ...tm, roster: next } : tm),
-    });
+  // Edits go through withRosterEdit so the roster is stamped "on file" (a team
+  // emptied by hand is not "not imported yet") and removals are recorded for
+  // the re-import warning.
+  function setRoster(next, note) {
+    onUpdateLeague(withRosterEdit(league, team.id, () => next, note));
   }
   function removeAt(idx) {
-    setRoster(roster.filter((_, i) => i !== idx));
+    setRoster(roster.filter((_, i) => i !== idx), { removed: roster[idx]?.player });
   }
   function add(name, rec) {
     const clean = (name || '').trim();
@@ -94,7 +95,7 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
     const entry = nfl
       ? { player: clean, ...importFieldsFor(rec?.playerId ? { player_id: rec.playerId, pos: rec.pos } : null, clean) }
       : (rec?.pos ? { player: clean, pos: posForRoster(rec.pos) } : { player: clean });
-    setRoster([...roster, entry]);
+    setRoster([...roster, entry], { added: clean });
     setAddValue('');
   }
 
@@ -389,8 +390,7 @@ function RosterImportModal({ league, initialTeamId, accentColor, isDark, onImpor
 
   function applyImport(cleaned) {
     setGuard(null);
-    const newTeams = league.teams.map(tm => tm.id === teamId ? { ...tm, roster: cleaned } : tm);
-    onImport(appendChanges({ ...league, teams: newTeams }, changeEntry({
+    onImport(appendChanges(withRosterImport(league, teamId, cleaned), changeEntry({
       kind: 'import', field: 'roster',
       teamId, teamName: selectedTeam?.name || '',
       note: `${cleaned.length} player${cleaned.length === 1 ? '' : 's'} imported`,

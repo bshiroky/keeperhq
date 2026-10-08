@@ -18,6 +18,7 @@
 
 import { normalizeName } from './players.js';
 import { countOverriddenPrices } from './priceProvenance.js';
+import { recordedRemovals } from './rosterMembership.js';
 
 // A roster re-import replaces one team's roster list. It does NOT delete
 // declared keepers — but the roster is the spine of buildTeamPool, so a keeper
@@ -33,15 +34,21 @@ export function rosterImportImpact(league, teamId, incomingNames) {
     .map(k => k.player)
     .filter(name => name && !incoming.has(normalizeName(name)));
 
+  // Players taken off by hand that this paste puts straight back. Yahoo still
+  // lists a player dropped during the playoffs, so a routine re-import quietly
+  // undoes exactly the deliberate removals the commissioner made.
+  const removedReturning = recordedRemovals(team).filter(name => incoming.has(normalizeName(name)));
+
   return {
     teamId,
     teamName: team?.name || '',
     replacing: roster.length,
     keepers: keepers.length,
     keepersMissing,
+    removedReturning,
     // A roster carries no prices, so an override count here would be noise —
     // stated explicitly so a future reader doesn't "fix" its absence.
-    hasImpact: roster.length > 0,
+    hasImpact: roster.length > 0 || removedReturning.length > 0,
   };
 }
 
@@ -97,7 +104,14 @@ export function priorKeepersImpact(league, teamIds) {
 export function rosterGuardLines(impact) {
   const lines = [];
   const s = (n) => (n === 1 ? '' : 's');
-  lines.push({
+  if (impact.removedReturning?.length) {
+    const n = impact.removedReturning.length;
+    lines.push({
+      tone: 'danger',
+      text: `You removed ${impact.removedReturning.join(', ')} from ${impact.teamName}'s roster by hand, and ${n === 1 ? 'is' : 'are'} in this paste. Importing puts ${n === 1 ? 'that player' : 'those players'} back on the roster and in the eligible pool.`,
+    });
+  }
+  if (impact.replacing > 0) lines.push({
     tone: 'danger',
     text: `${impact.replacing} player${s(impact.replacing)} currently on file for ${impact.teamName} will be replaced by this paste — including any you added or removed by hand.`,
   });
