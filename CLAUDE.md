@@ -1440,6 +1440,27 @@ Yahoo work off 47%, not off the optimistic reading.
   click and by Space on the focused chip. Not in this pass: lottery reveal
   animation, commissioner/shared page convergence.
 
+- **Roster decides membership, draft decides price (this branch's PR):**
+  a player removed from a roster by hand kept appearing in the Eligible Pool
+  (and the shared page) because PR #43's "on no roster → stays with the
+  drafting team" fallback was league-wide, so every deliberate removal was
+  undone by the draft record. **Diagnosis:** reproduced on main before any
+  change (`scripts/test-roster-membership.mjs`). The fallback is now
+  per-team: it applies only while the drafting team's roster is not on file
+  (`hasRosterOnFile` — players present, or an import/edit stamped
+  `team.rosterLoadedAt`; a bare `roster: []` is NOT evidence, but a roster
+  emptied by hand is stamped by the editor). Same rule in `buildTeamPool` and
+  `buildStatusIndex`. **Re-import warning:** hand removals are logged on
+  `team.rosterRemovals` (`{player, at}`, written by `RosterEditor`, cleared by
+  an import or by re-adding) purely so the roster-import confirm can name
+  removed players the paste brings back (`rosterImportImpact.removedReturning`)
+  — it never affects membership. Also: Set-keepers' "Drafted $X →" lookup now
+  reads every team's draft records, not just the keeper's own. **Known
+  residual:** draft and roster spellings that normalize differently ("Jaime
+  Jaquez Jr." vs "Jaime Jaquez") no longer show under the drafter, but the
+  rostering team prices him at the $5 floor; `draftOnlyRecords(league)` lists
+  these for review (not yet surfaced in UI). `npm run test:membership`.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1520,6 +1541,7 @@ headless.
 - `npm run test:contracts` — contract year set on a pool row: where the
   record lands, years-served storage, keeper patched to match, expired flag
   cleared (`scripts/test-contract-year.mjs`; plain node)
+- `npm run test:membership` — roster decides membership / draft decides price: drafted-by-A-rostered-by-B, drafted-and-on-no-roster, hand removal, mid-import, re-import warning (`scripts/test-roster-membership.mjs`; esbuild-bundled)
 - `npm run test:season` — season anchoring, the keeper deadline as an event,
   and the backfill planner: label parsing, anchor-beats-counter, archived
   records staying out of every live view, unkept-at-the-deadline voiding (and
@@ -2311,10 +2333,19 @@ surface that reads it inherits them:
 - A team's pool is built from **its roster**; each rostered player's price
   comes from his prior draft record **on whichever team drafted him**.
 - A player rostered by another team is **not** in this team's pool.
-- A player on **no** roster stays with the team that drafted him — rosters can
-  be mid-import, and silently dropping him is worse than showing him.
+- A player on **no** roster stays with the team that drafted him **only while
+  that team's roster is not on file** (mid-import). Once a team's roster is
+  imported or hand-edited it is the truth about that team: a draft record for a
+  player it doesn't list is a price with no player attached, and he is in
+  nobody's pool (`draftRecordStands`, `src/lib/rosterMembership.js`). This
+  replaced a league-wide fallback that resurrected every player the
+  commissioner removed by hand.
 - A league with **no rosters imported at all** behaves exactly as before, or
-  every pool would empty out.
+  every pool would empty out. (Falls out of the per-team rule: no team has a
+  roster on file.)
+- **Expired contracts are the one exception**: a draft-only expired record
+  still lists under Expired (no price, not keepable — it only says who is back
+  in the draft).
 - A **declared keeper** (`team.keepers`) always wins: that's a deliberate
   commissioner action, not an import artifact.
 
@@ -2679,6 +2710,7 @@ copy of a component drifts away from the original.
   league), `contractVoided` (per player), `isContractVoided` (one-shot; not for
   loops). **Everything is derived — the deadline is an input to a read, never a
   trigger for a write**, so moving it restores the prior state with no data loss.
+- `src/lib/rosterMembership.js` — pure: `hasRosterOnFile`, `rosterIndex`, `draftRecordStands` (does a draft record still put the player in a team's pool), `draftOnlyRecords`, and the roster writers `withRosterImport` / `withRosterEdit` (stamp `rosterLoadedAt`, maintain `rosterRemovals`).
 - `src/lib/teamPool.js` — `buildTeamPool`, extracted from `SetKeepersTab.jsx`
   (pure logic that happened to live in a JSX file, so it needed a bundler to
   test). **The one place ownership, price, contract year, expiry, archived

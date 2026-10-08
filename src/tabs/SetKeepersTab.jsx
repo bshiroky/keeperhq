@@ -433,9 +433,14 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
   const draftedCostByName = React.useMemo(() => {
     if (!dollars) return null;
     const m = new Map();
-    (team?.priorKeepers || []).forEach(p => { if (p.keptFor != null) m.set(normalizeName(p.player), p.keptFor); });
+    // Any team's draft record: the price follows the player, and a player
+    // drafted by A but rostered by this team still has his drafted price.
+    (league.teams || [team]).forEach(tm => (tm?.priorKeepers || []).forEach(p => {
+      const k = normalizeName(p.player);
+      if (p.keptFor != null && !m.has(k)) m.set(k, p.keptFor);
+    }));
     return m;
-  }, [team, dollars]);
+  }, [league.teams, team, dollars]);
 
   const keepingNames = React.useMemo(() => new Set(keepers.map(k => normalizeName(k.player))), [keepers]);
   const keptAnywhere = React.useMemo(() => {

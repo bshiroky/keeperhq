@@ -1,3 +1,6 @@
+import { rosterIndex, draftRecordStands } from './rosterMembership.js';
+// (circular with rosterMembership.js, which needs normalizeName — both sides only
+// call each other from function bodies, never at module load.)
 const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const memCache = {};
 
@@ -85,12 +88,11 @@ export function buildStatusIndex(league) {
   // Who rosters a player is the ownership truth (see buildTeamPool). Keep a
   // separate index of it so the priorKeepers pass below can't reattribute a
   // player to the team that merely DRAFTED him.
-  const rosterOwner = new Map();
+  const rosterIdx = rosterIndex(league);
   for (const t of teams) {
     (t.roster || []).forEach((r, ri) => {
       const k = normalizeName(r.player);
       if (!k) return;
-      if (!rosterOwner.has(k)) rosterOwner.set(k, t.id);
       if (!idx.has(k)) idx.set(k, {
         teamId: t.id, teamName: t.name, status: 'rostered',
         rosterIdx: ri,
@@ -111,8 +113,10 @@ export function buildStatusIndex(league) {
         // theirs — if someone else's roster has him, that team owns him and
         // this record only supplies his price. A declared keeper is different:
         // it's an explicit commissioner action, so it still wins.
-        const rosteredBy = rosterOwner.get(key);
-        if (list === 'priorKeepers' && rosteredBy && rosteredBy !== t.id) return;
+        // The same rule buildTeamPool applies: a draft record on a team whose
+        // roster is on file, for a player nobody rosters, is a price with no
+        // player attached — he is not that team's keeper.
+        if (list === 'priorKeepers' && !draftRecordStands(rosterIdx, t, key)) return;
         const entry = {
           teamId: t.id, teamName: t.name, status: 'keeper',
           keeperList: list, keeperIdx: ki,

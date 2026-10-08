@@ -13,6 +13,7 @@ import { computedPriceOf, isPriceOverridden } from './priceProvenance.js';
 import { termOf, isAuctionCost, TERM_FIXED } from './keeperRules.js';
 import { priorEnteringYear, anchorFor, isArchivedContract, BASIS_SERVED } from './contractSeason.js';
 import { voidingActive, declaredKeeperNames, contractVoided } from './keeperDeadline.js';
+import { rosterIndex, draftRecordStands } from './rosterMembership.js';
 
 // Per-team eligible pool, split into the three groups the handoff calls for:
 //   onContract        — prior keepers not expired, advanced one contract year
@@ -66,17 +67,11 @@ export function buildTeamPool(league, team) {
       if (k && !priorAnywhereByName.has(k)) priorAnywhereByName.set(k, p);
     }
   }
-  // A league with no rosters imported yet (draft-only) must keep working
-  // exactly as before — otherwise every pool would empty out.
-  const rostersExist = rosterOwnerByName.size > 0;
-  // Rostered by someone else = not this team's to keep. A player on NO roster
-  // stays with the team that drafted him: the rosters may simply be
-  // incomplete, and dropping him silently is worse than showing him.
-  const ownedElsewhere = (name) => {
-    if (!rostersExist) return false;
-    const owner = rosterOwnerByName.get(normalizeName(name));
-    return !!owner && owner !== team?.id;
-  };
+  // Whether a draft record still counts for this team is rosterMembership's
+  // call: rostered elsewhere → not ours (we only lend the price); on no roster
+  // → ours only while OUR roster hasn't been imported. A league with no rosters
+  // imported at all therefore behaves exactly as a draft-only league always did.
+  const index = rosterIndex(league);
 
   // Expiry belongs to the term, not the draft format — a term-less league
   // never expires anyone, and an auction league with a term does.
@@ -157,17 +152,20 @@ export function buildTeamPool(league, team) {
     onContract.push(contractEntry(prior, r));
   });
 
-  // Players this team drafted who are on NO roster at all — kept here because
-  // the roster import may be incomplete. Anyone rostered by another team is
-  // that team's now and is skipped.
+  // Draft records with no roster row on THIS team. The player only joins the
+  // pool when the record still stands (see draftRecordStands). Expired
+  // contracts are the one exception to "no roster, no pool": they carry no
+  // price and can't be kept, they only say who is back in the draft, and that
+  // stays true whether or not anyone rosters the player now.
   priors.forEach(p => {
     const key = normalizeName(p.player);
-    if (claimed.has(key) || ownedElsewhere(p.player)) return;
-    if (rostersExist && rosterOwnerByName.has(key)) return;
+    if (claimed.has(key)) return;
     if (isExpired(p)) {
+      if (index.owners.has(key) && index.owners.get(key) !== team?.id) return;
       expired.push({ player: p.player, pos: p.pos, kind: 'expired', ...expiredTerm(p) });
       return;
     }
+    if (!draftRecordStands(index, team, key)) return;
     onContract.push(contractEntry(p, null));
   });
 
