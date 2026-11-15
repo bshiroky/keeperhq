@@ -10,8 +10,9 @@ import {
 } from '../server/yahoo.js';
 import {
   sectionsFor, initialMapping, mappingInOrder, mappingProblems, lateAdditions, resolvedPickOwners,
-  yahooImportImpact, applyYahooImport,
+  yahooImportImpact, applyYahooImport, seasonLabel, isSeasonOver, defaultYahooLeague,
 } from '../src/lib/yahooImport.js';
+import { sortTeamsByName } from '../src/lib/teamOrder.js';
 import { pickOwnerId } from '../src/lib/draftPicks.js';
 
 let passed = 0;
@@ -365,6 +366,30 @@ await test('renames and partial mappings', async () => {
   assert.deepEqual(partial.league.teams.map(t => t.roster.length), [2, 0, 0]);
   assert.equal(partial.league.standings.rows.length, 1);
   assert.equal(partial.league.teams[1].rosterLoadedAt, undefined);   // an unmapped team is untouched
+});
+
+await test('labels and defaults: two-year seasons, last season first, Team 2 before Team 10', async () => {
+  assert.deepEqual([seasonLabel('2026', 'nhl'), seasonLabel('2025', 'nba'), seasonLabel('2026', 'nfl'), seasonLabel('1999', 'nhl'), seasonLabel('', 'nhl')], ['2026–27', '2025–26', '2026', '1999–00', '']);
+  const now = { leagueKey: 'c', season: '2026', isFinished: false, nextLeagueKey: null, previousLeagueKey: 'b' };
+  // The league list may not carry Yahoo's finished flag: a renewed league is over.
+  const last = { leagueKey: 'b', season: '2025', isFinished: false, nextLeagueKey: 'c', previousLeagueKey: 'a' };
+  const older = { leagueKey: 'a', season: '2024', isFinished: true, nextLeagueKey: 'b' };
+  assert.deepEqual([isSeasonOver(now), isSeasonOver(last), isSeasonOver(older)], [false, true, true]);
+  assert.equal(defaultYahooLeague([now, last, older]).leagueKey, 'b');
+  assert.equal(defaultYahooLeague([now, last, older], 'a').leagueKey, 'a');
+  assert.equal(defaultYahooLeague([now]).leagueKey, 'c');
+  assert.equal(defaultYahooLeague([]), null);
+  assert.deepEqual(sortTeamsByName(['Team 10', 'Team 2', 'Team 1', 'team 11'].map(name => ({ name }))).map(t => t.name), ['Team 1', 'Team 2', 'Team 10', 'team 11']);
+  const { sessionCookie } = await connect();
+  const list = (await getData({ resource: 'leagues' }, { cookie: sessionCookie })).body.leagues;
+  assert.equal(list.find(l => l.leagueKey === LK).nextLeagueKey, '477.l.300');
+  // A typed date is fetched and flagged as the commissioner's own.
+  const yahoo = makeYahoo();
+  const c2 = await connect({ yahoo });
+  const custom = (await getData({ resource: 'import', league_key: LK, date: '2026-02-01' }, { cookie: c2.sessionCookie, yahoo })).body;
+  assert.deepEqual([custom.rosters.cutoffDate, custom.rosters.cutoffIsCustom], ['2026-02-01', true]);
+  assert.ok(yahoo.calls.some(c => c.url.includes('roster;date=2026-02-01')));
+  assert.equal((await bundleFor()).rosters.cutoffIsCustom, false);
 });
 
 console.log(`\n${passed} passed`);

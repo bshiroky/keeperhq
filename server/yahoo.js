@@ -132,6 +132,7 @@ export function parseLeagueList(...roots) {
         season: String(l.season ?? game?.season ?? ''), gameCode: l.game_code ?? game?.code ?? null,
         numTeams: num(l.num_teams), isFinished: String(l.is_finished ?? '') === '1',
         previousLeagueKey: renewToLeagueKey(l.renew),
+        nextLeagueKey: renewToLeagueKey(l.renewed),
       });
     }
   }
@@ -358,6 +359,8 @@ export async function fetchImportBundle(ctx, leagueKey, { date } = {}) {
     standings: parseStandings(standings.data),
     rosters: {
       cutoffDate: rostersCutoff ? cutoff : null,
+      // A date the commissioner typed, rather than the regular-season end.
+      cutoffIsCustom: !!rostersCutoff && isDate(date),
       cutoffInFuture,
       cutoff: rostersCutoff ? stripAll(rostersCutoff) : null,
       final: stripAll(rostersFinal),

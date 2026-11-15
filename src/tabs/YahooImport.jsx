@@ -14,6 +14,7 @@ import { sortTeamsByName } from '../lib/teamOrder.js';
 import {
   GAME_CODE_FOR_SPORT, sectionsFor, initialMapping, mappingInOrder, mappingProblems,
   lateAdditions, resolvedPickOwners, yahooImportImpact, applyYahooImport,
+  seasonLabel, isSeasonOver, defaultYahooLeague,
 } from '../lib/yahooImport.js';
 
 async function api(path, init = {}) {
@@ -73,7 +74,7 @@ export function YahooImportCard({ league, isDark, accentColor, onUpdateLeague })
           <div style={{ ...t.typeBody, fontWeight: 700, color: t.textPrimary }}>Import from Yahoo</div>
           <div style={{ ...t.typeBodyMeta, color: t.textMuted, marginTop: 2, lineHeight: 1.45 }}>
             Pull last season's rosters, draft, standings and traded picks straight from your Yahoo league. You review everything before it's saved.
-            {src && <> Last imported from <strong style={{ color: t.textSecondary }}>{src.name} ({src.season})</strong>.</>}
+            {src && <> Last imported from <strong style={{ color: t.textSecondary }}>{src.name} ({seasonLabel(src.season, GAME_CODE_FOR_SPORT[league.sport])})</strong>.</>}
           </div>
         </div>
         <Button variant="primary" size="sm" isDark={isDark} accent={accentColor} disabled={!signedIn}
@@ -109,6 +110,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
   const [guard, setGuard] = React.useState(null);
   const [result, setResult] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
+  const [customDate, setCustomDate] = React.useState('');
 
   React.useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
@@ -130,7 +132,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
     const pool = sameSport.length ? sameSport : list;
     // Default to the season most likely wanted: the last one imported from,
     // else the most recent FINISHED league of this sport.
-    const preferred = pool.find(l => l.leagueKey === league.yahooSource?.leagueKey) || pool.find(l => l.isFinished) || pool[0];
+    const preferred = defaultYahooLeague(pool, league.yahooSource?.leagueKey);
     setLeagueKey(preferred?.leagueKey || '');
     if (list.length === 0) setError('Yahoo returned no leagues for this account.');
     setStep('leagues');
@@ -153,14 +155,18 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
     window.location.assign(r.body.authorizeUrl);
   }
 
-  async function fetchBundle() {
+  // `key` lets the preview switch season; `date` re-reads rosters as of a day
+  // the commissioner typed.
+  async function fetchBundle({ key = leagueKey, date = '' } = {}) {
     setStep('fetching'); setError(null);
-    const r = await api(`/api/yahoo/data?resource=import&league_key=${encodeURIComponent(leagueKey)}`);
+    if (key !== leagueKey) setLeagueKey(key);
+    const r = await api(`/api/yahoo/data?resource=import&league_key=${encodeURIComponent(key)}${date ? `&date=${date}` : ''}`);
     if (r.status === 401 && r.body.needsConnect) { setStep('connect'); return; }
     if (!r.ok) { setError(r.body.error || 'Could not read that league from Yahoo.'); setStep('leagues'); return; }
+    // Re-reading the same league (a new roster date) keeps the team matching.
+    const same = bundle?.league?.leagueKey === r.body.league?.leagueKey;
     setBundle(r.body);
-    setMapping(initialMapping(league, r.body));
-    setRenames({});
+    if (!same) { setMapping(initialMapping(league, r.body)); setRenames({}); }
     setRosterSet(r.body.rosters?.cutoff ? 'cutoff' : 'final');
     setStep('preview');
   }
@@ -257,7 +263,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                 <select aria-label="Yahoo league" value={leagueKey} onChange={e => setLeagueKey(e.target.value)} style={{ ...field, width: '100%' }}>
                   {visibleLeagues.map(l => (
                     <option key={l.leagueKey} value={l.leagueKey}>
-                      {l.season} · {l.name}{l.numTeams ? ` · ${l.numTeams} teams` : ''}{l.isFinished ? '' : ' · in progress'}{visibleLeagues.some(x => x.gameCode !== l.gameCode) ? ` · ${l.gameCode}` : ''}
+                      {seasonLabel(l.season, l.gameCode)} · {l.name}{l.numTeams ? ` · ${l.numTeams} teams` : ''}{isSeasonOver(l) ? ' · finished' : ' · current season'}{visibleLeagues.some(x => x.gameCode !== l.gameCode) ? ` · ${l.gameCode}` : ''}
                     </option>
                   ))}
                 </select>
@@ -276,9 +282,17 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
             {step === 'preview' && bundle && (
               <>
                 <p style={{ ...body, margin: `${tokens.spaceSm}px 0 0` }}>
-                  <strong style={{ color: t.textPrimary }}>{bundle.league.name}</strong> · {bundle.league.season} season · {bundle.teams.length} teams
-                  {bundle.league.isFinished ? '' : ' · still in progress'}
+                  <strong style={{ color: t.textPrimary }}>{bundle.league.name}</strong> · {seasonLabel(bundle.league.season, bundle.league.gameCode)} season · {bundle.teams.length} teams
+                  {isSeasonOver(bundle.league) ? ' · finished' : ' · still in progress'}
                 </p>
+                {!isSeasonOver(bundle.league) && (
+                  <div style={{ ...t.typeBodyMeta, color: t.textBody, background: t.warningBg, border: `1px solid ${t.warningBorder}`, borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`, marginTop: tokens.spaceXs, display: 'flex', gap: tokens.spaceXs, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ flex: '1 1 260px' }}>This is the season being played now. Keepers are normally set from the season before it: that season's final rosters, draft and standings.</span>
+                    {bundle.league.previousLeagueKey && (
+                      <Button variant="secondary" size="sm" isDark={isDark} onClick={() => fetchBundle({ key: bundle.league.previousLeagueKey })}>Use last season instead</Button>
+                    )}
+                  </div>
+                )}
                 {bundle.problems?.length > 0 && (
                   <p style={{ ...t.typeBodyMeta, color: tokens.warning, margin: `${tokens.spaceXs}px 0 0` }}>Yahoo didn't return everything: {bundle.problems.join(' · ')}</p>
                 )}
@@ -329,11 +343,11 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                           <>
                             <label style={check}>
                               <input type="radio" name="khq-yahoo-roster-set" checked={rosterSet === 'cutoff'} onChange={() => setRosterSet('cutoff')} />
-                              <span>As of the end of the regular season ({fmtDate(bundle.rosters.cutoffDate)}) · {plural(rosterCount('cutoff'), 'player')}{lateCount ? ` · leaves out ${plural(lateCount, 'playoff pickup')}` : ''}</span>
+                              <span>{bundle.rosters.cutoffIsCustom ? `As of ${fmtDate(bundle.rosters.cutoffDate)}` : `As of the end of the regular season (${fmtDate(bundle.rosters.cutoffDate)})`} · {plural(rosterCount('cutoff'), 'player')}{lateCount ? ` · leaves out ${plural(lateCount, 'playoff pickup')}` : ''}</span>
                             </label>
                             <label style={check}>
                               <input type="radio" name="khq-yahoo-roster-set" checked={rosterSet === 'final'} onChange={() => setRosterSet('final')} />
-                              <span>As of the end of the season · {plural(rosterCount('final'), 'player')}</span>
+                              <span>{isSeasonOver(bundle.league) ? 'As of the end of the season' : 'As they stand today'} · {plural(rosterCount('final'), 'player')}</span>
                             </label>
                           </>
                         ) : (
@@ -343,6 +357,11 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                               : `Rosters as they stand now (${plural(rosterCount('final'), 'player')}).`}
                           </div>
                         )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, flexWrap: 'wrap', marginTop: tokens.space2xs, ...t.typeBodyMeta, color: t.textMuted }}>
+                          <label htmlFor="khq-yahoo-roster-date">Or rosters as of another date</label>
+                          <input id="khq-yahoo-roster-date" type="date" value={customDate} onChange={e => setCustomDate(e.target.value)} style={field} />
+                          <Button variant="secondary" size="sm" isDark={isDark} disabled={!customDate} onClick={() => fetchBundle({ key: bundle.league.leagueKey, date: customDate })}>Load</Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -362,7 +381,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                 {available.picks && (
                   <label style={check}>
                     <input type="checkbox" checked={pick.picks} onChange={e => setPick(p => ({ ...p, picks: e.target.checked }))} />
-                    <span><strong style={{ color: t.textPrimary }}>Traded picks</strong> · {plural(resolvedPickOwners(bundle, mapping).filter(p => p.originalTeamId !== p.ownerTeamId).length, 'pick')} changed hands in trades during that season</span>
+                    <span><strong style={{ color: t.textPrimary }}>Traded picks</strong> · {plural(resolvedPickOwners(bundle, mapping).filter(p => p.originalTeamId !== p.ownerTeamId).length, 'pick')} changed hands in trades during the {seasonLabel(bundle.league.season, bundle.league.gameCode)} season</span>
                   </label>
                 )}
                 {!anySection && <div style={{ ...t.typeBodyMeta, color: t.textMuted }}>Nothing selected.</div>}

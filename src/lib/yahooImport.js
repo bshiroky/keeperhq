@@ -26,6 +26,28 @@ import { hasTerm, termOf, draftFormatOf, hasLastDraftPage } from './keeperRules.
 
 export const GAME_CODE_FOR_SPORT = { hockey: 'nhl', basketball: 'nba', football: 'nfl', baseball: 'mlb' };
 
+// Yahoo labels a season by the year it STARTS. Hockey and basketball seasons
+// span two years, so "2026" alone reads as the wrong season half the time.
+export function seasonLabel(season, gameCode) {
+  const y = Number(season);
+  if (!y) return String(season || '');
+  return gameCode === 'nhl' || gameCode === 'nba' ? `${y}–${String((y + 1) % 100).padStart(2, '0')}` : String(y);
+}
+
+// A league is over when Yahoo says so, or when it has already been renewed
+// into a following season (the league LIST doesn't always carry the flag).
+export const isSeasonOver = l => !!(l?.isFinished || l?.nextLeagueKey);
+
+// The league an import most likely wants: the one imported from before, else
+// the most recent season that is over (keepers are set from LAST season).
+export function defaultYahooLeague(leagues, lastKey) {
+  const list = leagues || [];
+  return list.find(l => l.leagueKey === lastKey)
+    || list.find(isSeasonOver)
+    || list.find(l => l.leagueKey === list[0]?.previousLeagueKey)
+    || list[0] || null;
+}
+
 // Which sections make sense for this league. Draft values only matter where
 // the draft sets a keeper's cost; pick ownership only exists in a snake draft.
 export function sectionsFor(league, bundle) {
