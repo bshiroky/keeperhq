@@ -7,6 +7,7 @@ import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { LandingPage } from './LandingPage.jsx';
 import { SharedLeagueRoute } from './SharedLeaguePage.jsx';
+import { YahooSpikePage } from './YahooSpikePage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 import { ContractBackfillCard } from './tabs/ContractBackfillCard.jsx';
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
@@ -479,6 +480,8 @@ function App() {
           <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
           <Route path="/league/:leagueId" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
           <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
+          {/* Throwaway Yahoo API discovery spike — deliberately not linked from anywhere. */}
+          <Route path="/yahoo-spike" element={<YahooSpikePage isDark={isDark} session={session} authReady={authReady} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
