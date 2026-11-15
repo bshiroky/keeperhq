@@ -1467,6 +1467,41 @@ Yahoo work off 47%, not off the optimistic reading.
   second symptom was the same removal bug, not a name mismatch; no name-matching
   work was done.)
 
+- **Yahoo Fantasy API discovery spike (this branch's PR) — THROWAWAY, not the
+  integration.** Yahoo API access is approved; this exists only to learn what
+  Yahoo actually returns for a real account so the integration (Open item #15)
+  is designed against facts. An unlinked, signed-in-only page at
+  **`/yahoo-spike`** runs OAuth through two Vercel functions
+  (`api/yahoo/start.js`, `api/yahoo/callback.js`; logic in
+  `server/yahooSpike.js`) and shows a dump with Download buttons.
+  **Hard rules it enforces: nothing from Yahoo is stored (no Supabase writes,
+  Yahoo's terms bar storing fantasy data) and no token outlives one request**
+  — the refresh token is discarded unread, so picking a league means a SECOND
+  consent trip (pass 1 lists leagues, pass 2 dumps one, the league key riding
+  in the signed state). The state is an HMAC-signed HttpOnly cookie
+  (SameSite=Lax, 10 min, single-use); Yahoo only sees the nonce. The redirect
+  URI is fixed to `https://keeperhq.app/api/yahoo/callback` (override:
+  `YAHOO_REDIRECT_URI`), so **it only works on production** — started anywhere
+  else, the start endpoint refuses with the reason. Env: `YAHOO_CLIENT_ID`,
+  `YAHOO_CLIENT_SECRET` (server-only, never `VITE_`). The callback returns a
+  small HTML document that hands the gzipped dump to the tab's sessionStorage
+  (Vercel caps a function response at 4.5MB) and returns to the page. Every
+  step and every fetch is reported on the page; a failed resource is recorded
+  and the run continues; secrets/tokens/code are scrubbed from the output, and
+  managers' email addresses are redacted. The page offers a **digest**
+  (`src/lib/yahooSpikeDigest.js`: first two of every collection + the spike's
+  own `derived` summaries) because the full dump is too big to hand back in a
+  conversation. **Unverified until the user runs it**: the docs host is
+  blocked from the container, so `scope=fspt-r`, `?format=json`, the roster
+  `;date=` / `;week=` params and every resource path are from memory + search
+  snippets; the three `PROBE` fetches for traded picks are guesses whose
+  errors are themselves the answer. `npm run test:yahoo-spike` runs the whole
+  flow against a FAKE Yahoo — it proves the flow's guarantees, not Yahoo's
+  behaviour. **To remove the spike:** delete `api/yahoo/`, `server/`,
+  `src/YahooSpikePage.jsx`, `src/lib/yahooSpikeDigest.js`,
+  `scripts/test-yahoo-spike.mjs`, the `/yahoo-spike` route in `App.jsx`, and
+  the npm script. Findings belong in this file once the dump is analysed.
+
 ## Resume here (design-system rollout — paused snapshot)
 
 > The section below is the snapshot from when the design-system
@@ -1813,6 +1848,7 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
+| `/yahoo-spike` | `YahooSpikePage` — **throwaway** Yahoo API discovery spike. Not linked from anywhere; signed-in only; completes only on the production domain. See the shipped-work bullet. |
 | `/l/:token` | `SharedLeagueRoute` — the **public shared league page** (read-only, member-facing). Sits OUTSIDE the auth branching: renders identically for logged-out and logged-in visitors. The app chrome (nav header, TweaksPanel) is suppressed on this route (`isSharedRoute` in `App.jsx`) — the page carries its own wordmark header + "Powered by KeeperHQ" footer. An invalid/unknown token renders the invalid-link state in place (mascot + "ask your commissioner" copy), **never** a redirect to `/`. |
 | any other path | redirect to `/` |
 
