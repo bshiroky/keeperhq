@@ -13,6 +13,7 @@ import { aliasesByTeam, withTeamAliases } from './lib/teamMap.js';
 import { LastDraftPanel } from './tabs/DraftResultsTab.jsx';
 import { RosterImportModal, RosterEditorModal } from './tabs/RosterImportTab.jsx';
 import { NflDirectoryCard } from './tabs/NflDirectoryCard.jsx';
+import { YahooImportCard } from './tabs/YahooImport.jsx';
 import { isNflSport } from './lib/nflDirectory.js';
 import { RulesGrid } from './LeagueRulesModal.jsx';
 import { startNewSeason, canStartNewSeason } from './lib/season.js';
@@ -1319,6 +1320,11 @@ function ImportPanel({ league, isDark, onUpdateLeague, accentColor }) {
           Bring in rosters, draft prices, and rounds from your fantasy platform — the data KeeperHQ uses to track contracts and keeper costs.
         </div>
       </div>
+
+      {/* The direct route: one pull from Yahoo fills every section below.
+          The paste imports stay as the fallback (and for off-season pick
+          trades, which Yahoo doesn't record). */}
+      <YahooImportCard league={league} isDark={isDark} accentColor={accentColor} onUpdateLeague={onUpdateLeague} />
 
       {/* Football only: the stored NFL directory that imported names resolve
           against, with its manual refresh. It sits above the import cards

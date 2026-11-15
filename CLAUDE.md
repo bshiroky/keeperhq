@@ -1467,40 +1467,102 @@ Yahoo work off 47%, not off the optimistic reading.
   second symptom was the same removal bug, not a name mismatch; no name-matching
   work was done.)
 
-- **Yahoo Fantasy API discovery spike (this branch's PR) — THROWAWAY, not the
-  integration.** Yahoo API access is approved; this exists only to learn what
-  Yahoo actually returns for a real account so the integration (Open item #15)
-  is designed against facts. An unlinked, signed-in-only page at
-  **`/yahoo-spike`** runs OAuth through two Vercel functions
-  (`api/yahoo/start.js`, `api/yahoo/callback.js`; logic in
-  `server/yahooSpike.js`) and shows a dump with Download buttons.
-  **Hard rules it enforces: nothing from Yahoo is stored (no Supabase writes,
-  Yahoo's terms bar storing fantasy data) and no token outlives one request**
-  — the refresh token is discarded unread, so picking a league means a SECOND
-  consent trip (pass 1 lists leagues, pass 2 dumps one, the league key riding
-  in the signed state). The state is an HMAC-signed HttpOnly cookie
-  (SameSite=Lax, 10 min, single-use); Yahoo only sees the nonce. The redirect
-  URI is fixed to `https://keeperhq.app/api/yahoo/callback` (override:
-  `YAHOO_REDIRECT_URI`), so **it only works on production** — started anywhere
-  else, the start endpoint refuses with the reason. Env: `YAHOO_CLIENT_ID`,
-  `YAHOO_CLIENT_SECRET` (server-only, never `VITE_`). The callback returns a
-  small HTML document that hands the gzipped dump to the tab's sessionStorage
-  (Vercel caps a function response at 4.5MB) and returns to the page. Every
-  step and every fetch is reported on the page; a failed resource is recorded
-  and the run continues; secrets/tokens/code are scrubbed from the output, and
-  managers' email addresses are redacted. The page offers a **digest**
-  (`src/lib/yahooSpikeDigest.js`: first two of every collection + the spike's
-  own `derived` summaries) because the full dump is too big to hand back in a
-  conversation. **Unverified until the user runs it**: the docs host is
-  blocked from the container, so `scope=fspt-r`, `?format=json`, the roster
-  `;date=` / `;week=` params and every resource path are from memory + search
-  snippets; the three `PROBE` fetches for traded picks are guesses whose
-  errors are themselves the answer. `npm run test:yahoo-spike` runs the whole
-  flow against a FAKE Yahoo — it proves the flow's guarantees, not Yahoo's
-  behaviour. **To remove the spike:** delete `api/yahoo/`, `server/`,
-  `src/YahooSpikePage.jsx`, `src/lib/yahooSpikeDigest.js`,
-  `scripts/test-yahoo-spike.mjs`, the `/yahoo-spike` route in `App.jsx`, and
-  the npm script. Findings belong in this file once the dump is analysed.
+- **Yahoo import (this branch's PR) — replaces the discovery spike (PR #54).**
+  An **"Import from Yahoo" card on the Import page** pulls last season
+  straight from the commissioner's Yahoo league and fills the same four things
+  the pastes do: rosters, last draft, standings, traded picks. One modal, steps
+  within (connect → pick Yahoo league → preview → confirm → result); the
+  pastes stay as the fallback. The spike page, its dump and its digest are
+  deleted.
+  **Server** (`server/yahoo.js`, three functions under `api/yahoo/`):
+  `start` (POST issues state + Yahoo's URL; DELETE disconnects), `callback`
+  (verifies state, exchanges the code, 302s back to the Import page with
+  `?yahoo=connected` or `?yahoo=error&msg=`), and `data`
+  (`?resource=leagues` | `?resource=import&league_key=`). **The refresh token
+  is discarded unread and nothing about Yahoo is written server-side**; the
+  ACCESS token lives ≤55 minutes in an AES-GCM-encrypted HttpOnly cookie
+  (`khq_yahoo_session`, bound to the KeeperHQ user id, checked against the
+  Supabase bearer on every call), so one approval covers listing leagues and
+  fetching one. Redirect URI is fixed to
+  `https://keeperhq.app/api/yahoo/callback` (`YAHOO_REDIRECT_URI` overrides),
+  so **it only works on production**; `returnTo` is whitelisted to
+  `/league/<id>/import`. The server returns a NORMALISED bundle (never raw
+  Yahoo JSON, no emails): league facts, teams + manager nicknames, standings,
+  rosters at the regular-season cutoff AND at season's end, draft picks with
+  names resolved, pick trades oldest-first, and a `problems` list (a failed
+  section is reported; the rest still arrives).
+  **Client** (`src/lib/yahooImport.js`, pure): `applyYahooImport` writes through
+  the SAME primitives as the pastes (`withRosterImport`,
+  `refreshComputedPrice`, `reassignPick`, `rememberYahooTeams`, the change
+  log), so a Yahoo-filled league is indistinguishable from a pasted one.
+  Sections follow the league (`sectionsFor`): draft values only where the
+  draft sets a keeper's cost (`hasLastDraftPage`), picks only on snake.
+  **Rosters default to the regular-season cutoff**, which leaves out playoff
+  pickups (the preview counts them; "end of season" is the other choice).
+  Roster/draft rows carry `yahooPlayerId` + `sourceName`. A termed league's
+  existing contract years are CARRIED OVER on a draft re-import (Yahoo knows
+  nothing about terms); hand-set prices survive as with the paste. Picks are
+  written per traded pick, idempotently, and hand-recorded trades Yahoo never
+  saw (off-season deals) are left alone. `yahooImportImpact` is the guard:
+  silent on a first import, and on a re-import it names rosters/draft
+  rows/standings replaced, declared keepers missing from the Yahoo roster, a
+  lottery draw that goes void, and hand trades overwritten. Team matching uses
+  `resolveTeamNames`; for a brand-new league "Match in order" fills every row
+  and renames the teams (by manager nickname or Yahoo team name).
+  `league.yahooSource = {leagueKey, name, season, importedAt}` remembers the
+  source. Bundled fix: **`LeagueRoute` now waits for the signed-in user's
+  leagues before deciding "not found"** — a direct load of any league URL
+  (refresh, deep link, the return from Yahoo) used to bounce to home.
+  `npm run test:yahoo` runs the server flow against a fake Yahoo in the real
+  response shapes, plus the pure import logic.
+
+### What Yahoo's API returns (MEASURED by the spike, two real leagues)
+
+Hockey (snake, 12 teams) and basketball (auction, 12 teams), ~110 requests in
+~7s each. Shapes: collections are objects keyed `"0","1",…` + `count`; an
+entity's fields arrive as an ARRAY of single-key objects with stray `[]`
+entries (`flat()` in `server/yahoo.js`).
+
+- **Access:** `scope=fspt-r` works only once the Yahoo app has the Fantasy
+  Sports read permission; without the scope param a token is issued but every
+  call answers `additional_authorization_required`. `?format=json` works.
+- **Renew chain:** league metadata carries `renew` (previous season) and
+  `renewed` (next) as `"<game>_<league>"`. Walked 12 seasons back.
+- **Rosters as of a date:** `league/K/teams/roster;date=YYYY-MM-DD` returns
+  every team in one call and IS honoured — verified by replaying every later
+  transaction onto the cutoff roster and reproducing the final roster on 12/12
+  teams. Without a date, a finished league returns its final roster. **Do not
+  use `;week=N` for hockey**: it returned extra players on half the teams.
+- **Regular-season end:** `settings.playoff_start_week − 1`, dated by
+  `game/<game>/game_weeks`.
+- **Draft results:** `pick`, `round`, `team_key`, `player_key`, plus `cost` on
+  auction drafts (every pick). Names need `league/K/players;player_keys=`
+  (25 per call). No keeper flag: neither league uses Yahoo's keeper setting.
+  In the hockey league the last rounds are the commissioner loading keepers
+  by hand, so a kept player's round means nothing there.
+- **Traded picks:** no dedicated resource (`draft_picks` is invalid on league
+  and team). Trades carry a `picks` array with `round`, `original_team_key`,
+  `source_team_key`, `destination_team_key`; no year, i.e. the next draft.
+  Replaying last season's pick trades matched who actually picked in round 1
+  of the following draft. Off-season trades don't exist in Yahoo.
+- **Transactions:** all of a season in one call (~1,000 rows, ~3MB), each with
+  `timestamp`, `type` (`add`, `drop`, `add/drop`, `trade`, `commish`) and
+  per-player source/destination. `commish` rows carry no detail.
+  `transactions;type=trade` is the small form.
+- **Standings:** `rank` (final, playoffs included), `playoff_seed`, W-L-T,
+  `percentage`, and `team_points.total` (present on hockey, EMPTY on
+  basketball).
+- **Identity:** players have a stable `player_id` (the `player_key` is
+  game-prefixed and changes every season), names, pro team, positions. Team
+  keys are renumbered between seasons and the manager `guid` is hidden, so the
+  manager NICKNAME is the only cross-season link.
+- **Agreement (signed June 2026):** read-only, US + Canada. Section 2(c)(vii)
+  says the developer "shall not store, cache or index" Yahoo Fantasy
+  Information, while the Approved Use Case is importing league data to manage
+  keepers. **The owner has decided to proceed and revisit if Yahoo objects.**
+  Attribution ("Fantasy data provided by Yahoo Fantasy", linked) is required
+  where Yahoo data is displayed; it's on the import card and modal only so far.
+  Yahoo data must not be run through AI features (3(e)).
 
 ## Resume here (design-system rollout — paused snapshot)
 
@@ -1623,6 +1685,9 @@ headless.
   surfaces on a football AND a hockey league in both themes, and asserts the
   hockey path is untouched (`scripts/smoke-nfl-import.mjs`; esbuild-bundles
   `scripts/nfl-smoke-entry.jsx` to `.tmp-nfl-bundle.mjs`, gitignored)
+- `npm run test:yahoo` — the Yahoo import: sign-in flow, session cookie, and
+  bundle against a fake Yahoo, plus the pure import logic
+  (`scripts/test-yahoo.mjs`; plain node)
 - `npm run test:rules` — keeper cost/term model, the legacy read shim, the
   season rollover, and `buildLeague` (`scripts/test-keeper-rules.mjs`)
 - `npm run test:wizard` — renders every create-league screen on all three
@@ -1848,7 +1913,6 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
 | `/league/:leagueId/<unknown-tab>` | redirect to `/league/:leagueId/overview` |
-| `/yahoo-spike` | `YahooSpikePage` — **throwaway** Yahoo API discovery spike. Not linked from anywhere; signed-in only; completes only on the production domain. See the shipped-work bullet. |
 | `/l/:token` | `SharedLeagueRoute` — the **public shared league page** (read-only, member-facing). Sits OUTSIDE the auth branching: renders identically for logged-out and logged-in visitors. The app chrome (nav header, TweaksPanel) is suppressed on this route (`isSharedRoute` in `App.jsx`) — the page carries its own wordmark header + "Powered by KeeperHQ" footer. An invalid/unknown token renders the invalid-link state in place (mascot + "ask your commissioner" copy), **never** a redirect to `/`. |
 | any other path | redirect to `/` |
 

@@ -1,7 +1,4 @@
-// Yahoo discovery spike — OAuth callback + the dump. Throwaway; see
-// server/yahooSpike.js for what it does and how to remove it.
-import { createCallbackHandler } from '../../server/yahooSpike.js';
-
-export const config = { maxDuration: 60 };
+// Yahoo import — where Yahoo sends the browser back. See server/yahoo.js.
+import { createCallbackHandler } from '../../server/yahoo.js';
 
 export default createCallbackHandler({});
