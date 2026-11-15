@@ -7,7 +7,6 @@ import { LeagueView } from './LeagueView.jsx';
 import { CreateLeagueWizard } from './CreateLeagueWizard.jsx';
 import { LandingPage } from './LandingPage.jsx';
 import { SharedLeagueRoute } from './SharedLeaguePage.jsx';
-import { YahooSpikePage } from './YahooSpikePage.jsx';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio } from './TweaksPanel.jsx';
 import { ContractBackfillCard } from './tabs/ContractBackfillCard.jsx';
 import { SPORT_CONFIG, makeTheme, tokens, GoogleButton, MOTION_STYLES, Toast } from './components.jsx';
@@ -233,8 +232,13 @@ function NewLeagueRoute({ leagues, isDark, session, onCreate }) {
 // Last Draft full page (the imported prior-year draft + its on-page import).
 const VALID_TABS = ['overview', 'import', 'draft', 'payouts', 'picks', 'lottery', 'settings'];
 
-function LeagueRoute({ leagues, isDark, onUpdateLeague, onDeleteLeague }) {
+function LeagueRoute({ leagues, isDark, onUpdateLeague, onDeleteLeague, loading }) {
   const { leagueId, tab } = useParams();
+  // On a direct load (refresh, a deep link, the return from Yahoo's sign-in)
+  // the signed-in user's leagues haven't arrived yet. Deciding "not found"
+  // now would bounce every deep link to the home page and drop its query
+  // string, so wait for the real list first.
+  if (loading) return <LoadingState isDark={isDark} />;
   // `leagues` here is the active list — a soft-deleted league's routes fall
   // through to the not-found redirect until it's restored.
   const league = leagues.find(l => l.id === leagueId);
@@ -478,10 +482,8 @@ function App() {
           {/* NewLeagueRoute gets the FULL list (incl. soft-deleted) so a new
               league's slug can't collide with a deleted league's id. */}
           <Route path="/new" element={<NewLeagueRoute leagues={leagues} isDark={isDark} session={session} onCreate={handleAddLeague} />} />
-          <Route path="/league/:leagueId" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
-          <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} />} />
-          {/* Throwaway Yahoo API discovery spike — deliberately not linked from anywhere. */}
-          <Route path="/yahoo-spike" element={<YahooSpikePage isDark={isDark} session={session} authReady={authReady} />} />
+          <Route path="/league/:leagueId" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} loading={!authReady || (!!session && leaguesLoading)} />} />
+          <Route path="/league/:leagueId/:tab" element={<LeagueRoute leagues={activeLeagues} isDark={isDark} onUpdateLeague={handleUpdateLeague} onDeleteLeague={handleDeleteLeague} loading={!authReady || (!!session && leaguesLoading)} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

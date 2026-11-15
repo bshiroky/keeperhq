@@ -114,6 +114,7 @@ export function describeChange(entry) {
         subject: entry.teamName || 'League',
         action: entry.field === 'roster' ? 'roster re-imported'
           : entry.field === 'standings' ? 'standings imported'
+          : entry.field === 'draftPicks' ? 'traded picks imported'
           : 'draft re-imported',
         detail: entry.note || '',
         where: '',
