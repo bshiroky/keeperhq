@@ -9,7 +9,7 @@ import {
   createStartHandler, createCallbackHandler, createDataHandler,
 } from '../server/yahoo.js';
 import {
-  sectionsFor, initialMapping, mappingInOrder, mappingProblems, lateAdditions, resolvedPickOwners,
+  sectionsFor, initialMapping, mappingInOrder, initialTeamMatch, renamesFor, hasPlaceholderTeams, withOverrides, mappingProblems, lateAdditions, resolvedPickOwners,
   yahooImportImpact, applyYahooImport, seasonLabel, isSeasonOver, defaultYahooLeague,
   directoryResolver, playerFields, directoryMatchSummary, eligibilityNote,
 } from '../src/lib/yahooImport.js';
@@ -483,6 +483,37 @@ await test('positions: newest season\'s eligibility, stored as a list, shown as 
     { roster: [{ player: 'A', pos: 'C' }, { player: 'B', pos: 'D', positions: 'D' }], priorKeepers: [{ player: 'A', positions: 'C,LW' }] },
   ] });
   assert.deepEqual([idx.get('a'), idx.get('b')], [['C', 'LW'], ['D']]);   // an explicit list beats a bare pos
+});
+
+await test('default team names match in order and rename; real names match by name', async () => {
+  const b = await bundleFor();
+  const fresh = leagueFixture({ teams: ['Team 1', 'Team 2', 'Team 3'].map((name, i) => ({ id: 'abc'[i], name, keepers: [], roster: [], priorKeepers: [] })) });
+  assert.equal(hasPlaceholderTeams(fresh), true);
+  assert.deepEqual(initialTeamMatch(fresh, b), MAP);
+  assert.deepEqual(renamesFor(fresh, b, MAP), { a: 'Ben', b: 'Mack', c: 'Corey' });
+  // Changing a row's team moves the rename with it.
+  const swapped = { ...MAP, [`${LK}.t.1`]: 'b', [`${LK}.t.2`]: 'a' };
+  assert.deepEqual(renamesFor(fresh, b, swapped), { b: 'Ben', a: 'Mack', c: 'Corey' });
+  const named = leagueFixture({ yahooTeamMap: { 'Puck Dynasty': 'a' } });
+  assert.equal(hasPlaceholderTeams(named), false);
+  assert.equal(initialTeamMatch(named, b)[`${LK}.t.1`], 'a');
+  assert.deepEqual(renamesFor(named, b, MAP), {});               // real names are never renamed
+  assert.equal(hasPlaceholderTeams({ teams: [] }), false);
+});
+
+await test('players matched by hand in the preview beat the directory', async () => {
+  const resolve = directoryResolver(DIRECTORY);
+  const fixed = withOverrides(resolve, { betatwo: DIRECTORY[2] });
+  assert.equal(withOverrides(resolve, {}), resolve);
+  assert.deepEqual([fixed({ name: 'Beta Two' }).status, fixed({ name: 'Beta Two' }).rec.id], ['matched', '8471111']);
+  assert.equal(fixed({ name: 'Alpha One', proTeam: 'TOR', positions: ['C'] }).rec.id, '8478402');   // others untouched
+  const b = await bundleFor({ auction: true });
+  const summary = directoryMatchSummary(b, fixed, { rosterSet: 'cutoff' });
+  assert.deepEqual([summary.matched, summary.unmatched.map(u => u.name)], [5, ['Dropped Guy']]);
+  const out = applyYahooImport(auctionLeague({ sport: 'hockey' }), b, MAP, { rosters: true, rosterSet: 'cutoff', resolve: fixed });
+  const all = out.league.teams.flatMap(tm => tm.roster);
+  assert.ok(all.some(r => r.player === 'Beta One' && r.nhlPlayerId === '8471111'));
+  assert.ok(!all.some(r => r.player === 'Beta Two'));
 });
 
 console.log(`\n${passed} passed`);

@@ -74,6 +74,44 @@ export function initialMapping(league, bundle) {
   return map;
 }
 
+// A league straight out of the create wizard still has its default names
+// ("Team 1", "Team 2"…). There is nothing to match those against by name, so
+// the import pairs them with Yahoo's teams in order and renames them.
+export const hasPlaceholderTeams = league =>
+  (league?.teams || []).length > 0 && (league.teams || []).every(tm => /^team\s*\d+$/i.test(String(tm.name || '').trim()));
+
+// The starting team match: by order (with renames) for a placeholder league,
+// otherwise by saved alias / similar name.
+export function initialTeamMatch(league, bundle) {
+  return hasPlaceholderTeams(league) ? mappingInOrder(league, bundle, 'manager').mapping : initialMapping(league, bundle);
+}
+
+// The renames an import applies: only on a placeholder league, each matched
+// team takes its Yahoo manager's name (stable across seasons, unlike Yahoo
+// team names). Derived from the CURRENT match, so changing a row's dropdown
+// renames the right team.
+export function renamesFor(league, bundle, mapping) {
+  if (!hasPlaceholderTeams(league)) return {};
+  const out = {};
+  for (const yt of bundle?.teams || []) {
+    const id = mapping?.[yt.teamKey];
+    if (id) out[id] = yt.managers?.[0] || yt.name;
+  }
+  return out;
+}
+
+// Players the commissioner matched by hand in the preview: Yahoo name (by
+// normalizeName) → directory record. They beat whatever the resolver found.
+export function withOverrides(resolve, overrides) {
+  if (!resolve) return resolve;
+  const keys = Object.keys(overrides || {});
+  if (!keys.length) return resolve;
+  return yp => {
+    const rec = overrides[normalizeName(yp?.name)];
+    return rec ? { status: 'matched', rec, byHand: true } : resolve(yp);
+  };
+}
+
 // For a league whose teams are still placeholders: pair Yahoo teams with the
 // league's teams in order, and name each team after its manager (or its Yahoo
 // team name). Returns the mapping plus the renames to apply on import.
