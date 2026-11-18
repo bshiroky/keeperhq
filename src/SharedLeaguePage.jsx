@@ -312,10 +312,12 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
         borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
         boxSizing: 'border-box',
       }}>
-        <span style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.player}
-          {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, marginLeft: 6, fontWeight: 500 }}>{pos}</span>}
-        </span>
+        {/* Positions under the name, not after it: inline, a long name hid
+            them entirely, and a long list (PG/SG/SF/PF) hid the name. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.player}</div>
+          {pos && <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos}</div>}
+        </div>
         <ContractText row={row} league={league} isDark={isDark} />
         <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />
       </li>

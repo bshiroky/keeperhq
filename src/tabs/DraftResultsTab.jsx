@@ -123,16 +123,18 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Headshot name={entry.player} map={dirMap} size={28} isDark={isDark} />
-        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '1px 5px', minWidth: 24, textAlign: 'center', flexShrink: 0, whiteSpace: 'nowrap' }}>
-          {pos || '—'}
-        </span>
-        <NameCell value={entry.player} league={league} isDark={isDark} unmatched={unmatched}
-          disabledNames={otherNames}
-          onCommit={(name, picked) => onUpdate(nfl && picked?.playerId
-            // Picking a suggestion resolves the row: store the id and keep
-            // (or set) the source string this row came from.
-            ? { player: name, playerId: picked.playerId, ...(picked.pos ? { pos: picked.pos } : {}), sourceName: entry.sourceName || entry.player }
-            : { player: name })} />
+        {/* Name field over positions: side by side, a multi-position list
+            squeezed the name field to nothing on a phone. */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <NameCell value={entry.player} league={league} isDark={isDark} unmatched={unmatched}
+            disabledNames={otherNames}
+            onCommit={(name, picked) => onUpdate(nfl && picked?.playerId
+              // Picking a suggestion resolves the row: store the id and keep
+              // (or set) the source string this row came from.
+              ? { player: name, playerId: picked.playerId, ...(picked.pos ? { pos: picked.pos } : {}), sourceName: entry.sourceName || entry.player }
+              : { player: name })} />
+          {pos && <div style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos}</div>}
+        </div>
         {isSnake ? (
           <select value={entry.acquisitionRound ?? ''} aria-label="Draft round"
             onChange={e => onSetRound(e.target.value === '' ? null : parseInt(e.target.value))}
@@ -150,7 +152,7 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
         </button>
       </div>
       {unmatched && (
-        <div style={{ marginTop: 3, paddingLeft: 68, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
+        <div style={{ marginTop: 3, paddingLeft: 36, fontSize: 10, fontWeight: 600, color: tokens.danger }}>
           {nfl
             ? 'no player ID — pick this player from the suggestions to attach one'
             : 'unmatched — pick from the suggestions or fix the spelling'}

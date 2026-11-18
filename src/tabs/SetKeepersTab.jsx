@@ -243,10 +243,14 @@ function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, dis
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: tokens.radiusSm, background: keeping ? t.successBg : 'transparent', border: `1px solid ${keeping ? t.successBorder : t.border}`, opacity: blocked ? 0.6 : 1 }}>
-      {positionsList(entry).length > 0 && (
-        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.sectionBg, borderRadius: 3, padding: '1px 5px', minWidth: 22, textAlign: 'center', flexShrink: 0, whiteSpace: 'nowrap' }}>{formatPositions(positionsList(entry))}</span>
-      )}
-      <span style={{ ...tokens.typeBody, fontWeight: 600, color: blocked ? t.textMuted : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: blocked ? 'line-through' : 'none' }}>{entry.player}</span>
+      {/* Name over positions, never side by side: a multi-position list
+          (PG/SG/SF/PF) beside the name squeezed the name to nothing. */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ ...tokens.typeBody, fontWeight: 600, color: blocked ? t.textMuted : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: blocked ? 'line-through' : 'none' }}>{entry.player}</div>
+        {positionsList(entry).length > 0 && (
+          <div style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatPositions(positionsList(entry))}</div>
+        )}
+      </div>
       {statusLabel && <span style={{ ...tokens.typePill, color: statusColor || t.textMuted, flexShrink: 0 }}>{statusLabel}</span>}
       {/* The drafted price this row's keep cost is calculated FROM was set by
           hand — say so here, where the arithmetic is on screen. */}
