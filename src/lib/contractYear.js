@@ -93,6 +93,7 @@ export function setContractYear(league, teamId, playerName, { year, length }) {
     const record = { player: rosterRow?.player || playerName, contractYear: served, contractLength: len };
     if (expire) record.expired = true;
     if (rosterRow?.pos) record.pos = rosterRow.pos;
+    if (rosterRow?.positions) record.positions = rosterRow.positions;
     logTerm(1, logged, 'contractYear');
     logTerm(null, len, 'contractLength');
     nextTeams = nextTeams.map(tm => (tm.id === teamId ? { ...tm, priorKeepers: [...(tm.priorKeepers || []), record] } : tm));

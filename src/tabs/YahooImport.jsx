@@ -15,7 +15,7 @@ import { loadPlayers } from '../lib/players.js';
 import {
   GAME_CODE_FOR_SPORT, sectionsFor, initialMapping, mappingInOrder, mappingProblems,
   lateAdditions, resolvedPickOwners, yahooImportImpact, applyYahooImport,
-  seasonLabel, isSeasonOver, defaultYahooLeague, directoryResolver, directoryMatchSummary,
+  seasonLabel, isSeasonOver, defaultYahooLeague, directoryResolver, directoryMatchSummary, eligibilityNote,
 } from '../lib/yahooImport.js';
 
 async function api(path, init = {}) {
@@ -399,6 +399,17 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                     <span><strong style={{ color: t.textPrimary }}>Traded picks</strong> · {plural(resolvedPickOwners(bundle, mapping).filter(p => p.originalTeamId !== p.ownerTeamId).length, 'pick')} changed hands in trades during the {seasonLabel(bundle.league.season, bundle.league.gameCode)} season</span>
                   </label>
                 )}
+                {(chosen.rosters || chosen.draft) && (() => {
+                  const e = eligibilityNote(bundle);
+                  return (
+                    <div style={{ ...t.typeBodyMeta, color: t.textBody, marginTop: tokens.spaceSm, lineHeight: 1.5 }}>
+                      <strong style={{ color: t.textPrimary }}>Positions:</strong>{' '}
+                      {e.newest && !e.sameAsLeague
+                        ? `every position each player is eligible at in ${e.season}, the newest season Yahoo has opened.`
+                        : `every position each player was eligible at in ${e.season}.`}
+                    </div>
+                  );
+                })()}
                 {usesDirectory && (chosen.rosters || chosen.draft) && (
                   <div style={{ ...t.typeBodyMeta, color: t.textBody, marginTop: tokens.spaceSm, lineHeight: 1.5 }}>
                     {(directory.status === 'idle' || directory.status === 'loading') && 'Matching players to the NHL player directory…'}

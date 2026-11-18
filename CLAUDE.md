@@ -1544,6 +1544,28 @@ Yahoo work off 47%, not off the optimistic reading.
   directory yet). **Not yet measured on a real league** — the container can't
   reach the NHL API, so the real match rate shows on the first import.
 
+- **Multi-position eligibility, from the newest season (this branch's PR).**
+  Yahoo positions are a LIST (C,LW,RW) and eligibility changes between
+  seasons, which matters to a keeper decision. The import now asks Yahoo for
+  each player's eligibility in the **newest season Yahoo has opened**
+  (`fetchEligibility` in `server/yahoo.js`: `/game/<code>` gives the current
+  game; a player's id is stable across seasons, so `<newGame>.p.<id>` is the
+  same player; 25 per call), and falls back to the imported season's list for
+  players Yahoo no longer returns. When the imported league IS the newest
+  season it reads its own data with no extra calls. Identity stays the NHL
+  directory's; ELIGIBILITY is Yahoo's (fantasy-specific — the directory has one
+  position), the directory's single position only when Yahoo gave none.
+  Stored as `positions` (comma string — the draft paste's existing convention)
+  beside `pos` (the first one), on roster and draft rows. Shown as `C/LW/RW`
+  everywhere through `positionsList` / `formatPositions` (`lib/players.js`;
+  slot codes BN/Util/IR dropped): the Eligible Pool, the roster editor, Last
+  Draft, and the shared page. Declared keepers store no position, so the shared
+  page reads every row's list by name (`leaguePositionIndex`: explicit list
+  beats bare `pos`, roster beats draft record). The pool carries `positions`
+  through `buildTeamPool`. **`011_shared_positions.sql` must be run** for the
+  shared page to show more than one position; without it the page keeps the
+  old single position (less information, never wrong).
+
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)
 
 Hockey (snake, 12 teams) and basketball (auction, 12 teams), ~110 requests in
@@ -2859,6 +2881,9 @@ copy of a component drifts away from the original.
   the **Tweaks panel** (it reports across every league; a per-league Settings
   card could not confirm the term-less ones are untouched). Preview is the only
   entry point; the write is a separate second action behind its own confirm.
+- `supabase/migrations/011_shared_positions.sql` — replaces `get_shared_league`
+  to project `positions` on `roster` and `priorKeepers`. No table change. Run
+  after 010.
 - `supabase/migrations/010_season_anchored_contracts.sql` — replaces
   `get_shared_league` to project `startSeason`, `contractStatus` and
   `expiredAfterSeason` on both `keepers` and `priorKeepers`. No table change.

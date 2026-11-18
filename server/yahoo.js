@@ -195,8 +195,37 @@ export function parseDraft(data) {
   }));
 }
 
+// Works for a league's players collection and a game's.
 export function parsePlayers(data) {
-  return items(leagueNode(data)?.[1]?.players).map(p => parsePlayer(p.player)).filter(p => p.playerKey);
+  const node = data?.fantasy_content?.league || data?.fantasy_content?.game;
+  return items(node?.[1]?.players).map(p => parsePlayer(p.player)).filter(p => p.playerKey);
+}
+
+// Position eligibility for the NEWEST season Yahoo has opened for this sport:
+// keepers are chosen for the season ahead, and eligibility changes between
+// seasons. `/game/<code>` answers with the current game; a player's id is
+// stable across seasons, so `<newGameKey>.p.<id>` is the same player there.
+// → { season, gameKey, sameAsLeague, byPlayerId: { id: ['C','LW'] } } | null
+export async function fetchEligibility(ctx, { gameCode, leagueGameKey, players }) {
+  if (!gameCode) return null;
+  const game = await yahooGet(ctx, 'Newest season', `/game/${gameCode}`);
+  const g = collectByKey(game.data, 'game_key')[0];
+  const gameKey = g?.game_key != null ? String(g.game_key) : null;
+  if (!gameKey) return null;
+  const season = String(g.season ?? '');
+  const byPlayerId = {};
+  if (gameKey === String(leagueGameKey)) {
+    // The league IS the newest season: what it returned is already current.
+    for (const p of players) if (p.yahooPlayerId && p.positions?.length) byPlayerId[p.yahooPlayerId] = p.positions;
+    return { season, gameKey, sameAsLeague: true, byPlayerId };
+  }
+  const ids = [...new Set(players.map(p => p.yahooPlayerId).filter(Boolean))];
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 25) chunks.push(ids.slice(i, i + 25));
+  const got = await mapPool(chunks, 4, (c, i) => yahooGet(ctx, `${season} positions (${i + 1}/${chunks.length})`,
+    `/game/${gameKey}/players;player_keys=${c.map(id => `${gameKey}.p.${id}`).join(',')}`));
+  for (const r of got) for (const p of parsePlayers(r.data)) if (p.yahooPlayerId && p.positions.length) byPlayerId[p.yahooPlayerId] = p.positions;
+  return { season, gameKey, sameAsLeague: false, byPlayerId };
 }
 
 // Draft picks only ever move inside trades. Oldest first, so replaying them
@@ -344,6 +373,9 @@ export async function fetchImportBundle(ctx, leagueKey, { date } = {}) {
   const looked = await mapPool(chunks, 4, (c, i) => yahooGet(ctx, `Drafted players (${i + 1}/${chunks.length})`, `${L}/players;player_keys=${c.join(',')}`));
   for (const r of looked) for (const p of parsePlayers(r.data)) known.set(p.playerKey, p);
 
+  const allPlayers = [...known.values()];
+  const eligibility = await fetchEligibility(ctx, { gameCode: meta.game_code, leagueGameKey: gameKey, players: allPlayers });
+
   const strip = p => ({ yahooPlayerId: p.yahooPlayerId, name: p.name, proTeam: p.proTeam, positions: p.positions, primaryPosition: p.primaryPosition });
   const stripAll = set_ => Object.fromEntries(Object.entries(set_ || {}).map(([k, list]) => [k, list.map(strip)]));
 
@@ -370,6 +402,7 @@ export async function fetchImportBundle(ctx, leagueKey, { date } = {}) {
       return { pick: p.pick, round: p.round, cost: p.cost, teamKey: p.teamKey, ...(pl ? strip(pl) : { yahooPlayerId: null, name: null, proTeam: null, positions: [], primaryPosition: null }) };
     }),
     pickTrades: parsePickTrades(trades.data),
+    eligibility,
     problems: ctx.log.filter(f => !f.ok).map(f => `${f.label}: ${f.error}`),
   };
 }

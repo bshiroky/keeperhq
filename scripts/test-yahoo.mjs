@@ -11,9 +11,10 @@ import {
 import {
   sectionsFor, initialMapping, mappingInOrder, mappingProblems, lateAdditions, resolvedPickOwners,
   yahooImportImpact, applyYahooImport, seasonLabel, isSeasonOver, defaultYahooLeague,
-  directoryResolver, playerFields, directoryMatchSummary,
+  directoryResolver, playerFields, directoryMatchSummary, eligibilityNote,
 } from '../src/lib/yahooImport.js';
 import { sortTeamsByName } from '../src/lib/teamOrder.js';
+import { positionsList, formatPositions, leaguePositionIndex } from '../src/lib/players.js';
 import { pickOwnerId } from '../src/lib/draftPicks.js';
 
 let passed = 0;
@@ -51,7 +52,7 @@ const ROSTERS = {
 const rosterResp = which => ({ fantasy_content: { league: [{ league_key: LK }, { teams: col(TEAMS.map(t => ({ team: [teamHead(t), { roster: { coverage_type: 'date', '0': { players: col(ROSTERS[which][t[0]].map(([id, n]) => player(id, n))) } } }] }))) }] } });
 const meta = { league_key: LK, name: 'Test League', season: '2025', game_code: 'nhl', num_teams: 3, renew: '453_200', renewed: '477_300', end_week: '24', end_date: '2026-04-16', is_finished: 1 };
 
-function makeYahoo({ auction = false, tokenStatus = 200, apiStatus = 200, fail = [] } = {}) {
+function makeYahoo({ auction = false, tokenStatus = 200, apiStatus = 200, fail = [], newestGame = '465', newestPositions = {} } = {}) {
   const calls = [];
   const json = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) });
   const fetchImpl = async (url, init = {}) => {
@@ -67,6 +68,11 @@ function makeYahoo({ auction = false, tokenStatus = 200, apiStatus = 200, fail =
     if (fail.some(f => path.includes(f))) return json(400, { error: { description: 'Invalid resource' } });
     const wrap = extra => json(200, { fantasy_content: { league: [meta, extra] } });
     if (path === '/users;use_login=1/games/leagues') return json(200, { fantasy_content: { users: col([{ user: [{ guid: 'G' }, { games: col([{ game: [{ game_key: '465', code: 'nhl', season: '2025' }, { leagues: col([{ league: [meta] }]) }] }, { game: [{ game_key: '466', code: 'nba', season: '2025' }, { leagues: col([{ league: [{ league_key: '466.l.9', name: 'Hoops', season: '2025', num_teams: 12 }] }]) }] }]) }] }]) } });
+    if (path === '/game/nhl') return json(200, { fantasy_content: { game: [{ game_key: newestGame, code: 'nhl', season: newestGame === '465' ? '2025' : '2026' }] } });
+    if (path.startsWith(`/game/${newestGame}/players;player_keys=`)) {
+      const ids = path.split('player_keys=')[1].split(',').map(k => k.split('.p.')[1]);
+      return json(200, { fantasy_content: { game: [{ game_key: newestGame }, { players: col(ids.filter(id => newestPositions[id]).map(id => player(id, `Player ${id}`, newestPositions[id]))) }] } });
+    }
     if (path.startsWith('/game/')) return json(200, { fantasy_content: { game: [{ game_key: '465' }, { game_weeks: col([{ game_week: { week: '21', start: '2026-03-16', end: '2026-03-22' } }, { game_week: { week: '22', start: '2026-03-23', end: '2026-03-29' } }]) }] } });
     if (path.endsWith('/metadata')) return json(200, { fantasy_content: { league: [meta] } });
     if (path.endsWith('/settings')) return wrap({ settings: [{ draft_type: 'live', is_auction_draft: auction ? '1' : '0', playoff_start_week: '22' }] });
@@ -278,8 +284,8 @@ await test('rosters: the cutoff roster leaves out playoff pickups; final keeps t
   const cut = applyYahooImport(leagueFixture(), b, MAP, { rosters: true, rosterSet: 'cutoff' });
   const a = cut.league.teams[0];
   assert.deepEqual(a.roster, [
-    { player: 'Alpha One', pos: 'C' },
-    { player: 'Alpha Two', pos: 'C' },
+    { player: 'Alpha One', pos: 'C', positions: 'C' },
+    { player: 'Alpha Two', pos: 'C', positions: 'C' },
   ]);
   assert.ok(a.rosterLoadedAt);
   assert.deepEqual(cut.summary.rosters, { teams: 3, players: 5, asOf: '2026-03-22' });
@@ -420,7 +426,9 @@ await test('directory matching: name, namesakes, last name + team, never a guess
   assert.equal(resolve(yp('Beta Two')).status, 'none');                      // same team + last name, different initial (the Hughes brothers)
   assert.equal(resolve(yp('Nobody Here')).status, 'none');
   assert.equal(directoryResolver([]), null);
-  assert.deepEqual(playerFields(yp('Alpha Two'), resolve), { name: 'Alphonse Two', pos: 'LW', positions: 'LW', proTeam: 'TOR', nhlPlayerId: '8477000' });
+  // Identity is the directory's; eligibility is Yahoo's, the directory's single position only when Yahoo gave none.
+  assert.deepEqual(playerFields(yp('Alpha Two'), resolve), { name: 'Alphonse Two', pos: 'C', positions: 'C', proTeam: 'TOR', nhlPlayerId: '8477000' });
+  assert.deepEqual(playerFields(yp('Alpha Two', 'TOR', []), resolve), { name: 'Alphonse Two', pos: 'LW', positions: 'LW', proTeam: 'TOR', nhlPlayerId: '8477000' });
   assert.deepEqual(playerFields({ name: 'Nobody Here', proTeam: 'TOR', positions: ['C', 'LW'], primaryPosition: 'C' }, resolve), { name: 'Nobody Here', pos: 'C', positions: 'C,LW', proTeam: 'TOR', nhlPlayerId: null });
 });
 
@@ -434,9 +442,9 @@ await test('import with the directory: NHL records stored, no Yahoo ids anywhere
   const league = auctionLeague({ sport: 'hockey' });
   const out = applyYahooImport(league, b, MAP, { rosters: true, draft: true, rosterSet: 'cutoff', resolve });
   const a = out.league.teams[0];
-  assert.deepEqual(a.roster, [{ player: 'Alpha One', pos: 'C', nhlPlayerId: '8478402' }, { player: 'Alphonse Two', pos: 'LW', nhlPlayerId: '8477000' }]);
+  assert.deepEqual(a.roster, [{ player: 'Alpha One', pos: 'C', positions: 'C', nhlPlayerId: '8478402' }, { player: 'Alphonse Two', pos: 'C', positions: 'C', nhlPlayerId: '8477000' }]);
   // The draft row carries the SAME name as the roster row, so the pool joins them.
-  assert.deepEqual(a.priorKeepers.map(p => [p.player, p.nhlPlayerId, p.keptFor, p.positions]), [['Alpha One', '8478402', 40, 'C'], ['Alphonse Two', '8477000', 12, 'LW']]);
+  assert.deepEqual(a.priorKeepers.map(p => [p.player, p.nhlPlayerId, p.keptFor, p.positions]), [['Alpha One', '8478402', 40, 'C'], ['Alphonse Two', '8477000', 12, 'C']]);
   const unmatched = out.league.teams[1].priorKeepers.find(p => p.player === 'Dropped Guy');
   assert.deepEqual([unmatched.nhlPlayerId, unmatched.positions], [undefined, 'LW,RW']);
   assert.deepEqual(out.summary.directory, { matched: 4, total: 6 });
@@ -447,6 +455,34 @@ await test('import with the directory: NHL records stored, no Yahoo ids anywhere
   const impact = yahooImportImpact(declared, b, MAP, { rosters: true, rosterSet: 'cutoff', resolve });
   assert.ok(!impact.lines.some(l => /not on the Yahoo roster/.test(l.text)));
   assert.ok(yahooImportImpact(declared, b, MAP, { rosters: true, rosterSet: 'cutoff' }).lines.some(l => /Alphonse Two \(Ben\)/.test(l.text)));
+});
+
+await test('positions: newest season\'s eligibility, stored as a list, shown as C/LW/RW', async () => {
+  // Yahoo has opened 2026-27 (game 477): Alpha One gained LW, Alpha Two moved to RW,
+  // everyone else isn't returned (say, retired) and keeps 2025-26's positions.
+  const b = await bundleFor({ newestGame: '477', newestPositions: { 1: 'C,LW', 2: 'RW' } });
+  assert.deepEqual([b.eligibility.gameKey, b.eligibility.season, b.eligibility.sameAsLeague], ['477', '2026', false]);
+  assert.deepEqual(b.eligibility.byPlayerId, { 1: ['C', 'LW'], 2: ['RW'] });
+  assert.deepEqual(eligibilityNote(b), { season: '2026–27', newest: true, sameAsLeague: false });
+  const out = applyYahooImport(leagueFixture(), b, MAP, { rosters: true, rosterSet: 'cutoff' }).league;
+  assert.deepEqual(out.teams[0].roster.map(r => [r.player, r.pos, r.positions]), [['Alpha One', 'C', 'C,LW'], ['Alpha Two', 'RW', 'RW']]);
+  assert.deepEqual(out.teams[1].roster.map(r => r.positions), ['C', 'C']);
+  // A league that IS the newest season reads its own eligibility, with no extra requests.
+  const same = await bundleFor();
+  assert.deepEqual([same.eligibility.sameAsLeague, same.eligibility.byPlayerId['1']], [true, ['C']]);
+  assert.deepEqual(eligibilityNote(same), { season: '2025–26', newest: true, sameAsLeague: true });
+  assert.deepEqual(eligibilityNote({ league: { season: '2025', gameCode: 'nhl' } }), { season: '2025–26', newest: false, sameAsLeague: true });
+  // Display helpers.
+  assert.deepEqual(positionsList({ positions: 'C,LW,RW' }), ['C', 'LW', 'RW']);
+  assert.deepEqual(positionsList({ positions: ['L', 'R'] }), ['LW', 'RW']);
+  assert.deepEqual(positionsList({ pos: 'C/LW' }), ['C', 'LW']);
+  assert.deepEqual(positionsList({ positions: 'PG,SG,Util,BN' }), ['PG', 'SG']);
+  assert.deepEqual(positionsList({}), []);
+  assert.equal(formatPositions(['C', 'LW', 'RW']), 'C/LW/RW');
+  const idx = leaguePositionIndex({ teams: [
+    { roster: [{ player: 'A', pos: 'C' }, { player: 'B', pos: 'D', positions: 'D' }], priorKeepers: [{ player: 'A', positions: 'C,LW' }] },
+  ] });
+  assert.deepEqual([idx.get('a'), idx.get('b')], [['C', 'LW'], ['D']]);   // an explicit list beats a bare pos
 });
 
 console.log(`\n${passed} passed`);

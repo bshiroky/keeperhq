@@ -160,22 +160,36 @@ export function directoryResolver(players) {
   };
 }
 
-// The fields stored for one Yahoo player: the directory's when matched,
-// otherwise Yahoo's name and position (flagged later as "unmatched" by the
-// screens that already flag hand-typed names).
-export function playerFields(p, resolve) {
+// The fields stored for one Yahoo player. Identity (name, NHL id, team) is
+// the directory's when matched, otherwise Yahoo's name (flagged later as
+// "unmatched" by the screens that already flag hand-typed names). Position
+// ELIGIBILITY is fantasy-specific and comes from Yahoo: the newest season's
+// list when the import fetched one (`eligibility`), else the list from the
+// imported season, else the directory's single position.
+export function playerFields(p, resolve, eligibility = null) {
   const r = resolve ? resolve(p) : null;
-  if (r?.rec) {
-    const pos = posForRoster(r.rec.pos) || null;
-    return { name: r.rec.name, pos, positions: pos, proTeam: r.rec.team || null, nhlPlayerId: String(r.rec.id) };
-  }
-  return { name: p.name, pos: p.primaryPosition || p.positions?.[0] || null, positions: (p.positions || []).join(',') || null, proTeam: p.proTeam || null, nhlPlayerId: null };
+  const yahooList = eligibility?.byPlayerId?.[p.yahooPlayerId] || p.positions || [];
+  const list = yahooList.length ? yahooList.map(posForRoster) : (r?.rec ? [posForRoster(r.rec.pos)].filter(Boolean) : []);
+  const positions = list.join(',') || null;
+  const pos = list[0] || null;
+  if (r?.rec) return { name: r.rec.name, pos, positions, proTeam: r.rec.team || null, nhlPlayerId: String(r.rec.id) };
+  return { name: p.name, pos, positions, proTeam: p.proTeam || null, nhlPlayerId: null };
 }
 
-const rosterEntry = (p, resolve) => {
-  const f = playerFields(p, resolve);
-  return { player: f.name, ...(f.pos ? { pos: f.pos } : {}), ...(f.nhlPlayerId ? { nhlPlayerId: f.nhlPlayerId } : {}) };
+const rosterEntry = (p, resolve, eligibility) => {
+  const f = playerFields(p, resolve, eligibility);
+  return { player: f.name, ...(f.pos ? { pos: f.pos } : {}), ...(f.positions ? { positions: f.positions } : {}), ...(f.nhlPlayerId ? { nhlPlayerId: f.nhlPlayerId } : {}) };
 };
+
+// Which season's eligibility an import uses, for the preview to say so.
+export function eligibilityNote(bundle) {
+  const e = bundle?.eligibility;
+  const code = bundle?.league?.gameCode;
+  if (e?.season && Object.keys(e.byPlayerId || {}).length) {
+    return { season: seasonLabel(e.season, code), newest: true, sameAsLeague: !!e.sameAsLeague };
+  }
+  return { season: seasonLabel(bundle?.league?.season, code), newest: false, sameAsLeague: true };
+}
 
 // How the players in this import line up with the directory, for the
 // preview: counts plus the two lists worth a look.
@@ -229,7 +243,7 @@ export function yahooImportImpact(league, bundle, mapping, sections) {
     if (players) lines.push({ tone: 'danger', text: `${players} player${s(players)} on ${withRoster.length} roster${s(withRoster.length)} will be replaced by Yahoo's rosters, including any you added or removed by hand.` });
     const incoming = new Set();
     const set = bundle.rosters[sections.rosterSet === 'final' ? 'final' : 'cutoff'] || bundle.rosters.final;
-    for (const [key, list] of Object.entries(set || {})) if (mapping[key]) for (const p of list) incoming.add(`${mapping[key]}:${normalizeName(playerFields(p, sections.resolve).name)}`);
+    for (const [key, list] of Object.entries(set || {})) if (mapping[key]) for (const p of list) incoming.add(`${mapping[key]}:${normalizeName(playerFields(p, sections.resolve, bundle.eligibility).name)}`);
     const dropped = [];
     for (const tm of teams) for (const k of tm.keepers || []) if (!incoming.has(`${tm.id}:${normalizeName(k.player)}`)) dropped.push(`${k.player} (${tm.name})`);
     if (dropped.length) lines.push({ tone: 'danger', text: `${dropped.length} declared keeper${s(dropped.length)} ${dropped.length === 1 ? 'is' : 'are'} not on the Yahoo roster and will drop out of the eligible pool: ${dropped.slice(0, 6).join(', ')}${dropped.length > 6 ? '…' : ''}.` });
@@ -292,7 +306,7 @@ export function applyYahooImport(league, bundle, mapping, { rosters = false, dra
     const set = (rosterSet === 'final' ? bundle.rosters.final : bundle.rosters.cutoff) || bundle.rosters.final || {};
     let players = 0;
     for (const t of mappedKeys) {
-      const list = (set[t.teamKey] || []).filter(p => p.name).map(p => rosterEntry(p, resolve));
+      const list = (set[t.teamKey] || []).filter(p => p.name).map(p => rosterEntry(p, resolve, bundle.eligibility));
       next = withRosterImport(next, teamIdFor(t.teamKey), list);
       players += list.length;
     }
@@ -316,7 +330,7 @@ export function applyYahooImport(league, bundle, mapping, { rosters = false, dra
       if (!drafted) return tm;
       const existingBy = new Map((tm.priorKeepers || []).map(p => [normalizeName(p.player), p]));
       const priorKeepers = drafted.map(p => {
-        const f = playerFields(p, resolve);
+        const f = playerFields(p, resolve, bundle.eligibility);
         const existing = existingBy.get(normalizeName(f.name));
         const base = {
           player: f.name, proTeam: f.proTeam || undefined, positions: f.positions || undefined,

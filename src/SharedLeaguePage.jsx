@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams } from 'react-router-dom';
 import { Loader, Search, Check } from 'lucide-react';
 import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark, SrOnly } from './components.jsx';
-import { normalizeName } from './lib/players.js';
+import { normalizeName, positionsList, formatPositions } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import { RulesButton } from './LeagueRulesModal.jsx';
 import {
@@ -159,13 +159,13 @@ function SharedHeadshot({ rec, isDark, size = 34 }) {
   );
 }
 
-// Primary position only — Yahoo multi-position strings (C/LW) show their
-// first segment; bench/utility slot codes aren't positions and are dropped.
+// Every position the player is eligible at ("C/LW/RW") — that eligibility
+// is part of a keeper decision. Stored eligibility (an import's) comes first;
+// the directory's single position is the fallback for rows with none.
 function displayPos(row, rec) {
-  const raw = rec?.pos || row.pos || '';
-  const first = String(raw).split(/[/,]/)[0].trim();
-  if (!first || ['BN', 'UTIL', 'IR', 'IR+'].includes(first.toUpperCase())) return null;
-  return { L: 'LW', R: 'RW' }[first] || first;
+  const list = (row.positions && row.positions.length) ? row.positions : positionsList(row);
+  const out = list.length ? list : positionsList({ pos: rec?.pos });
+  return out.length ? formatPositions(out) : null;
 }
 
 function fmtSvPct(v) {
@@ -312,10 +312,12 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
         borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px`,
         boxSizing: 'border-box',
       }}>
-        <span style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.player}
-          {pos && <span style={{ ...tokens.typeStatMeta, color: t.textMuted, marginLeft: 6, fontWeight: 500 }}>{pos}</span>}
-        </span>
+        {/* Positions under the name, not after it: inline, a long name hid
+            them entirely, and a long list (PG/SG/SF/PF) hid the name. */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.player}</div>
+          {pos && <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos}</div>}
+        </div>
         <ContractText row={row} league={league} isDark={isDark} />
         <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />
       </li>
