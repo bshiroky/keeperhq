@@ -11,5 +11,5 @@
 // to.
 export function sortTeamsByName(teams) {
   return [...(teams || [])].sort((a, b) =>
-    (a?.name || '').localeCompare(b?.name || '', undefined, { sensitivity: 'base' }));
+    (a?.name || '').localeCompare(b?.name || '', undefined, { sensitivity: 'base', numeric: true }));
 }

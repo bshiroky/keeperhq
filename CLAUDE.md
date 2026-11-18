@@ -1516,6 +1516,34 @@ Yahoo work off 47%, not off the optimistic reading.
   `npm run test:yahoo` runs the server flow against a fake Yahoo in the real
   response shapes, plus the pure import logic.
 
+- **Yahoo import follow-ups (this branch's PR, after the first real run):**
+  the picker defaults to LAST season (a league renewed into a following
+  season counts as over, since the league list doesn't always carry Yahoo's
+  finished flag); two-year seasons read `2026–27` (`seasonLabel`); importing
+  the season in progress shows a notice with "Use last season instead"; rosters
+  can be read as of any typed date (`cutoffIsCustom`); and `sortTeamsByName`
+  is numeric-aware (Team 2 before Team 10, everywhere).
+  **Imported players are the NHL directory's, not Yahoo's (hockey).** The
+  owner's position on the storage clause: Yahoo says who was on which team at
+  a point in time; what KeeperHQ keeps are its own player records, which then
+  take roster moves Yahoo never sees. So at import each Yahoo player is matched
+  to `players-nhl.json` (`directoryResolver` in `yahooImport.js`) and stored
+  under the directory's name, position and `nhlPlayerId`; **no Yahoo player id
+  or Yahoo-supplied name is stored** (the earlier `yahooPlayerId` /
+  `sourceName` fields are gone). Matching: exact `normalizeName`, team then
+  goalie/skater breaking a tie between namesakes (team only ever BREAKS a tie,
+  so a player traded since still matches); a fallback on last name + same NHL
+  team + same first initial ("Mitch" → "Mitchell"; the initial is what stops
+  Jack and Luke Hughes collapsing into one) that the preview lists for checking;
+  namesakes it can't separate are left unmatched, never guessed. Yahoo's
+  `LA`/`NJ`/`SJ`/`TB` map to `LAK`/`NJD`/`SJS`/`TBL`. Unmatched players import
+  under the Yahoo name and are fixed with Edit roster / Last Draft. Roster and
+  draft rows get the SAME canonical name, so `buildTeamPool` joins them. Import
+  is disabled until the directory has loaded; an empty/failed directory says so
+  and imports Yahoo names. Other sports keep Yahoo's name and position (no
+  directory yet). **Not yet measured on a real league** — the container can't
+  reach the NHL API, so the real match rate shows on the first import.
+
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)
 
 Hockey (snake, 12 teams) and basketball (auction, 12 teams), ~110 requests in
@@ -3676,6 +3704,28 @@ buttons, no member login until (B)'s trigger is hit.
     must be run** in the Supabase SQL Editor or the marker never appears (and
     the round sort stays broken); the price itself was already correct without
     it, which is the whole point of the price-field rule.
+
+33. **Define the "Pre-draft" league status — or drop it.** Every league starts
+    as `status: 'pre-draft'` and nothing ever changes it (only Start New Season
+    resets it), so the identity-card pill says nothing, and the draft date
+    beside it is display-only. The owner wants a defined keeper-deadline state;
+    what "pre-draft" means as a phase is undecided and deliberately later.
+
+34. **Plan to next year's keeper deadline (decided Nov 2026).** In order:
+    (1) merge the Yahoo follow-ups and re-import LAST season into a test copy;
+    (2) link imported players to the NHL directory — DONE in the follow-up PR;
+    a basketball stats source is still open; (3) the keeper-deadline state in
+    the header (#33); (4) **leaguemates pick their own keepers by signing in
+    with Yahoo** — decided over per-team private links, which stay VIEW-ONLY
+    (an editable link is editable by anyone who has it). Yahoo marks the
+    signed-in manager's team (`is_owned_by_current_login`), so identity needs
+    no invites; the real work is a member write path into a league only the
+    commissioner can write today (a server function that checks the Yahoo team
+    first), the deadline lock, and commissioner review. This opens Roadmap
+    split B for exactly this flow. A non-Yahoo league would later need KeeperHQ
+    accounts + commissioner invites. (5) Deadline reminders by email.
+    (6) A dry run in early summer. Year-round features (and whether they
+    justify a native app) come after.
 
 24. **FUTURE — dedicated Rosters page.** A full page owning roster
     data + roster import (mirroring the Last Draft page's
