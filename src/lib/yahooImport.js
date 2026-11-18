@@ -14,7 +14,7 @@
 // draft, its standings, and the pick trades made during it (which are for the
 // draft that follows).
 
-import { normalizeName } from './players.js';
+import { normalizeName, posForRoster } from './players.js';
 import { withRosterImport } from './rosterMembership.js';
 import { refreshComputedPrice, isPriceOverridden, countOverriddenPrices } from './priceProvenance.js';
 import { reassignPick, getDraftRounds, pickOwnerId } from './draftPicks.js';
@@ -112,10 +112,92 @@ export function lateAdditions(bundle) {
   return out;
 }
 
-const rosterEntry = p => {
-  const pos = p.primaryPosition || p.positions?.[0] || null;
-  return { player: p.name, ...(pos ? { pos } : {}), ...(p.yahooPlayerId ? { yahooPlayerId: p.yahooPlayerId } : {}), sourceName: p.name };
+// ── Matching Yahoo's players to the NHL directory ─────────────────────────
+// Yahoo only says who was on which team and what they cost. The player
+// records KeeperHQ keeps are the NHL directory's: a matched player is stored
+// under the directory's name with its position and NHL id, and no Yahoo id is
+// stored at all. Every screen finds headshots and stats by that name, so a
+// match is what makes them appear.
+
+// Yahoo shortens four team codes the NHL spells out.
+export const YAHOO_TO_NHL_TEAM = { LA: 'LAK', NJ: 'NJD', SJ: 'SJS', TB: 'TBL' };
+
+// → resolve(yahooPlayer) → { status, rec }
+//   matched   one directory player has this name (team, then goalie/skater,
+//             break a tie between namesakes)
+//   lastname  no name match, but exactly one player on that NHL team has this
+//             last name and first initial ("Mitch" vs "Mitchell") — imported,
+//             and listed in the preview so it can be checked
+//   ambiguous namesakes the team and position can't separate — not guessed
+//   none      not in the directory
+// Team only ever BREAKS a tie: a player traded since the Yahoo season still
+// matches on his name alone.
+export function directoryResolver(players) {
+  if (!players?.length) return null;
+  const byName = new Map(); const byLast = new Map();
+  const add = (map, k, p) => { if (!k) return; if (!map.has(k)) map.set(k, []); map.get(k).push(p); };
+  for (const p of players) {
+    add(byName, normalizeName(p.name), p);
+    add(byLast, `${normalizeName(p.lastName)}|${p.team}`, p);
+  }
+  return function resolve(yp) {
+    const team = YAHOO_TO_NHL_TEAM[yp?.proTeam] || yp?.proTeam || '';
+    const goalie = (yp?.positions || []).includes('G');
+    const hits = byName.get(normalizeName(yp?.name)) || [];
+    if (hits.length === 1) return { status: 'matched', rec: hits[0] };
+    if (hits.length > 1) {
+      let narrowed = hits.filter(h => h.team === team);
+      if (narrowed.length !== 1) narrowed = (narrowed.length ? narrowed : hits).filter(h => (h.pos === 'G') === goalie);
+      return narrowed.length === 1 ? { status: 'matched', rec: narrowed[0] } : { status: 'ambiguous' };
+    }
+    // The first initial has to agree too: brothers on one team (Jack and Luke
+    // Hughes) share a last name, and "Mitch" → "Mitchell" keeps its initial.
+    const [first, ...rest] = String(yp?.name || '').trim().split(/\s+/);
+    const initial = normalizeName(first).charAt(0);
+    const lh = (byLast.get(`${normalizeName(rest.join(' '))}|${team}`) || [])
+      .filter(h => (h.pos === 'G') === goalie && normalizeName(h.firstName || h.name).charAt(0) === initial);
+    return lh.length === 1 ? { status: 'lastname', rec: lh[0] } : { status: 'none' };
+  };
+}
+
+// The fields stored for one Yahoo player: the directory's when matched,
+// otherwise Yahoo's name and position (flagged later as "unmatched" by the
+// screens that already flag hand-typed names).
+export function playerFields(p, resolve) {
+  const r = resolve ? resolve(p) : null;
+  if (r?.rec) {
+    const pos = posForRoster(r.rec.pos) || null;
+    return { name: r.rec.name, pos, positions: pos, proTeam: r.rec.team || null, nhlPlayerId: String(r.rec.id) };
+  }
+  return { name: p.name, pos: p.primaryPosition || p.positions?.[0] || null, positions: (p.positions || []).join(',') || null, proTeam: p.proTeam || null, nhlPlayerId: null };
+}
+
+const rosterEntry = (p, resolve) => {
+  const f = playerFields(p, resolve);
+  return { player: f.name, ...(f.pos ? { pos: f.pos } : {}), ...(f.nhlPlayerId ? { nhlPlayerId: f.nhlPlayerId } : {}) };
 };
+
+// How the players in this import line up with the directory, for the
+// preview: counts plus the two lists worth a look.
+export function directoryMatchSummary(bundle, resolve, { rosterSet = 'cutoff', rosters = true, draft = true } = {}) {
+  if (!resolve) return null;
+  const seen = new Map();
+  const set = (rosterSet === 'final' ? bundle?.rosters?.final : bundle?.rosters?.cutoff) || bundle?.rosters?.final || {};
+  const pool = [...(rosters ? Object.values(set).flat() : []), ...(draft ? bundle?.draft || [] : [])];
+  for (const p of pool) {
+    if (!p?.name) continue;
+    const k = normalizeName(p.name);
+    if (!seen.has(k)) seen.set(k, p);
+  }
+  const out = { total: seen.size, matched: 0, byLastName: [], unmatched: [] };
+  for (const p of seen.values()) {
+    const r = resolve(p);
+    if (r.status === 'matched') out.matched++;
+    else if (r.status === 'lastname') { out.matched++; out.byLastName.push({ yahoo: p.name, nhl: r.rec.name, team: r.rec.team }); }
+    else out.unmatched.push({ name: p.name, ambiguous: r.status === 'ambiguous' });
+  }
+  return out;
+}
 
 // Final owner of every pick Yahoo saw traded, by replaying the trades in order.
 // → [{ round, originalTeamId, ownerTeamId }] for picks whose teams are mapped.
@@ -147,7 +229,7 @@ export function yahooImportImpact(league, bundle, mapping, sections) {
     if (players) lines.push({ tone: 'danger', text: `${players} player${s(players)} on ${withRoster.length} roster${s(withRoster.length)} will be replaced by Yahoo's rosters, including any you added or removed by hand.` });
     const incoming = new Set();
     const set = bundle.rosters[sections.rosterSet === 'final' ? 'final' : 'cutoff'] || bundle.rosters.final;
-    for (const [key, list] of Object.entries(set || {})) if (mapping[key]) for (const p of list) incoming.add(`${mapping[key]}:${normalizeName(p.name)}`);
+    for (const [key, list] of Object.entries(set || {})) if (mapping[key]) for (const p of list) incoming.add(`${mapping[key]}:${normalizeName(playerFields(p, sections.resolve).name)}`);
     const dropped = [];
     for (const tm of teams) for (const k of tm.keepers || []) if (!incoming.has(`${tm.id}:${normalizeName(k.player)}`)) dropped.push(`${k.player} (${tm.name})`);
     if (dropped.length) lines.push({ tone: 'danger', text: `${dropped.length} declared keeper${s(dropped.length)} ${dropped.length === 1 ? 'is' : 'are'} not on the Yahoo roster and will drop out of the eligible pool: ${dropped.slice(0, 6).join(', ')}${dropped.length > 6 ? '…' : ''}.` });
@@ -191,7 +273,7 @@ function withStandings(league, bundle, mapping) {
 // Apply the chosen sections. Returns the next league and a per-section summary
 // for the result step. Nothing here asks for confirmation — the caller shows
 // yahooImportImpact first.
-export function applyYahooImport(league, bundle, mapping, { rosters = false, draft = false, standings = false, picks = false, rosterSet = 'cutoff', renames = {} } = {}) {
+export function applyYahooImport(league, bundle, mapping, { rosters = false, draft = false, standings = false, picks = false, rosterSet = 'cutoff', renames = {}, resolve = null } = {}) {
   let next = league;
   const summary = {};
   const entries = [];
@@ -210,7 +292,7 @@ export function applyYahooImport(league, bundle, mapping, { rosters = false, dra
     const set = (rosterSet === 'final' ? bundle.rosters.final : bundle.rosters.cutoff) || bundle.rosters.final || {};
     let players = 0;
     for (const t of mappedKeys) {
-      const list = (set[t.teamKey] || []).filter(p => p.name).map(rosterEntry);
+      const list = (set[t.teamKey] || []).filter(p => p.name).map(p => rosterEntry(p, resolve));
       next = withRosterImport(next, teamIdFor(t.teamKey), list);
       players += list.length;
     }
@@ -234,10 +316,11 @@ export function applyYahooImport(league, bundle, mapping, { rosters = false, dra
       if (!drafted) return tm;
       const existingBy = new Map((tm.priorKeepers || []).map(p => [normalizeName(p.player), p]));
       const priorKeepers = drafted.map(p => {
-        const existing = existingBy.get(normalizeName(p.name));
+        const f = playerFields(p, resolve);
+        const existing = existingBy.get(normalizeName(f.name));
         const base = {
-          player: p.name, proTeam: p.proTeam || undefined, positions: (p.positions || []).join(',') || undefined,
-          ...(p.yahooPlayerId ? { yahooPlayerId: p.yahooPlayerId } : {}), sourceName: p.name,
+          player: f.name, proTeam: f.proTeam || undefined, positions: f.positions || undefined,
+          ...(f.nhlPlayerId ? { nhlPlayerId: f.nhlPlayerId } : {}),
           acquisitionRound: p.round ?? null, acquisitionMethod: 'draft', rookieAtAcquisition: false,
         };
         const price = p.cost != null || isPriceOverridden(existing) ? refreshComputedPrice(existing, p.cost) : {};
@@ -281,6 +364,10 @@ export function applyYahooImport(league, bundle, mapping, { rosters = false, dra
   }
 
   // Remember every confirmed Yahoo name → team, so later pastes resolve too.
+  if (resolve && (rosters || draft)) {
+    const m = directoryMatchSummary(bundle, resolve, { rosterSet, rosters, draft });
+    summary.directory = { matched: m.matched, total: m.total };
+  }
   next = rememberYahooTeams(next, Object.fromEntries(mappedKeys.map(t => [t.name, teamIdFor(t.teamKey)])));
   next = { ...next, yahooSource: { leagueKey: bundle.league.leagueKey, name: bundle.league.name, season: bundle.league.season, importedAt: new Date().toISOString() } };
   return { league: appendChanges(next, entries), summary };

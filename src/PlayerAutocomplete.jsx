@@ -1,6 +1,6 @@
 import React from 'react';
 import { makeTheme } from './components.jsx';
-import { loadPlayers, normalizeName, buildStatusIndex } from './lib/players.js';
+import { loadPlayers, normalizeName, buildStatusIndex, posForRoster } from './lib/players.js';
 import { isNflSport } from './lib/nflDirectory.js';
 import { searchDirectory } from './lib/nflDirectoryStore.js';
 
@@ -168,8 +168,6 @@ export function PlayerAutocomplete({ value, onChange, sport, isDark, placeholder
 
 // Map NHL position codes ('C','L','R','D','G') to roster position labels used
 // throughout the app ('C','LW','RW','D','G').
-export function posForRoster(nhlPos) {
-  if (nhlPos === 'L') return 'LW';
-  if (nhlPos === 'R') return 'RW';
-  return nhlPos || '';
-}
+// Lives in lib/players.js (pure, so import logic can share it); re-exported
+// here for the components that already import it from this file.
+export { posForRoster };

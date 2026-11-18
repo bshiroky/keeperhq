@@ -11,10 +11,11 @@ import React from 'react';
 import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
 import { supabase } from '../lib/supabase.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
+import { loadPlayers } from '../lib/players.js';
 import {
   GAME_CODE_FOR_SPORT, sectionsFor, initialMapping, mappingInOrder, mappingProblems,
   lateAdditions, resolvedPickOwners, yahooImportImpact, applyYahooImport,
-  seasonLabel, isSeasonOver, defaultYahooLeague,
+  seasonLabel, isSeasonOver, defaultYahooLeague, directoryResolver, directoryMatchSummary,
 } from '../lib/yahooImport.js';
 
 async function api(path, init = {}) {
@@ -111,6 +112,18 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
   const [result, setResult] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [customDate, setCustomDate] = React.useState('');
+  // Hockey only: the NHL directory the imported players are matched against.
+  // `initial.directory` is a render-test seam.
+  const usesDirectory = league.sport === 'hockey';
+  const [directory, setDirectory] = React.useState(() => (initial?.directory ? { status: 'ready', players: initial.directory } : { status: usesDirectory ? 'idle' : 'off', players: [] }));
+  React.useEffect(() => {
+    if (directory.status !== 'idle' || step !== 'preview') return;
+    setDirectory({ status: 'loading', players: [] });
+    loadPlayers('nhl')
+      .then(d => { const players = d?.players || []; setDirectory({ status: players.length ? 'ready' : 'empty', players }); })
+      .catch(() => setDirectory({ status: 'error', players: [] }));
+  }, [directory.status, step]);
+  const resolve = React.useMemo(() => directoryResolver(directory.players), [directory.players]);
 
   React.useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
@@ -174,11 +187,13 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
   const available = bundle ? sectionsFor(league, bundle) : {};
   const chosen = {
     rosters: !!available.rosters && pick.rosters, draft: !!available.draft && pick.draft,
-    standings: !!available.standings && pick.standings, picks: !!available.picks && pick.picks, rosterSet,
+    standings: !!available.standings && pick.standings, picks: !!available.picks && pick.picks, rosterSet, resolve,
   };
+  const matchInfo = bundle && resolve && (chosen.rosters || chosen.draft) ? directoryMatchSummary(bundle, resolve, chosen) : null;
   const problems = bundle ? mappingProblems(league, bundle, mapping) : { unmapped: [], duplicates: [], mappedCount: 0 };
   const anySection = chosen.rosters || chosen.draft || chosen.standings || chosen.picks;
-  const canImport = bundle && anySection && problems.duplicates.length === 0 && problems.mappedCount > 0;
+  const canImport = bundle && anySection && problems.duplicates.length === 0 && problems.mappedCount > 0
+    && !(usesDirectory && (directory.status === 'idle' || directory.status === 'loading'));
 
   function setTeam(teamKey, teamId) {
     // Picking a team already mapped elsewhere STEALS it, so the other row
@@ -384,6 +399,35 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                     <span><strong style={{ color: t.textPrimary }}>Traded picks</strong> · {plural(resolvedPickOwners(bundle, mapping).filter(p => p.originalTeamId !== p.ownerTeamId).length, 'pick')} changed hands in trades during the {seasonLabel(bundle.league.season, bundle.league.gameCode)} season</span>
                   </label>
                 )}
+                {usesDirectory && (chosen.rosters || chosen.draft) && (
+                  <div style={{ ...t.typeBodyMeta, color: t.textBody, marginTop: tokens.spaceSm, lineHeight: 1.5 }}>
+                    {(directory.status === 'idle' || directory.status === 'loading') && 'Matching players to the NHL player directory…'}
+                    {(directory.status === 'empty' || directory.status === 'error') && (
+                      <span style={{ color: tokens.warning }}>The NHL player directory is unavailable right now, so players will import under their Yahoo names, without headshots or stats. You can import again later to match them.</span>
+                    )}
+                    {matchInfo && (
+                      <>
+                        <strong style={{ color: t.textPrimary }}>{matchInfo.matched} of {plural(matchInfo.total, 'player')}</strong> matched to the NHL player directory. They're saved as the NHL's player records, with headshots and stats.
+                        {matchInfo.byLastName.length > 0 && (
+                          <details style={{ marginTop: tokens.space2xs }}>
+                            <summary style={{ cursor: 'pointer' }}>{plural(matchInfo.byLastName.length, 'player')} matched by last name and team. Worth a look</summary>
+                            <ul style={{ margin: `${tokens.space2xs}px 0 0`, paddingLeft: tokens.spaceLg }}>
+                              {matchInfo.byLastName.map(m => <li key={m.yahoo}>{m.yahoo} → {m.nhl} ({m.team})</li>)}
+                            </ul>
+                          </details>
+                        )}
+                        {matchInfo.unmatched.length > 0 && (
+                          <details style={{ marginTop: tokens.space2xs }}>
+                            <summary style={{ cursor: 'pointer', color: tokens.warning }}>{plural(matchInfo.unmatched.length, 'player')} not found. They'll import under their Yahoo name; fix them later with Edit roster{chosen.draft ? ' or on the Last Draft page' : ''}</summary>
+                            <ul style={{ margin: `${tokens.space2xs}px 0 0`, paddingLeft: tokens.spaceLg }}>
+                              {matchInfo.unmatched.map(m => <li key={m.name}>{m.name}{m.ambiguous ? ' (more than one NHL player has this name)' : ''}</li>)}
+                            </ul>
+                          </details>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 {!anySection && <div style={{ ...t.typeBodyMeta, color: t.textMuted }}>Nothing selected.</div>}
 
                 <div style={{ display: 'flex', gap: tokens.spaceXs, marginTop: tokens.spaceLg, flexWrap: 'wrap' }}>
@@ -401,6 +445,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                   {result.rosters && <li>{plural(result.rosters.players, 'player')} on {plural(result.rosters.teams, 'roster')}{result.rosters.asOf ? ` as of ${fmtDate(result.rosters.asOf)}` : ''}</li>}
                   {result.draft && <li>{plural(result.draft.players, 'drafted player')} across {plural(result.draft.teams, 'team')}{result.draft.priced ? `, ${result.draft.priced} with a price` : ''}</li>}
                   {result.standings && <li>Standings for {plural(result.standings.teams, 'team')}{result.standings.drawCleared ? ' (lottery draw cleared)' : ''}</li>}
+                  {result.directory && <li>{result.directory.matched} of {plural(result.directory.total, 'player')} matched to the NHL player directory</li>}
                   {result.picks && <li>{plural(result.picks.traded, 'traded pick')} recorded</li>}
                 </ul>
                 <div style={{ marginTop: tokens.spaceLg }}><Button variant="primary" isDark={isDark} accent={accentColor} onClick={onClose}>Done</Button></div>

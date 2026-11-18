@@ -47,6 +47,13 @@ export async function loadPlayers(sport) {
   return data;
 }
 
+// The NHL directory writes wingers as L / R; rosters show LW / RW.
+export function posForRoster(nhlPos) {
+  if (nhlPos === 'L') return 'LW';
+  if (nhlPos === 'R') return 'RW';
+  return nhlPos || '';
+}
+
 // Name-matching key: diacritics, punctuation, AND spacing are all noise —
 // "A.J. Greer" = "AJ Greer" = "A. J. Greer", "O'Reilly" = "OReilly",
 // "Stützle" = "Stutzle", "Pierre-Luc" = "Pierre Luc". Collapsing whitespace

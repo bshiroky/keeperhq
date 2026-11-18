@@ -11,6 +11,7 @@ import {
 import {
   sectionsFor, initialMapping, mappingInOrder, mappingProblems, lateAdditions, resolvedPickOwners,
   yahooImportImpact, applyYahooImport, seasonLabel, isSeasonOver, defaultYahooLeague,
+  directoryResolver, playerFields, directoryMatchSummary,
 } from '../src/lib/yahooImport.js';
 import { sortTeamsByName } from '../src/lib/teamOrder.js';
 import { pickOwnerId } from '../src/lib/draftPicks.js';
@@ -277,8 +278,8 @@ await test('rosters: the cutoff roster leaves out playoff pickups; final keeps t
   const cut = applyYahooImport(leagueFixture(), b, MAP, { rosters: true, rosterSet: 'cutoff' });
   const a = cut.league.teams[0];
   assert.deepEqual(a.roster, [
-    { player: 'Alpha One', pos: 'C', yahooPlayerId: '1', sourceName: 'Alpha One' },
-    { player: 'Alpha Two', pos: 'C', yahooPlayerId: '2', sourceName: 'Alpha Two' },
+    { player: 'Alpha One', pos: 'C' },
+    { player: 'Alpha Two', pos: 'C' },
   ]);
   assert.ok(a.rosterLoadedAt);
   assert.deepEqual(cut.summary.rosters, { teams: 3, players: 5, asOf: '2026-03-22' });
@@ -390,6 +391,62 @@ await test('labels and defaults: two-year seasons, last season first, Team 2 bef
   assert.deepEqual([custom.rosters.cutoffDate, custom.rosters.cutoffIsCustom], ['2026-02-01', true]);
   assert.ok(yahoo.calls.some(c => c.url.includes('roster;date=2026-02-01')));
   assert.equal((await bundleFor()).rosters.cutoffIsCustom, false);
+});
+
+// A slice of the NHL directory in its real record shape.
+const DIRECTORY = [
+  { id: '8478402', name: 'Alpha One', firstName: 'Alpha', lastName: 'One', pos: 'C', team: 'TOR' },
+  { id: '8477000', name: 'Alphonse Two', firstName: 'Alphonse', lastName: 'Two', pos: 'L', team: 'TOR' },   // Yahoo: "Alpha Two"
+  { id: '8471111', name: 'Beta One', firstName: 'Beta', lastName: 'One', pos: 'D', team: 'BOS' },
+  { id: '8471112', name: 'Beta One', firstName: 'Beta', lastName: 'One', pos: 'G', team: 'BOS' },             // a namesake goalie
+  { id: '8470001', name: 'Sam Same', firstName: 'Sam', lastName: 'Same', pos: 'C', team: 'LAK' },
+  { id: '8470002', name: 'Sam Same', firstName: 'Sam', lastName: 'Same', pos: 'C', team: 'NJD' },
+  { id: '8460000', name: 'Gamma One', firstName: 'Gamma', lastName: 'One', pos: 'R', team: 'EDM' },
+];
+
+await test('directory matching: name, namesakes, last name + team, never a guess', () => {
+  const resolve = directoryResolver(DIRECTORY);
+  const yp = (name, proTeam = 'TOR', positions = ['C']) => ({ name, proTeam, positions });
+  assert.equal(resolve(yp('Alpha One')).rec.id, '8478402');
+  assert.equal(resolve(yp('A.L.P.H.A. one')).rec.id, '8478402');             // punctuation/case are noise
+  assert.equal(resolve(yp('Gamma One', 'TOR')).rec.id, '8460000');           // traded since: a unique name still matches
+  assert.equal(resolve(yp('Sam Same', 'LA')).rec.id, '8470001');             // Yahoo's LA is the NHL's LAK
+  assert.equal(resolve(yp('Sam Same', 'NJ')).rec.id, '8470002');
+  assert.equal(resolve(yp('Sam Same', 'CHI')).status, 'ambiguous');          // can't tell them apart: not guessed
+  assert.equal(resolve(yp('Beta One', 'BOS', ['G'])).rec.id, '8471112');     // same team: goalie vs skater decides
+  assert.equal(resolve(yp('Beta One', 'BOS', ['D'])).rec.id, '8471111');
+  assert.deepEqual([resolve(yp('Alpha Two')).status, resolve(yp('Alpha Two')).rec.id], ['lastname', '8477000']);
+  assert.equal(resolve(yp('Alpha Two', 'MTL')).status, 'none');              // last name alone, wrong team: no match
+  assert.equal(resolve(yp('Beta Two')).status, 'none');                      // same team + last name, different initial (the Hughes brothers)
+  assert.equal(resolve(yp('Nobody Here')).status, 'none');
+  assert.equal(directoryResolver([]), null);
+  assert.deepEqual(playerFields(yp('Alpha Two'), resolve), { name: 'Alphonse Two', pos: 'LW', positions: 'LW', proTeam: 'TOR', nhlPlayerId: '8477000' });
+  assert.deepEqual(playerFields({ name: 'Nobody Here', proTeam: 'TOR', positions: ['C', 'LW'], primaryPosition: 'C' }, resolve), { name: 'Nobody Here', pos: 'C', positions: 'C,LW', proTeam: 'TOR', nhlPlayerId: null });
+});
+
+await test('import with the directory: NHL records stored, no Yahoo ids anywhere', async () => {
+  const b = await bundleFor({ auction: true });
+  const resolve = directoryResolver(DIRECTORY);
+  const summary = directoryMatchSummary(b, resolve, { rosterSet: 'cutoff' });
+  assert.deepEqual([summary.total, summary.matched], [6, 4]);
+  assert.deepEqual(summary.byLastName, [{ yahoo: 'Alpha Two', nhl: 'Alphonse Two', team: 'TOR' }]);
+  assert.deepEqual(summary.unmatched, [{ name: 'Beta Two', ambiguous: false }, { name: 'Dropped Guy', ambiguous: false }]);
+  const league = auctionLeague({ sport: 'hockey' });
+  const out = applyYahooImport(league, b, MAP, { rosters: true, draft: true, rosterSet: 'cutoff', resolve });
+  const a = out.league.teams[0];
+  assert.deepEqual(a.roster, [{ player: 'Alpha One', pos: 'C', nhlPlayerId: '8478402' }, { player: 'Alphonse Two', pos: 'LW', nhlPlayerId: '8477000' }]);
+  // The draft row carries the SAME name as the roster row, so the pool joins them.
+  assert.deepEqual(a.priorKeepers.map(p => [p.player, p.nhlPlayerId, p.keptFor, p.positions]), [['Alpha One', '8478402', 40, 'C'], ['Alphonse Two', '8477000', 12, 'LW']]);
+  const unmatched = out.league.teams[1].priorKeepers.find(p => p.player === 'Dropped Guy');
+  assert.deepEqual([unmatched.nhlPlayerId, unmatched.positions], [undefined, 'LW,RW']);
+  assert.deepEqual(out.summary.directory, { matched: 4, total: 6 });
+  const text = JSON.stringify(out.league.teams);
+  assert.ok(!/yahooPlayerId|sourceName|465\.p\./.test(text), 'no Yahoo player identity is stored');
+  // A keeper declared under the NHL name isn't reported missing on a re-import.
+  const declared = { ...out.league, teams: out.league.teams.map((t, i) => (i === 0 ? { ...t, keepers: [{ player: 'Alphonse Two', keptFor: 17 }] } : t)) };
+  const impact = yahooImportImpact(declared, b, MAP, { rosters: true, rosterSet: 'cutoff', resolve });
+  assert.ok(!impact.lines.some(l => /not on the Yahoo roster/.test(l.text)));
+  assert.ok(yahooImportImpact(declared, b, MAP, { rosters: true, rosterSet: 'cutoff' }).lines.some(l => /Alphonse Two \(Ben\)/.test(l.text)));
 });
 
 console.log(`\n${passed} passed`);
