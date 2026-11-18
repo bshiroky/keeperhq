@@ -1566,6 +1566,18 @@ Yahoo work off 47%, not off the optimistic reading.
   shared page to show more than one position; without it the page keeps the
   old single position (less information, never wrong).
 
+- **Yahoo import preview fixes (this branch's PR).** (1) **Unmatched players
+  are fixed in the preview**, not later: every player the NHL directory couldn't
+  place (or found namesakes for) is a row with a `PlayerAutocomplete`; picking a
+  record stores him as that NHL player (`withOverrides` in `yahooImport.js`,
+  keyed by `normalizeName` of the Yahoo name). Leaving a row empty imports the
+  Yahoo name, as before. (2) **The "Match in order" buttons are gone.** A league
+  whose teams all still carry the wizard's default names (`Team 1`, `Team 2`…,
+  `hasPlaceholderTeams`) is matched in Yahoo's order automatically and each team
+  is renamed after its Yahoo manager; renames are DERIVED from the current
+  dropdowns (`renamesFor`), so changing a row moves the rename with it. Any other
+  league matches by saved alias / similar name, and is never renamed.
+
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)
 
 Hockey (snake, 12 teams) and basketball (auction, 12 teams), ~110 requests in

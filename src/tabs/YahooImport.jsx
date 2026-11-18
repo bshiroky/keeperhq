@@ -11,9 +11,10 @@ import React from 'react';
 import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
 import { supabase } from '../lib/supabase.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
-import { loadPlayers } from '../lib/players.js';
+import { loadPlayers, normalizeName } from '../lib/players.js';
+import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
 import {
-  GAME_CODE_FOR_SPORT, sectionsFor, initialMapping, mappingInOrder, mappingProblems,
+  GAME_CODE_FOR_SPORT, sectionsFor, initialTeamMatch, renamesFor, hasPlaceholderTeams, withOverrides, mappingProblems,
   lateAdditions, resolvedPickOwners, yahooImportImpact, applyYahooImport,
   seasonLabel, isSeasonOver, defaultYahooLeague, directoryResolver, directoryMatchSummary, eligibilityNote,
 } from '../lib/yahooImport.js';
@@ -41,6 +42,36 @@ function Attribution({ t }) {
     <div style={{ ...t.typeBodyMeta, color: t.textMuted }}>
       Fantasy data provided by{' '}
       <a href="https://sports.yahoo.com/fantasy/" target="_blank" rel="noreferrer" style={{ color: t.textSecondary }}>Yahoo Fantasy</a>
+    </div>
+  );
+}
+
+// One player the directory couldn't place: search it, or leave it as is.
+function UnmatchedPlayer({ name, ambiguous, picked, onPick, league, isDark }) {
+  const t = makeTheme(isDark);
+  const [value, setValue] = React.useState('');
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, flexWrap: 'wrap', padding: `${tokens.space2xs}px 0` }}>
+      <div style={{ ...t.typeBody, flex: '1 1 160px', minWidth: 0 }}>
+        <span style={{ color: t.textPrimary, fontWeight: 600 }}>{name}</span>
+        {ambiguous && <div style={{ ...t.typeBodyMeta, color: t.textMuted }}>More than one NHL player has this name</div>}
+      </div>
+      <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+        {picked ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs, ...t.typeBody }}>
+            <span style={{ color: tokens.success, fontWeight: 700 }} aria-hidden="true">✓</span>
+            <span style={{ color: t.textPrimary, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{picked.name}</span>
+            <span style={{ color: t.textMuted }}>{[picked.team, picked.pos].filter(Boolean).join(' · ')}</span>
+            <button type="button" onClick={() => { onPick(null); setValue(''); }} aria-label={`Undo the match for ${name}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, fontSize: 16, lineHeight: 1, padding: tokens.space2xs, marginLeft: 'auto' }}>×</button>
+          </div>
+        ) : (
+          <PlayerAutocomplete value={value} sport="hockey" league={league} isDark={isDark}
+            placeholder="Search the NHL directory…"
+            inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '6px 8px', ...t.typeBody, color: t.textPrimary, fontFamily: 'inherit' }}
+            onChange={(v, rec) => { setValue(v); if (rec) onPick(rec); }} />
+        )}
+      </div>
     </div>
   );
 }
@@ -104,8 +135,9 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
   const [leagueKey, setLeagueKey] = React.useState('');
   const [showAllSports, setShowAllSports] = React.useState(false);
   const [bundle, setBundle] = React.useState(initial?.bundle || null);
-  const [mapping, setMapping] = React.useState(() => (initial?.bundle ? initialMapping(league, initial.bundle) : {}));
-  const [renames, setRenames] = React.useState({});
+  const [mapping, setMapping] = React.useState(() => (initial?.bundle ? initialTeamMatch(league, initial.bundle) : {}));
+  // Players matched by hand in the preview (normalized Yahoo name → directory record).
+  const [overrides, setOverrides] = React.useState({});
   const [pick, setPick] = React.useState({ rosters: true, draft: true, standings: true, picks: true });
   const [rosterSet, setRosterSet] = React.useState('cutoff');
   const [guard, setGuard] = React.useState(null);
@@ -124,6 +156,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
       .catch(() => setDirectory({ status: 'error', players: [] }));
   }, [directory.status, step]);
   const resolve = React.useMemo(() => directoryResolver(directory.players), [directory.players]);
+  const resolveFinal = React.useMemo(() => withOverrides(resolve, overrides), [resolve, overrides]);
 
   React.useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
@@ -179,7 +212,7 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
     // Re-reading the same league (a new roster date) keeps the team matching.
     const same = bundle?.league?.leagueKey === r.body.league?.leagueKey;
     setBundle(r.body);
-    if (!same) { setMapping(initialMapping(league, r.body)); setRenames({}); }
+    if (!same) { setMapping(initialTeamMatch(league, r.body)); setOverrides({}); }
     setRosterSet(r.body.rosters?.cutoff ? 'cutoff' : 'final');
     setStep('preview');
   }
@@ -187,9 +220,15 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
   const available = bundle ? sectionsFor(league, bundle) : {};
   const chosen = {
     rosters: !!available.rosters && pick.rosters, draft: !!available.draft && pick.draft,
-    standings: !!available.standings && pick.standings, picks: !!available.picks && pick.picks, rosterSet, resolve,
+    standings: !!available.standings && pick.standings, picks: !!available.picks && pick.picks, rosterSet, resolve: resolveFinal,
   };
-  const matchInfo = bundle && resolve && (chosen.rosters || chosen.draft) ? directoryMatchSummary(bundle, resolve, chosen) : null;
+  const placeholder = hasPlaceholderTeams(league);
+  const renames = bundle ? renamesFor(league, bundle, mapping) : {};
+  const wantsPlayers = chosen.rosters || chosen.draft;
+  // Counts include hand matches; the "not found" list is from the directory
+  // alone, so a player matched by hand stays listed with his pick.
+  const matchInfo = bundle && resolveFinal && wantsPlayers ? directoryMatchSummary(bundle, resolveFinal, chosen) : null;
+  const baseInfo = bundle && resolve && wantsPlayers ? directoryMatchSummary(bundle, resolve, chosen) : null;
   const problems = bundle ? mappingProblems(league, bundle, mapping) : { unmapped: [], duplicates: [], mappedCount: 0 };
   const anySection = chosen.rosters || chosen.draft || chosen.standings || chosen.picks;
   const canImport = bundle && anySection && problems.duplicates.length === 0 && problems.mappedCount > 0
@@ -204,10 +243,6 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
       next[teamKey] = teamId || null;
       return next;
     });
-  }
-  function matchInOrder(nameBy) {
-    const r = mappingInOrder(league, bundle, nameBy);
-    setMapping(r.mapping); setRenames(r.renames);
   }
 
   function startImport() {
@@ -312,13 +347,11 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                   <p style={{ ...t.typeBodyMeta, color: tokens.warning, margin: `${tokens.spaceXs}px 0 0` }}>Yahoo didn't return everything: {bundle.problems.join(' · ')}</p>
                 )}
 
-                <div style={label}>Match teams</div>
-                <div style={{ display: 'flex', gap: tokens.spaceXs, flexWrap: 'wrap', marginBottom: tokens.spaceXs }}>
-                  <Button variant="secondary" size="sm" isDark={isDark} onClick={() => matchInOrder('manager')}>Match in order, name by manager</Button>
-                  <Button variant="secondary" size="sm" isDark={isDark} onClick={() => matchInOrder('team')}>Match in order, use Yahoo team names</Button>
-                </div>
-                <div style={{ ...t.typeBodyMeta, color: t.textMuted, marginBottom: tokens.spaceXs }}>
-                  For a brand-new league, one of these fills every row and renames your teams. Otherwise pick each team below.
+                <div style={label}>Teams</div>
+                <div style={{ ...t.typeBodyMeta, color: t.textMuted, marginBottom: tokens.spaceXs, lineHeight: 1.5 }}>
+                  {placeholder
+                    ? "Your teams still have their default names, so each Yahoo team is paired with one in order and renamed after its manager. Change any row if it's wrong."
+                    : 'Each Yahoo team is paired with the KeeperHQ team it belongs to. Change any row if it\'s wrong.'}
                 </div>
                 <div style={{ display: 'grid', gap: tokens.space2xs }}>
                   {bundle.teams.map(yt => {
@@ -427,13 +460,21 @@ export function YahooImportModal({ league, isDark, accentColor, onUpdateLeague, 
                             </ul>
                           </details>
                         )}
-                        {matchInfo.unmatched.length > 0 && (
-                          <details style={{ marginTop: tokens.space2xs }}>
-                            <summary style={{ cursor: 'pointer', color: tokens.warning }}>{plural(matchInfo.unmatched.length, 'player')} not found. They'll import under their Yahoo name; fix them later with Edit roster{chosen.draft ? ' or on the Last Draft page' : ''}</summary>
-                            <ul style={{ margin: `${tokens.space2xs}px 0 0`, paddingLeft: tokens.spaceLg }}>
-                              {matchInfo.unmatched.map(m => <li key={m.name}>{m.name}{m.ambiguous ? ' (more than one NHL player has this name)' : ''}</li>)}
-                            </ul>
-                          </details>
+                        {baseInfo && baseInfo.unmatched.length > 0 && (
+                          <div style={{ marginTop: tokens.spaceXs, border: `1px solid ${t.warningBorder}`, background: t.warningBg, borderRadius: tokens.radiusMd, padding: `${tokens.spaceXs}px ${tokens.spaceSm}px` }}>
+                            <div style={{ color: t.textPrimary, fontWeight: 600, marginBottom: tokens.space2xs }}>
+                              {plural(baseInfo.unmatched.length, 'player')} not found in the NHL directory. Pick each one, or leave it to import under the Yahoo name.
+                            </div>
+                            {baseInfo.unmatched.map(m => (
+                              <UnmatchedPlayer key={m.name} name={m.name} ambiguous={m.ambiguous} league={league} isDark={isDark}
+                                picked={overrides[normalizeName(m.name)] || null}
+                                onPick={rec => setOverrides(o => {
+                                  const next = { ...o };
+                                  if (rec) next[normalizeName(m.name)] = rec; else delete next[normalizeName(m.name)];
+                                  return next;
+                                })} />
+                            ))}
+                          </div>
                         )}
                       </>
                     )}
