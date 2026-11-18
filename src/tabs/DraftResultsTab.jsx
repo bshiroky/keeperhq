@@ -3,7 +3,7 @@ import { ClipboardList, X } from 'lucide-react';
 import { isAuctionCost } from '../lib/keeperRules.js';
 import { makeTheme, tokens, Button, Headshot, HScrollRow, PriceMarkSlot } from '../components.jsx';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
-import { loadPlayers, normalizeName } from '../lib/players.js';
+import { loadPlayers, normalizeName, positionsList, formatPositions } from '../lib/players.js';
 import { isNflSport } from '../lib/nflDirectory.js';
 import { sortTeamsByName } from '../lib/teamOrder.js';
 import { getDraftRounds } from '../lib/draftPicks.js';
@@ -103,11 +103,10 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
   const unmatched = nfl
     ? (!entry.playerId && !!entry.player)
     : (dirReady && !rec && !!entry.player);
-  // Position: directory match wins (real codes); the paste's own position
-  // string is the fallback for unmatched/non-NHL rows.
-  const pos = nfl
-    ? (entry.pos || (entry.positions || '').split(',')[0].trim() || null)
-    : (rec?.pos ? posForRoster(rec.pos) : (entry.positions || '').split(',')[0].trim() || null);
+  // Position: the row's own eligibility list (an import's, e.g. C/LW/RW)
+  // first; the directory's single position for rows that carry none.
+  const own = formatPositions(positionsList(entry));
+  const pos = own || (!nfl && rec?.pos ? posForRoster(rec.pos) : null);
   const otherNames = new Set(
     (team.priorKeepers || []).filter((_, oi) => oi !== idx).map(p => normalizeName(p.player)).filter(Boolean)
   );
@@ -124,7 +123,7 @@ function DraftRow({ entry, team, idx, league, isDark, gridAccent, dirMap, dirRea
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <Headshot name={entry.player} map={dirMap} size={28} isDark={isDark} />
-        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '1px 5px', minWidth: 24, textAlign: 'center', flexShrink: 0 }}>
+        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '1px 5px', minWidth: 24, textAlign: 'center', flexShrink: 0, whiteSpace: 'nowrap' }}>
           {pos || '—'}
         </span>
         <NameCell value={entry.player} league={league} isDark={isDark} unmatched={unmatched}

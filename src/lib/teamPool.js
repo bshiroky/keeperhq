@@ -97,6 +97,7 @@ export function buildTeamPool(league, team) {
     const entry = {
       player: source?.player || prior.player,
       pos: source?.pos || prior.pos,
+      positions: source?.positions || prior.positions,
       kind: 'contract',
       ...acqCarry(source || {}), ...acqCarry(prior),
     };
@@ -139,14 +140,14 @@ export function buildTeamPool(league, team) {
     // follows the player, not the team that paid it.
     const prior = priorAnywhereByName.get(key);
     if (!prior) {
-      const entry = { player: r.player, pos: r.pos, kind: 'rostered', ...acqCarry(r) };
+      const entry = { player: r.player, pos: r.pos, positions: r.positions, kind: 'rostered', ...acqCarry(r) };
       if (dollars) { entry.nextCost = base; entry.yearsKept = 1; }
       if (termed) { entry.nextYear = 1; entry.length = len; entry.final = 1 >= len; entry.startSeason = league?.season || null; }
       rosteredNoContract.push(entry);
       return;
     }
     if (isExpired(prior)) {
-      expired.push({ player: r.player, pos: r.pos || prior.pos, kind: 'expired', ...expiredTerm(prior) });
+      expired.push({ player: r.player, pos: r.pos || prior.pos, positions: r.positions || prior.positions, kind: 'expired', ...expiredTerm(prior) });
       return;
     }
     onContract.push(contractEntry(prior, r));
@@ -162,7 +163,7 @@ export function buildTeamPool(league, team) {
     if (claimed.has(key)) return;
     if (isExpired(p)) {
       if (index.owners.has(key) && index.owners.get(key) !== team?.id) return;
-      expired.push({ player: p.player, pos: p.pos, kind: 'expired', ...expiredTerm(p) });
+      expired.push({ player: p.player, pos: p.pos, positions: p.positions, kind: 'expired', ...expiredTerm(p) });
       return;
     }
     if (!draftRecordStands(index, team, key)) return;

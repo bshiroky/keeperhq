@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowLeftRight, Check, Plus, Search, X } from 'lucide-react';
 import { makeTheme, tokens, HScrollRow, Button, usePlayerMap, Headshot, EditedMark, PriceMarkSlot } from '../components.jsx';
 import { PlayerAutocomplete } from '../PlayerAutocomplete.jsx';
-import { loadPlayers, normalizeName, buildStatusIndex } from '../lib/players.js';
+import { loadPlayers, normalizeName, buildStatusIndex, positionsList, formatPositions } from '../lib/players.js';
 import { acquisitionOf } from '../lib/acquisition.js';
 import { setPrice, resetPrice, priceOf, computedPriceOf, isPriceOverridden } from '../lib/priceProvenance.js';
 import { appendChanges, changeEntry } from '../lib/changeLog.js';
@@ -243,8 +243,8 @@ function PoolRow({ entry, isDark, accentColor, gridAccent, keeping, blocked, dis
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: tokens.radiusSm, background: keeping ? t.successBg : 'transparent', border: `1px solid ${keeping ? t.successBorder : t.border}`, opacity: blocked ? 0.6 : 1 }}>
-      {entry.pos && (
-        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.sectionBg, borderRadius: 3, padding: '1px 5px', minWidth: 22, textAlign: 'center', flexShrink: 0 }}>{entry.pos}</span>
+      {positionsList(entry).length > 0 && (
+        <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.sectionBg, borderRadius: 3, padding: '1px 5px', minWidth: 22, textAlign: 'center', flexShrink: 0, whiteSpace: 'nowrap' }}>{formatPositions(positionsList(entry))}</span>
       )}
       <span style={{ ...tokens.typeBody, fontWeight: 600, color: blocked ? t.textMuted : t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: blocked ? 'line-through' : 'none' }}>{entry.player}</span>
       {statusLabel && <span style={{ ...tokens.typePill, color: statusColor || t.textMuted, flexShrink: 0 }}>{statusLabel}</span>}

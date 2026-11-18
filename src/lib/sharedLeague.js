@@ -1,5 +1,5 @@
 import { supabase } from './supabase.js';
-import { normalizeName } from './players.js';
+import { normalizeName, positionsList, leaguePositionIndex } from './players.js';
 import { buildTeamPool } from './teamPool.js';
 import { hasTerm, termOf, isFinalYear, isAuctionCost } from './keeperRules.js';
 import { keeperEnteringYear } from './contractSeason.js';
@@ -115,6 +115,10 @@ export function buildSharedRows(league) {
     }
   }
 
+  // Declared keepers store no position; every row reads the league's full
+  // eligibility list by name (falling back to whatever the row carried).
+  const positionsBy = leaguePositionIndex(league);
+  for (const [key, row] of rows) row.positions = positionsBy.get(key) || positionsList(row);
   return Array.from(rows.values());
 }
 

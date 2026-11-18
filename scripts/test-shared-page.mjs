@@ -1297,4 +1297,22 @@ test('shared page: an archived contract renders nowhere — preserving it shows 
   assert.ok(!html.includes('Y3/3'), 'the dead contract prints no year anywhere');
 });
 
+test('positions: every eligible position shows, keepers included', () => {
+  const multi = {
+    ...AUCTION,
+    teams: [
+      { id: 't1', name: 'Alpha', priorKeepers: [{ player: 'Flex Guy', keptFor: 30, positions: 'RB,WR' }],
+        roster: [{ player: 'Flex Guy', pos: 'RB', positions: 'RB,WR' }, { player: 'Plain QB', pos: 'QB' }],
+        // A declared keeper stores no position: the page finds it on the roster.
+        keepers: [{ player: 'Flex Guy', keptFor: 35 }] },
+    ],
+  };
+  const rows = buildSharedRows(multi);
+  assert.deepEqual(rows.find(r => r.player === 'Flex Guy').positions, ['RB', 'WR']);
+  assert.deepEqual(rows.find(r => r.player === 'Plain QB').positions, ['QB']);
+  const html = renderPage(multi, false);
+  assert.ok(html.includes('RB/WR'), 'the full eligibility list renders');
+  assert.ok(html.includes('QB'));
+});
+
 console.log(`\nALL ${passed} SHARED-PAGE TESTS PASS (with season anchoring)`);

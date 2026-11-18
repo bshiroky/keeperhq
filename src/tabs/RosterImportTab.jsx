@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertTriangle, Camera, Loader, X } from 'lucide-react';
 import { makeTheme, tokens, Button, ConfirmBody } from '../components.jsx';
-import { loadPlayers, normalizeName } from '../lib/players.js';
+import { loadPlayers, normalizeName, positionsList, formatPositions } from '../lib/players.js';
 import { ROSTER_POSITIONS, cleanPlayerName, parseYahooRosterText } from '../lib/rosterParse.js';
 import { PlayerAutocomplete, posForRoster } from '../PlayerAutocomplete.jsx';
 import { isNflSport, directoryKey, pickDirectoryMatch, importFieldsFor } from '../lib/nflDirectory.js';
@@ -103,7 +103,7 @@ function RosterEditor({ league, team, isDark, accentColor, onUpdateLeague }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {roster.map((p, pi) => (
         <div key={`${p.player}-${pi}`} style={{ display: 'flex', alignItems: 'center', gap: 6, background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusSm, padding: '4px 8px' }}>
-          <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '0 4px', minWidth: 22, textAlign: 'center', flexShrink: 0 }}>{p.pos || '—'}</span>
+          <span style={{ ...tokens.typePill, fontWeight: 700, color: t.textMuted, background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: 3, padding: '0 4px', minWidth: 22, textAlign: 'center', flexShrink: 0, whiteSpace: 'nowrap' }}>{formatPositions(positionsList(p)) || '—'}</span>
           <span style={{ fontSize: 12, fontWeight: 600, color: t.textPrimary, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.player}</span>
           <button onClick={() => removeAt(pi)} aria-label={`Remove ${p.player}`} title="Remove player"
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted, lineHeight: 1, padding: 2, display: 'inline-flex', alignItems: 'center', fontFamily: 'inherit', flexShrink: 0 }}>

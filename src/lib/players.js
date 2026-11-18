@@ -54,6 +54,43 @@ export function posForRoster(nhlPos) {
   return nhlPos || '';
 }
 
+// Fantasy position eligibility is a LIST (Yahoo: "C,LW,RW"). Rows store it
+// as `positions` (comma string, the draft paste's existing convention) next
+// to `pos`, the primary one. Lineup-slot codes (BN, Util, IR…) are not
+// positions and are dropped.
+const SLOT_CODES = new Set(['BN', 'BENCH', 'UTIL', 'IR', 'IR+', 'IL', 'IL+', 'NA']);
+export function positionsList(entry) {
+  const split = v => (Array.isArray(v) ? v : String(v || '').split(/[/,]/)).map(s => String(s).trim()).filter(Boolean);
+  const raw = split(entry?.positions);
+  const out = [];
+  for (const p of raw.length ? raw : split(entry?.pos)) {
+    const q = posForRoster(p);
+    if (q && !SLOT_CODES.has(q.toUpperCase()) && !out.includes(q)) out.push(q);
+  }
+  return out;
+}
+export const formatPositions = list => (list || []).join('/');
+
+// Name → positions for every player on file, so a row that stores none (a
+// declared keeper) can still show them. An explicit `positions` list beats a
+// bare `pos`, and a roster row beats a draft record (the roster is the newer
+// import, carrying the newest eligibility).
+export function leaguePositionIndex(league) {
+  const out = new Map();
+  const teams = league?.teams || [];
+  const pass = (pick) => {
+    for (const tm of teams) for (const r of [...(tm.roster || []), ...(tm.priorKeepers || [])]) {
+      const k = normalizeName(r.player);
+      if (!k || out.has(k) || !pick(r)) continue;
+      const list = positionsList(r);
+      if (list.length) out.set(k, list);
+    }
+  };
+  pass(r => !!r.positions);
+  pass(() => true);
+  return out;
+}
+
 // Name-matching key: diacritics, punctuation, AND spacing are all noise —
 // "A.J. Greer" = "AJ Greer" = "A. J. Greer", "O'Reilly" = "OReilly",
 // "Stützle" = "Stutzle", "Pierre-Luc" = "Pierre Luc". Collapsing whitespace
