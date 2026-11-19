@@ -765,10 +765,10 @@ console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE
 const renderTeam = (league, teamId) => renderToStaticMarkup(
   React.createElement(SharedLeaguePage, { league, isDark: false, initialFilter: `team:${teamId}` }));
 
-// A cell of the picks grid: "R{round}" eyebrow, the number (SrOnly "Pick "
-// before it), then the via / traded-to line. These match one <li> at a time.
+// A pick chip: "R{round}", the number (SrOnly "Pick " before it), then the
+// via / traded-to text. These match one <li> at a time.
 const cellRe = (round, number) => new RegExp(
-  `<li class="kh-share-row"[^>]*>(?:(?!</li>).)*?>R${round}</span>(?:(?!</li>).)*?Pick </span>${number}</div>(?:(?!</li>).)*?</li>`, 's');
+  `<li class="kh-share-pick"[^>]*>(?:(?!</li>).)*?>R${round}</span>(?:(?!</li>).)*?Pick </span>${number}</span>(?:(?!</li>).)*?</li>`, 's');
 const cellOf = (html, round, number) => (html.match(cellRe(round, number)) || [])[0] || null;
 
 test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none on the Rostered view', () => {
@@ -843,6 +843,13 @@ test('team picks: two picks in one round are two cells with distinct numbers, ne
   assert.equal((html.match(/>R2<\/span>/g) || []).length, 2, 'two R2 cells');
   assert.ok(cellOf(html, 2, 5) && cellOf(html, 2, 8), 'each with its own number');
   assert.ok(!/×\s*2/.test(html));
+});
+
+test('team picks: no order and no trades — one sentence, not a chip per round', () => {
+  const { standings, lotteryDraw, draftPicks, ...plain } = SNAKE_PROJECTION;
+  const html = renderTeam({ ...plain, draftPicks: { rounds: 2 } }, 't2');
+  assert.ok(html.includes('Holds its own pick in all 2 rounds.'));
+  assert.ok(!html.includes('kh-share-pick"'), 'no chips');
 });
 
 test('team picks: an auction league lists nothing', () => {

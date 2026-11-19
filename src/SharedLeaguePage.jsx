@@ -51,10 +51,7 @@ const SHARE_STYLES = `
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
   /* Per-team picks: a grid in the draft board's vocabulary — rounds across,
      wrapping after ~9 on desktop; phones get three per row. */
-  .kh-share-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 12px; }
-  @media (max-width: 640px) {
-    .kh-share-picks { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); padding: 10px; }
-  }
+  .kh-share-picks { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 10px 12px; }
   @media print {
     .kh-share-rail, .kh-share-search, .kh-share-rules-btn { display: none !important; }
     .kh-share-row, .kh-share-tr { break-inside: avoid; }
@@ -402,6 +399,7 @@ function EditContract({ row, edit, league, isDark }) {
 function TeamEditBar({ league, team, edit, isDark }) {
   const t = makeTheme(isDark);
   const [value, setValue] = React.useState('');
+  const [searching, setSearching] = React.useState(false);
   const kept = (team.keepers || []).length;
   const slots = league.keeperSlots || 0;
   const full = kept >= slots;
@@ -414,15 +412,35 @@ function TeamEditBar({ league, team, edit, isDark }) {
       <div style={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0, marginLeft: 'auto' }}>
         {full ? (
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'right' }}>All slots used — unkeep someone to add another.</div>
+        ) : searching ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceXs }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <PlayerAutocomplete value={value} sport={league.sport} league={league} isDark={isDark} autoFocus
+                placeholder="Search players…"
+                disabledNames={new Set((team.keepers || []).map(k => normalizeName(k.player)))}
+                inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: '7px 10px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit' }}
+                onChange={(name, rec) => {
+                  if (rec) { edit.keepByName(rec.name || name, rec); setValue(''); setSearching(false); }
+                  else setValue(name);
+                }} />
+            </div>
+            <button type="button" onClick={() => { setSearching(false); setValue(''); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSecondary, ...tokens.typeBody, fontWeight: 600, fontFamily: 'inherit', padding: '6px 4px', flexShrink: 0 }}>
+              Cancel
+            </button>
+          </div>
         ) : (
-          <PlayerAutocomplete value={value} sport={league.sport} league={league} isDark={isDark}
-            placeholder="Keep a player not on this roster…"
-            disabledNames={new Set((team.keepers || []).map(k => normalizeName(k.player)))}
-            inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: '7px 10px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit' }}
-            onChange={(name, rec) => {
-              if (rec) { edit.keepByName(rec.name || name, rec); setValue(''); }
-              else setValue(name);
-            }} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => setSearching(true)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 34,
+                background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd,
+                padding: '6px 12px', cursor: 'pointer', color: t.textSecondary,
+                ...tokens.typeBody, fontWeight: 600, fontFamily: 'inherit',
+              }}>
+              <Plus size={14} strokeWidth={2.25} aria-hidden /> Keep someone off this roster
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -891,7 +909,12 @@ function TeamPicksSection({ league, board, team, isDark }) {
             {note}
           </div>
         )}
-        {cells.length === 0 ? (
+        {status === 'unordered' && gone.length === 0 && picks.every(p => !p.via) && picks.length > 0 ? (
+          // No order and no trades: every chip would read "R1", "R2"… — say it once.
+          <div style={{ ...tokens.typeBody, color: t.textBody, padding: `${tokens.spaceSm}px ${tokens.spaceSm}px` }}>
+            Holds its own pick in all {picks.length} rounds.
+          </div>
+        ) : cells.length === 0 ? (
           <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `${tokens.spaceMd}px ${tokens.spaceSm}px`, textAlign: 'center' }}>
             No picks on file for this team.
           </div>
@@ -907,39 +930,33 @@ function TeamPicksSection({ league, board, team, isDark }) {
   );
 }
 
-// One cell of the team's pick grid. Visible: "R2" / "17" / "via Alex" (or
-// "→ Alex" struck through for a pick traded away). The read-out spells it:
-// "Round 2, Pick 17, originally Alex's pick" — the round pill and the "via"
-// are aria-hidden shorthand with SrOnly text alongside, the same shape the
-// list version used, so the accessible sentence didn't change with the
-// layout. A "via" cell carries the board's traded tint (warning) so the two
-// surfaces read alike.
+// One pick, as a compact chip: "R2 17" (round muted, number bold), with
+// "via Alex" in the board's traded tint when it came by trade, or struck
+// through with "→ Alex" when it was traded away. Chips wrap, so a full slate
+// of 17 picks is two or three lines instead of a page of half-empty tiles.
+// The read-out spells it: "Round 2, Pick 17, originally Alex's pick".
 function PickTile({ pick: p, nameOf, isDark }) {
   const t = makeTheme(isDark);
   const number = formatPickNumber(p.number);
   const via = !p.gone && p.via ? nameOf(p.via) : null;
   const to = p.gone ? nameOf(p.ownerTeamId) : null;
-  const bg = p.gone ? t.sectionBg : via ? t.warningBg : t.cardBg;
+  const bg = p.gone ? 'transparent' : via ? t.warningBg : t.sectionBg;
   const border = p.gone ? `1px dashed ${t.border}` : `1px solid ${via ? t.warningBorder : t.border}`;
   const numberColor = p.gone ? t.textMuted : via ? t.warning : t.textPrimary;
   return (
-    <li className="kh-share-row" style={{
-      background: bg, border, borderRadius: tokens.radiusMd, padding: '7px 9px',
-      minWidth: 0, boxSizing: 'border-box',
+    <li className="kh-share-pick" style={{
+      display: 'inline-flex', alignItems: 'baseline', gap: 5,
+      background: bg, border, borderRadius: tokens.radiusSm, padding: '4px 9px',
+      whiteSpace: 'nowrap', boxSizing: 'border-box',
     }} title={to ? `Round ${p.round}${number ? `, pick ${number}` : ''} — traded to ${to}` : via ? `Round ${p.round}${number ? `, pick ${number}` : ''} — originally ${via}’s pick` : undefined}>
-      <div style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, lineHeight: 1.2 }}>
+      <span style={{ ...tokens.typeStatMeta, fontWeight: 700, color: number ? t.textMuted : numberColor, textDecoration: p.gone && !number ? 'line-through' : 'none' }}>
         <span aria-hidden>R{p.round}</span><SrOnly>Round {p.round},</SrOnly>
-      </div>
-      <div style={{ ...tokens.typeBody, fontWeight: 800, color: numberColor, lineHeight: 1.3, marginTop: 2, whiteSpace: 'nowrap', textDecoration: p.gone ? 'line-through' : 'none' }}>
-        {number
-          ? <><SrOnly>Pick </SrOnly>{number}</>
-          : <><span aria-hidden>—</span><SrOnly>number not set</SrOnly></>}
-      </div>
-      {/* Reserved line: every cell has one, so a row of cells shares a height. */}
-      <div style={{ ...tokens.typeStatMeta, fontWeight: 600, lineHeight: 1.3, marginTop: 2, minHeight: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: p.gone ? t.textMuted : tokens.warning }}>
-        {via && <><span aria-hidden>via {via}</span><SrOnly>{`, originally ${via}’s pick`}</SrOnly></>}
-        {to && <><span aria-hidden>→ </span>traded to {to}</>}
-      </div>
+      </span>
+      <span style={{ ...tokens.typeBody, fontWeight: 800, color: numberColor, textDecoration: p.gone ? 'line-through' : 'none' }}>
+        {number ? <><SrOnly>Pick </SrOnly>{number}</> : <SrOnly>number not set</SrOnly>}
+      </span>
+      {via && <span style={{ ...tokens.typeStatMeta, fontWeight: 600, color: tokens.warning }}><span aria-hidden>via {via}</span><SrOnly>{`, originally ${via}’s pick`}</SrOnly></span>}
+      {to && <span style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted }}><span aria-hidden>→ </span>traded to {to}</span>}
     </li>
   );
 }
