@@ -1611,9 +1611,12 @@ Yahoo work off 47%, not off the optimistic reading.
   `resetKeeperPrice`), term edits through `setContractYear`; keeps and unkeeps
   are now logged (`kind: 'keep'`). Shared rows carry the pool `entry` (and
   keepers their `keeperTeamId`) so a Keep writes the same next year / cost the
-  row shows. The team tab's **picks are compact chips** (`R2 17`, `via X`
-  tinted, traded-away struck with `→ X`) wrapping in a few lines instead of a
-  grid of half-empty tiles; a team with no order and no trades gets one
+  row shows. The team tab's **picks are a grid of equal-width chips**
+  (`R2 17`; tinted when it came by trade, dashed + struck when traded away)
+  with the names behind those trades in ONE line under the grid ("From
+  trades: R2 #5 (Carter) · Traded away: R7 → Frank") — per-chip "via X" text
+  made every chip a different width and the grid stopped lining up; each chip
+  still carries its own sentence for a screen reader; a team with no order and no trades gets one
   sentence ("Holds its own pick in all 17 rounds"). No SQL.
 
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)

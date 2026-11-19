@@ -51,7 +51,7 @@ const SHARE_STYLES = `
   .kh-share-rail-scroll::-webkit-scrollbar { display: none; }
   /* Per-team picks: a grid in the draft board's vocabulary — rounds across,
      wrapping after ~9 on desktop; phones get three per row. */
-  .kh-share-picks { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 10px 12px; }
+  .kh-share-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 10px 12px; }
   @media print {
     .kh-share-rail, .kh-share-search, .kh-share-rules-btn { display: none !important; }
     .kh-share-row, .kh-share-tr { break-inside: avoid; }
@@ -919,21 +919,25 @@ function TeamPicksSection({ league, board, team, isDark }) {
             No picks on file for this team.
           </div>
         ) : (
-          <ul className="kh-share-picks">
-            {cells.map(p => (
-              <PickTile key={`${p.gone ? 'gone' : 'held'}:${p.round}:${p.originalTeamId}`} pick={p} nameOf={nameOf} isDark={isDark} />
-            ))}
-          </ul>
+          <>
+            <ul className="kh-share-picks">
+              {cells.map(p => (
+                <PickTile key={`${p.gone ? 'gone' : 'held'}:${p.round}:${p.originalTeamId}`} pick={p} nameOf={nameOf} isDark={isDark} />
+              ))}
+            </ul>
+            <PickTradesLine cells={cells} nameOf={nameOf} isDark={isDark} />
+          </>
         )}
       </div>
     </section>
   );
 }
 
-// One pick, as a compact chip: "R2 17" (round muted, number bold), with
-// "via Alex" in the board's traded tint when it came by trade, or struck
-// through with "→ Alex" when it was traded away. Chips wrap, so a full slate
-// of 17 picks is two or three lines instead of a page of half-empty tiles.
+// One pick, as a compact chip of uniform width: "R2 17" (round muted, number
+// bold). A pick that came by trade carries the board's traded tint; one traded
+// away is dashed and struck. The names behind those trades are listed once,
+// under the grid — per-chip "via Alex" text made every chip a different width
+// and the grid stopped lining up.
 // The read-out spells it: "Round 2, Pick 17, originally Alex's pick".
 function PickTile({ pick: p, nameOf, isDark }) {
   const t = makeTheme(isDark);
@@ -945,9 +949,9 @@ function PickTile({ pick: p, nameOf, isDark }) {
   const numberColor = p.gone ? t.textMuted : via ? t.warning : t.textPrimary;
   return (
     <li className="kh-share-pick" style={{
-      display: 'inline-flex', alignItems: 'baseline', gap: 5,
-      background: bg, border, borderRadius: tokens.radiusSm, padding: '4px 9px',
-      whiteSpace: 'nowrap', boxSizing: 'border-box',
+      display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 5,
+      background: bg, border, borderRadius: tokens.radiusSm, padding: '5px 6px',
+      whiteSpace: 'nowrap', boxSizing: 'border-box', minWidth: 0, overflow: 'hidden',
     }} title={to ? `Round ${p.round}${number ? `, pick ${number}` : ''} — traded to ${to}` : via ? `Round ${p.round}${number ? `, pick ${number}` : ''} — originally ${via}’s pick` : undefined}>
       <span style={{ ...tokens.typeStatMeta, fontWeight: 700, color: number ? t.textMuted : numberColor, textDecoration: p.gone && !number ? 'line-through' : 'none' }}>
         <span aria-hidden>R{p.round}</span><SrOnly>Round {p.round},</SrOnly>
@@ -955,9 +959,30 @@ function PickTile({ pick: p, nameOf, isDark }) {
       <span style={{ ...tokens.typeBody, fontWeight: 800, color: numberColor, textDecoration: p.gone ? 'line-through' : 'none' }}>
         {number ? <><SrOnly>Pick </SrOnly>{number}</> : <SrOnly>number not set</SrOnly>}
       </span>
-      {via && <span style={{ ...tokens.typeStatMeta, fontWeight: 600, color: tokens.warning }}><span aria-hidden>via {via}</span><SrOnly>{`, originally ${via}’s pick`}</SrOnly></span>}
-      {to && <span style={{ ...tokens.typeStatMeta, fontWeight: 600, color: t.textMuted }}><span aria-hidden>→ </span>traded to {to}</span>}
+      {/* Who it came from / went to is in the trades line under the grid
+          (visible) and here for a screen reader — keeping it out of the chip
+          is what keeps every chip one width. */}
+      {via && <SrOnly>{`, originally ${via}’s pick`}</SrOnly>}
+      {to && <SrOnly>{`, traded to ${to}`}</SrOnly>}
     </li>
+  );
+}
+
+// The trades behind the tinted / struck chips, in one line under the grid:
+// "From trades: R2 (Carter), R5 (Dana) · Traded away: R7 → Frank". Visible
+// only — each chip already carries its own sentence for a screen reader.
+function PickTradesLine({ cells, nameOf, isDark }) {
+  const t = makeTheme(isDark);
+  const label = p => `R${p.round}${p.number ? ` #${formatPickNumber(p.number)}` : ''}`;
+  const inn = cells.filter(p => !p.gone && p.via).map(p => `${label(p)} (${nameOf(p.via)})`);
+  const out = cells.filter(p => p.gone).map(p => `${label(p)} → ${nameOf(p.ownerTeamId)}`);
+  if (!inn.length && !out.length) return null;
+  return (
+    <div aria-hidden style={{ ...tokens.typeBodyMeta, color: t.textMuted, padding: `0 ${tokens.spaceSm}px ${tokens.spaceSm}px`, lineHeight: 1.5 }}>
+      {inn.length > 0 && <span><span style={{ color: tokens.warning, fontWeight: 600 }}>From trades:</span> {inn.join(', ')}</span>}
+      {inn.length > 0 && out.length > 0 && <span> · </span>}
+      {out.length > 0 && <span><span style={{ fontWeight: 600 }}>Traded away:</span> {out.join(', ')}</span>}
+    </div>
   );
 }
 

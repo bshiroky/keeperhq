@@ -778,7 +778,8 @@ test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none 
   assert.ok(html.includes('<ul class="kh-share-picks">'), 'the picks are a grid, not a list of rows');
   assert.ok(cellOf(html, 1, 1), 'round 1, pick 1 (won the lottery)');
   const p5 = cellOf(html, 2, 5);
-  assert.ok(p5 && p5.includes('via Alpha'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(p5 && p5.includes('originally Alpha’s pick'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(html.includes('From trades:</span> R2 #5 (Alpha)'), 'the trades line names the origin');
   assert.ok(cellOf(html, 2, 8), 'own round-2 pick, last of the round');
   assert.ok(!/Lottery not drawn|isn’t set yet/.test(html), 'no caveat once the order is final');
   const alpha = renderTeam(SNAKE_PROJECTION, 't1');
@@ -811,7 +812,7 @@ test('team picks: no standings — rounds and ownership only, and it says the or
   assert.deepEqual(list.picks.map(p => [p.round, p.number, p.via]), [[1, null, null], [2, null, 't1'], [2, null, null]]);
   const html = renderTeam(none, 't4');
   assert.ok(html.includes('isn’t set yet'));
-  assert.ok(html.includes('Round 1,') && html.includes('via Alpha'));
+  assert.ok(html.includes('Round 1,') && html.includes('From trades:</span> R2 (Alpha)'));
   assert.ok(!html.includes('Pick </span>'), 'no numbers without an order');
   assert.ok(html.includes('number not set'), 'the empty number slot says so to a reader');
 });
@@ -829,7 +830,8 @@ test('team picks: a traded-away pick stays in the grid at its round, struck thro
   const cell = cellOf(html, 2, 5);
   assert.ok(cell, 'the traded-away pick is a cell at its round');
   assert.ok(cell.includes('text-decoration:line-through'), 'struck through');
-  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Delta/.test(cell), 'R2 · 5 → traded to Delta');
+  assert.ok(cell.includes(', traded to Delta'), 'the chip reads "traded to Delta"');
+  assert.ok(html.includes('Traded away:</span> R2 #5 → Delta'), 'the trades line names where it went');
   assert.equal(teamTradedAwayPicks(SNAKE_PROJECTION, 't4').picks.length, 0, 'Delta gave nothing away');
   assert.ok(!renderTeam(SNAKE_PROJECTION, 't4').includes('traded to'), 'nothing struck when nothing was traded away');
   // Pending lottery: a lottery team's traded-away pick carries the range.
@@ -1041,11 +1043,11 @@ test('a11y: colour-only states carry text — kept rows, final year, expired', (
 test('a11y: traded picks name their origin in text; the round pill reads as "Round N"', () => {
   const html = renderTeam(A11Y, 't1');
   assert.ok(html.includes('originally Alpha’s pick'), 'the held-by-trade pick names whose it was, in the DOM');
-  assert.ok(/<span aria-hidden="true">via Alpha<\/span>/.test(html), '"via" stays the visible shorthand');
+  assert.ok(/From trades:<\/span> R2[^<]*\(Alpha\)/.test(html), 'the origin is visible once, in the trades line');
   assert.ok(/<span aria-hidden="true">R2<\/span><span[^>]*>Round 2,<\/span>/.test(html), 'R2 is read as Round 2');
   assert.ok(/Pick <\/span>3</.test(html), 'the bare number is read as "Pick 3"');
   const gone = renderTeam(A11Y, 't2');
-  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Zamboni/.test(gone), 'the arrow is decoration; "traded to" is the text');
+  assert.ok(gone.includes(', traded to Zamboni'), 'the chip reads "traded to Zamboni"; the arrow line is visual only');
 });
 
 test('a11y: the countdown reads in context; the sticky duplicate is hidden', () => {
