@@ -27,7 +27,7 @@ const {
   keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
   buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, clearContractOnUnkeep, teamPicks, teamTradedAwayPicks, formatPickNumber,
-  keeperCostModelOf,
+  keeperCostModelOf, LeagueBoard, keepPlayer, unkeepPlayer, keepBlockedReason, setKeeperPrice, resetKeeperPrice,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -1313,6 +1313,79 @@ test('positions: every eligible position shows, keepers included', () => {
   const html = renderPage(multi, false);
   assert.ok(html.includes('RB/WR'), 'the full eligibility list renders');
   assert.ok(html.includes('QB'));
+});
+
+// ── One page, editing by entitlement ───────────────────────────────────────
+// The commissioner's league page is the shared page with an `editor`. The
+// public link passes none, and must never render an edit control.
+
+const renderBoard = (league, filter, editor = null) => renderToStaticMarkup(
+  React.createElement(LeagueBoard, { league, isDark: false, filter, setFilter() {}, editor }));
+const EDITOR = { canEditTeam: () => true, onUpdateLeague() {} };
+
+test('entitlements: the public page has no edit controls; an editor gets them on a team tab only', () => {
+  const pub = renderBoard(TERMED, 'team:t1');
+  assert.ok(!/aria-label="Keep /.test(pub), 'no Keep button on the public team tab');
+  assert.ok(!pub.includes('contract year'), 'no year selects on the public team tab');
+  assert.ok(pub.includes('On team'));
+  const ed = renderBoard(TERMED, 'team:t1', EDITOR);
+  assert.ok(/aria-label="Keep Nico Hischier"/.test(ed), 'Keep toggle in the row');
+  assert.ok(ed.includes('Nico Hischier — contract year'), 'year select replaces the contract text');
+  assert.ok(ed.includes('>Keeper</th>'), 'the column is Keeper, not On team');
+  assert.ok(ed.includes('of 0 keepers') || ed.includes('keepers</span>'), 'slot count shown');
+  // The Rostered view stays read-only even for an editor: names, not toggles.
+  const rostered = renderBoard(TERMED, 'keepable', EDITOR);
+  assert.ok(!/aria-label="Keep /.test(rostered));
+  assert.ok(rostered.includes('On team'));
+  // An editor that can't edit this team sees it read-only.
+  const other = renderBoard(TERMED, 'team:t1', { canEditTeam: id => id === 'nope', onUpdateLeague() {} });
+  assert.ok(!/aria-label="Keep /.test(other));
+});
+
+test('entitlements: the editor gets the Draft board pill on any snake league; the public only once it can be built', () => {
+  const noStandings = { ...TERMED, standings: null };
+  assert.ok(!renderBoard(noStandings, 'overview').includes('>Draft board<'));
+  assert.ok(renderBoard(noStandings, 'overview', EDITOR).includes('>Draft board<'));
+});
+
+test('keep edits: keep, slot limit, kept elsewhere, unkeep, price override and reset — all logged', () => {
+  const L = {
+    id: 'x', sport: 'basketball', draftType: 'auction', keeperCostModel: 'auction', termModel: 'none', keeperSlots: 1,
+    auctionRules: { costIncreasePerYear: 5, undraftedStartCost: 5 },
+    teams: [
+      { id: 'a', name: 'A', roster: [{ player: 'One' }, { player: 'Two' }], priorKeepers: [{ player: 'One', keptFor: 20 }], keepers: [] },
+      { id: 'b', name: 'B', roster: [], priorKeepers: [], keepers: [{ player: 'Three', keptFor: 9 }] },
+    ],
+  };
+  const k1 = keepPlayer(L, 'a', { player: 'One', nextCost: 25 });
+  assert.deepEqual(k1.teams[0].keepers.map(k => [k.player, k.keptFor]), [['One', 25]]);
+  assert.equal(k1.changeLog[0].kind, 'keep');
+  assert.equal(keepBlockedReason(k1, 'a', 'Two'), 'All 1 keeper slots are used');
+  assert.equal(keepPlayer(k1, 'a', { player: 'Two' }), k1, 'a full team is unchanged');
+  assert.equal(keepBlockedReason(L, 'a', 'Three'), 'Kept by B');
+  assert.equal(keepPlayer(L, 'a', { player: 'Three' }), L);
+  assert.equal(keepPlayer(k1, 'a', { player: 'One' }), k1, 'keeping twice is a no-op');
+  const priced = setKeeperPrice(k1, 'a', 'One', 40);
+  assert.deepEqual([priced.teams[0].keepers[0].keptFor, priced.teams[0].keepers[0].keptForComputed, priced.teams[0].keepers[0].keptForOverridden], [40, 25, true]);
+  assert.equal(setKeeperPrice(priced, 'a', 'One', 40), priced);
+  const reset = resetKeeperPrice(priced, 'a', 'One');
+  assert.equal(reset.teams[0].keepers[0].keptFor, 25);
+  const un = unkeepPlayer(reset, 'a', 'One');
+  assert.deepEqual(un.teams[0].keepers, []);
+  assert.equal(un.changeLog[0].to, 'unkept');
+  assert.equal(unkeepPlayer(un, 'a', 'One'), un);
+  assert.deepEqual(un.teams[0].priorKeepers, L.teams[0].priorKeepers, 'unkeeping never touches the draft record');
+});
+
+test('keep edits: a termed keep writes the next year and anchor; unkeeping a Y1 removes the contract it created', () => {
+  const T = { ...TERMED, season: '2026-27', keeperSlots: 2 };
+  const kept = keepPlayer(T, 't1', { player: 'Nico Hischier', nextYear: 1, length: 3 });
+  const k = kept.teams[0].keepers[0];
+  assert.deepEqual([k.contractYear, k.contractLength, k.startSeason], [1, 3, '2026-27']);
+  const rows = renderBoard(kept, 'team:t1', EDITOR);
+  assert.ok(/aria-label="Keeping Nico Hischier/.test(rows), 'the row reads as kept');
+  const back = unkeepPlayer(kept, 't1', 'Nico Hischier');
+  assert.deepEqual(back.teams[0].keepers, []);
 });
 
 console.log(`\nALL ${passed} SHARED-PAGE TESTS PASS (with season anchoring)`);

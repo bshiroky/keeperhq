@@ -1578,6 +1578,40 @@ Yahoo work off 47%, not off the optimistic reading.
   dropdowns (`renamesFor`), so changing a row moves the rename with it. Any other
   league matches by saved alias / similar name, and is never renamed.
 
+- **One league page for everyone, editing by entitlement (this branch's PR).**
+  The commissioner's league home IS the shared page's views now:
+  `LeagueBoard` (`SharedLeaguePage.jsx`) is the pill rail + whatever the pill
+  shows, hosted by the public page (no `editor`) and by `LeagueView`
+  (`editor = { canEditTeam: () => true, onUpdateLeague }`). A GM signed in with
+  Yahoo (Open item #34) will get the same page with `canEditTeam` true for their
+  own team only. **The old Overview / Set keepers toggle and the
+  `SetKeepersWorkbench` are no longer rendered** (file kept; `TermControl` and
+  the `buildTeamPool` re-export still used). What an editable view changes:
+  (1) **Team tab = Set keepers** — the On-team column becomes a **Keeper**
+  toggle (`KeepToggle`: Keep / ✓ Kept / Back to draft; disabled with the reason
+  when slots are full or another team keeps him), the Contract column becomes
+  the editable value (`EditContract`: `TermControl` year selects on a termed
+  league, a keep-price input with the Edited mark on a dollar-cost keeper —
+  commits on blur so a resort can't move the row mid-edit), a `TeamEditBar`
+  above shows "N of M keepers" plus a directory search to keep a player not on
+  the roster, rows hold their place instead of pinning keepers first, and
+  post-deadline the editor still sees the whole roster (exceptions). The
+  Rostered / Under contract / Expired views stay read-only for everyone.
+  (2) **Overview cards open that team's tab** for an editor.
+  (3) **Draft board pill = the old Picks page** (`DraftPicksPanel`, with click
+  to reassign, Traded Picks, Add trade and the paste import), shown to an
+  editor on every snake league (the public pill still needs a buildable
+  board). The Picks door is gone; `/picks` lands on that pill.
+  (4) **Commissioner tools** (Import · Last Draft · Pool · Lottery · Settings)
+  are a strip at the foot of the identity card; tool pages still keep the rail
+  (no pill selected) so any pill leads back. All keep/unkeep/price writes go
+  through **`src/lib/keeperEdits.js`** (pure: `makeKeeper` moved here,
+  `keepPlayer`, `unkeepPlayer`, `keepBlockedReason`, `setKeeperPrice`,
+  `resetKeeperPrice`), term edits through `setContractYear`; keeps and unkeeps
+  are now logged (`kind: 'keep'`). Shared rows carry the pool `entry` (and
+  keepers their `keeperTeamId`) so a Keep writes the same next year / cost the
+  row shows. No SQL.
+
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)
 
 Hockey (snake, 12 teams) and basketball (auction, 12 teams), ~110 requests in
@@ -1970,7 +2004,7 @@ league page is only ever entered by deep link.
 | `/league/:leagueId/import` | `LeagueView` — **full-page** Import view ("Import last season" headline; per-team roster paste opens a modal over the page; the draft card is a pointer link to `/draft`) — **both draft types** |
 | `/league/:leagueId/draft` | `LeagueView` — **full-page** "Last Draft" takeover (the imported prior-year draft: inline-editable values, in-place name fixes, and the on-page paste import) — **both draft formats, but gated on the keeper COST model**: hidden on slot-cost leagues (`hasLastDraftPage`), where it redirects to overview |
 | `/league/:leagueId/payouts` | `LeagueView` + Pool & Payouts sheet open |
-| `/league/:leagueId/picks` | `LeagueView` — **full-page** Draft Picks view (round×team pick-ownership grid + paste import) with the persistent league nav — **snake only**; auction redirects to overview |
+| `/league/:leagueId/picks` | Old door — lands on the overview route with the **Draft board** pill selected (where the pick editor lives now) — **snake only**; auction redirects to overview |
 | `/league/:leagueId/lottery` | `LeagueView` — **full-page** Lottery view with the persistent league nav — **snake only**; auction redirects to overview |
 | `/league/:leagueId/settings` | `LeagueView` + League Settings sheet open |
 | `/league/<unknown-id>/...` | redirect to `/` |
@@ -3756,7 +3790,9 @@ buttons, no member login until (B)'s trigger is hit.
     with Yahoo** — decided over per-team private links, which stay VIEW-ONLY
     (an editable link is editable by anyone who has it). Yahoo marks the
     signed-in manager's team (`is_owned_by_current_login`), so identity needs
-    no invites; the real work is a member write path into a league only the
+    no invites (the page side is DONE: `LeagueBoard` already edits by
+    `editor.canEditTeam`, so a GM is that page with their team editable); the
+    real work is a member write path into a league only the
     commissioner can write today (a server function that checks the Yahoo team
     first), the deadline lock, and commissioner review. This opens Roadmap
     split B for exactly this flow. A non-Yahoo league would later need KeeperHQ

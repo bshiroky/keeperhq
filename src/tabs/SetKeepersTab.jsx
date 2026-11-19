@@ -10,6 +10,7 @@ import { termOf, isAuctionCost, hasTerm, isFinalYear, keeperValueText, TERM_FIXE
 import { sortTeamsByName } from '../lib/teamOrder.js';
 import { setContractYear, clearContractOnUnkeep, contractYearOptions, CONTRACT_LENGTH_OPTIONS, EXPIRED } from '../lib/contractYear.js';
 import { buildTeamPool } from '../lib/teamPool.js';
+import { makeKeeper } from '../lib/keeperEdits.js';
 
 // ── Set-keepers workbench ────────────────────────────────────────────────────
 // The per-team keeper editor: a team-chip selector over a two-column layout —
@@ -18,34 +19,6 @@ import { buildTeamPool } from '../lib/teamPool.js';
 // wizard, no draft state); the URL/league re-render reflects each change.
 //
 // The trade (⇄) affordance is intentionally inert for v1 — see TradeButton.
-
-// Build a keeper record from a pool/directory entry. Cost and term are
-// independent, so the record carries whichever fields the league's rules call
-// for and can carry both: an auction league with a term stamps keptFor AND
-// contractYear. A slot/pick cost with no term needs neither.
-function makeKeeper(entry, league) {
-  // Acquisition metadata rides along from the pool entry (which carried it
-  // from the prior-keeper / roster record); absent fields normalize to the
-  // defaults (round null, method 'manual', rookie false).
-  const keeper = { player: entry.player, ...acquisitionOf(entry) };
-  if (isAuctionCost(league)) {
-    keeper.keptFor = entry.nextCost != null ? entry.nextCost : (league.auctionRules?.undraftedStartCost || 5);
-    keeper.yearsKept = entry.yearsKept || 1;
-  }
-  const term = termOf(league);
-  if (term.model === TERM_FIXED) {
-    keeper.contractYear = entry.nextYear || 1;
-    keeper.contractLength = entry.length || term.years || 3;
-    // Anchor the contract to the season its Y1 was, so this record survives a
-    // miscounted rollover. The pool entry already knows it: a continuing
-    // contract carries the prior record's anchor, a fresh Y1 carries the
-    // current season. Only the anchor is new — contractYear is still written
-    // exactly as before, so nothing that reads the counter changes.
-    const startSeason = entry.startSeason || league?.season || null;
-    if (startSeason) keeper.startSeason = startSeason;
-  }
-  return keeper;
-}
 
 // Inert trade affordance. The off-season trade model is still undecided
 // (grid indicator vs transaction history — Open item #9), so v1 ships the
@@ -674,4 +647,4 @@ function SetKeepersWorkbench({ league, accentColor, isDark, onUpdateLeague, sele
 
 Object.assign(window, { SetKeepersWorkbench });
 
-export { SetKeepersWorkbench, EligiblePool, buildTeamPool, makeKeeper };
+export { SetKeepersWorkbench, EligiblePool, buildTeamPool, makeKeeper, TermControl };

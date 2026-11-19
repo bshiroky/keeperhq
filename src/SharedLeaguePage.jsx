@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader, Search, Check } from 'lucide-react';
-import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark, SrOnly } from './components.jsx';
+import { Loader, Search, Check, Plus } from 'lucide-react';
+import { makeTheme, tokens, SPORT_CONFIG, usePlayerMap, CommissionerSetMark, SrOnly, PriceMarkSlot } from './components.jsx';
 import { normalizeName, positionsList, formatPositions } from './lib/players.js';
 import { hasTerm, termOf, termLabel, isAuctionCost, keeperCostModelOf, COST_LABEL } from './lib/keeperRules.js';
 import { RulesButton } from './LeagueRulesModal.jsx';
@@ -13,6 +13,13 @@ import { teamPicks, teamTradedAwayPicks, formatPickNumber, describePickListStatu
 import { sortTeamsByName } from './lib/teamOrder.js';
 import { DraftBoardGrid, LotteryPendingLine } from './tabs/DraftBoardGrid.jsx';
 import { KeepersOverview } from './tabs/OverviewTab.jsx';
+import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
+import { TermControl } from './tabs/SetKeepersTab.jsx';
+import { PlayerAutocomplete } from './PlayerAutocomplete.jsx';
+import { keepPlayer, unkeepPlayer, keepBlockedReason, setKeeperPrice, resetKeeperPrice } from './lib/keeperEdits.js';
+import { setContractYear, EXPIRED } from './lib/contractYear.js';
+import { appendChanges } from './lib/changeLog.js';
+import { priceOf, computedPriceOf, isPriceOverridden } from './lib/priceProvenance.js';
 
 // ── Shared league page (/l/:token) ─────────────────────────────────────────
 // Read-only, public, mobile-first — the member-facing cousin of the
@@ -290,6 +297,138 @@ function RowStatusPill({ row, league, isDark, maxWidth }) {
   );
 }
 
+
+// ── Edit controls (a team tab the viewer can edit) ─────────────────────────
+// The same page serves the public link (read-only), the commissioner (every
+// team) and, later, a GM signed in with Yahoo (their own team). What decides
+// is the `editor` the page is given; a view it can edit swaps two cells:
+// the On-team column becomes a Keep toggle (the team name is redundant on a
+// team tab) and the Contract column becomes the editable value — contract
+// year selects on a termed league, the keep price on a dollar-cost keeper.
+// Everything writes through lib/keeperEdits / lib/contractYear, the same
+// paths the old Set-keepers workbench used.
+
+function KeepToggle({ row, edit, isDark }) {
+  const t = makeTheme(isDark);
+  if (row.kind === 'expired') {
+    return <span style={{ ...tokens.typePill, fontWeight: 700, color: tokens.danger, whiteSpace: 'nowrap' }}>Back to draft</span>;
+  }
+  const kept = row.kind === 'keeper';
+  const reason = kept ? null : edit.blockedReason(row);
+  const base = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+    minWidth: 76, minHeight: 30, boxSizing: 'border-box',
+    borderRadius: tokens.radiusSm, padding: '4px 10px',
+    ...tokens.typePill, fontWeight: 700, fontFamily: 'inherit', whiteSpace: 'nowrap',
+  };
+  if (kept) {
+    return (
+      <button type="button" aria-pressed="true" aria-label={`Keeping ${row.player}. Select to stop keeping.`}
+        onClick={() => edit.unkeep(row)}
+        style={{ ...base, cursor: 'pointer', background: t.successBg, border: `1px solid ${t.successBorder}`, color: tokens.success }}>
+        <Check size={13} strokeWidth={2.5} aria-hidden /> Kept
+      </button>
+    );
+  }
+  return (
+    <button type="button" aria-pressed="false" aria-label={`Keep ${row.player}`} disabled={!!reason}
+      title={reason || undefined} onClick={() => edit.keep(row)}
+      style={{
+        ...base, cursor: reason ? 'not-allowed' : 'pointer', background: 'transparent',
+        border: `1px solid ${reason ? t.border : edit.accentBorder}`,
+        color: reason ? t.textMuted : edit.accent, opacity: reason ? 0.6 : 1,
+      }}>
+      <Plus size={13} strokeWidth={2.5} aria-hidden /> Keep
+    </button>
+  );
+}
+
+// Keep price for a declared keeper on a dollar-cost league. Commits on blur or
+// Enter, not per keystroke: the list sorts by cost, so a live write would move
+// the row out from under the cursor mid-number.
+function KeepPriceInput({ row, edit, isDark }) {
+  const t = makeTheme(isDark);
+  const keeper = edit.keeperOf(row);
+  const value = keeper ? priceOf(keeper) : row.cost;
+  const [draft, setDraft] = React.useState(value ?? '');
+  React.useEffect(() => { setDraft(value ?? ''); }, [value]);
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    if (Number.isFinite(n) && n !== value) edit.setPrice(row, n);
+    else setDraft(value ?? '');
+  };
+  const overridden = keeper ? isPriceOverridden(keeper) : false;
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        <PriceMarkSlot overridden={overridden} computed={keeper ? computedPriceOf(keeper) : null} isDark={isDark}
+          onReset={() => edit.resetPrice(row)} />
+        <span style={{ ...tokens.typeBody, color: t.textMuted }}>$</span>
+        <input type="number" min="1" inputMode="numeric" value={draft} aria-label={`${row.player} — keep cost`}
+          onChange={e => setDraft(e.target.value)} onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          style={{
+            width: 52, flexShrink: 0, boxSizing: 'border-box', background: t.cardBg,
+            border: `1px solid ${overridden ? t.textMuted : t.border}`, borderRadius: tokens.radiusSm,
+            padding: '4px 5px', color: tokens.warning, ...tokens.typeBody, fontWeight: 700,
+            fontFamily: 'inherit', textAlign: 'center',
+          }} />
+      </span>
+      {row.draftedCost != null && (
+        <span style={{ ...tokens.typeStatMeta, color: t.textMuted, whiteSpace: 'nowrap' }}>Drafted ${row.draftedCost}</span>
+      )}
+    </span>
+  );
+}
+
+function EditContract({ row, edit, league, isDark }) {
+  if (isAuctionCost(league)) {
+    return row.kind === 'keeper'
+      ? <KeepPriceInput row={row} edit={edit} isDark={isDark} />
+      : <ContractText row={row} league={league} isDark={isDark} />;
+  }
+  if (!hasTerm(league)) return <ContractText row={row} league={league} isDark={isDark} />;
+  const blocked = row.kind === 'expired';
+  return (
+    <TermControl entry={{ player: row.player, nextYear: row.year, length: row.len, final: row.final }}
+      blocked={blocked} gridAccent={edit.accent} isDark={isDark}
+      onChange={v => edit.setTerm(row, v)} />
+  );
+}
+
+// Above the list on an editable team tab: the slot count, and a search to keep
+// someone who isn't on the roster (a free agent, or a player the import
+// missed) — what the old pool's "League" tab was for.
+function TeamEditBar({ league, team, edit, isDark }) {
+  const t = makeTheme(isDark);
+  const [value, setValue] = React.useState('');
+  const kept = (team.keepers || []).length;
+  const slots = league.keeperSlots || 0;
+  const full = kept >= slots;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: tokens.spaceSm, flexWrap: 'wrap', marginBottom: tokens.spaceSm }}>
+      <div style={{ ...tokens.typeBody, color: t.textSecondary, flexShrink: 0 }} role="status">
+        <span style={{ fontWeight: 800, color: full ? tokens.success : t.textPrimary }}>{kept}</span>
+        <span style={{ color: t.textMuted }}> of {slots} keepers</span>
+      </div>
+      <div style={{ flex: '1 1 240px', maxWidth: 360, minWidth: 0, marginLeft: 'auto' }}>
+        {full ? (
+          <div style={{ ...tokens.typeBodyMeta, color: t.textMuted, textAlign: 'right' }}>All slots used — unkeep someone to add another.</div>
+        ) : (
+          <PlayerAutocomplete value={value} sport={league.sport} league={league} isDark={isDark}
+            placeholder="Keep a player not on this roster…"
+            disabledNames={new Set((team.keepers || []).map(k => normalizeName(k.player)))}
+            inputStyle={{ width: '100%', boxSizing: 'border-box', background: t.cardBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: '7px 10px', ...tokens.typeBody, color: t.textPrimary, fontFamily: 'inherit' }}
+            onChange={(name, rec) => {
+              if (rec) { edit.keepByName(rec.name || name, rec); setValue(''); }
+              else setValue(name);
+            }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Mobile / list row ───────────────────────────────────────────────────────
 // Two deliberate layouts, not one layout minus content:
 // - Hockey (directory sport): headshot + two-line card (name over stat line),
@@ -297,7 +436,7 @@ function RowStatusPill({ row, league, isDark, maxWidth }) {
 // - Stats-less leagues (no directory): a COMPACT single-line row — name+pos
 //   left, price/status inline right, tighter padding, no reserved headshot or
 //   stat-line space. "Other sports look intentional, not broken."
-function PlayerRow({ row, league, rec, isDark, kept }) {
+function PlayerRow({ row, league, rec, isDark, kept, edit }) {
   const t = makeTheme(isDark);
   const isHockey = league.sport === 'hockey';
   const expired = row.kind === 'expired';
@@ -318,8 +457,8 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
           <div style={{ ...ROW_TITLE, color: expired ? t.danger : t.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.player}</div>
           {pos && <div style={{ ...tokens.typeStatMeta, color: t.textMuted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos}</div>}
         </div>
-        <ContractText row={row} league={league} isDark={isDark} />
-        <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />
+        {edit ? <EditContract row={row} edit={edit} league={league} isDark={isDark} /> : <ContractText row={row} league={league} isDark={isDark} />}
+        {edit ? <KeepToggle row={row} edit={edit} isDark={isDark} /> : <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={150} />}
       </li>
     );
   }
@@ -346,8 +485,8 @@ function PlayerRow({ row, league, rec, isDark, kept }) {
         )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0, minWidth: 0 }}>
-        <ContractText row={row} league={league} isDark={isDark} />
-        <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={190} />
+        {edit ? <EditContract row={row} edit={edit} league={league} isDark={isDark} /> : <ContractText row={row} league={league} isDark={isDark} />}
+        {edit ? <KeepToggle row={row} edit={edit} isDark={isDark} /> : <RowStatusPill row={row} league={league} isDark={isDark} maxWidth={190} />}
       </div>
     </li>
   );
@@ -388,13 +527,13 @@ function ListSearch({ value, onChange, count, isDark }) {
 
 // A real list: a screen reader announces the count on entry and moves row by
 // row, which a stack of divs never gives it.
-function RowList({ rows, league, playerMap, isDark, label }) {
+function RowList({ rows, league, playerMap, isDark, label, edit }) {
   return (
     <ul aria-label={label} style={{ display: 'flex', flexDirection: 'column', gap: tokens.spaceXs, listStyle: 'none', margin: 0, padding: 0 }}>
       {rows.map(row => (
         <PlayerRow key={`${row.teamId}-${row.player}`} row={row} league={league}
           rec={playerMap?.get(normalizeName(row.player))} isDark={isDark}
-          kept={row.kind === 'keeper'} />
+          kept={row.kind === 'keeper'} edit={edit} />
       ))}
     </ul>
   );
@@ -430,7 +569,7 @@ const STAT_W = 64;
 const CONTRACT_W = 84;
 const STATUS_W = 116;
 
-function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defaultSortKey }) {
+function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defaultSortKey, edit }) {
   const t = makeTheme(isDark);
   // Stats-less leagues (no directory sport) get this same table with cats=[]
   // — no stat columns, no headshots, single-line player cells. The hockey
@@ -444,7 +583,8 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
   // CONTRACT_W is sized for snake's compact "Y1/3" strings; auction's
   // "Keep for $XX" + "Drafted $XX" pair needs more room or the sticky Status
   // cell paints over the overflow.
-  const contractW = isAuctionCost(league) ? 132 : CONTRACT_W;
+  // Editing a termed league puts two selects in the column (Y2 / 3).
+  const contractW = isAuctionCost(league) ? 132 : (edit && hasTerm(league) ? 136 : CONTRACT_W);
 
   const nStats = cats.length;
   const naturalW = PLAYER_W + nStats * STAT_W + contractW + STATUS_W;
@@ -489,7 +629,10 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
     // Stats-less leagues have no sortable stat columns — keep the page-level
     // value sort (cost desc / round asc) instead of re-sorting alphabetical.
     const withRec = list.map(row => ({ row, rec: playerMap?.get(normalizeName(row.player)) }));
-    if (!isHockey) return keepersFirst(withRec, x => x.row);
+    // While editing, rows stay where they are — a Keep click marks the row in
+    // place instead of lifting it out from under the cursor.
+    const pin = edit ? (l => l) : (l => keepersFirst(l, x => x.row));
+    if (!isHockey) return pin(withRec);
     const has = withRec.filter(x => x.rec);
     const not = withRec.filter(x => !x.rec).sort((a, b) => a.row.player.localeCompare(b.row.player));
     has.sort((a, b) => {
@@ -499,7 +642,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
     });
     // Re-pin after the column sort, so clicking a stat header reorders within
     // the kept block and the eligible block rather than mixing them.
-    return keepersFirst([...has, ...not], x => x.row);
+    return pin([...has, ...not]);
   }
 
   const ordered = orderRows(rows);
@@ -585,7 +728,7 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                   );
                 })}
                 <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', right: STATUS_W, zIndex: 3, width: pinnedContractW, minWidth: pinnedContractW, borderLeft: stickyRule }}>{costColumnLabel(league)}</th>
-                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{OWNER_COLUMN_LABEL}</th>
+                <th scope="col" style={{ ...headerCell, boxSizing: 'border-box', position: 'sticky', right: 0, zIndex: 3, padding: '9px 14px 9px 10px', width: STATUS_W, minWidth: STATUS_W }}>{edit ? 'Keeper' : OWNER_COLUMN_LABEL}</th>
               </tr>
             </thead>
             <tbody>
@@ -645,12 +788,12 @@ function StatTable({ title, rows, cats, league, playerMap, isDark, toolbar, defa
                         )}
                         <td style={{ position: 'sticky', right: STATUS_W, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 10px', textAlign: 'right', width: pinnedContractW, minWidth: pinnedContractW, borderBottom: rowBorder, borderLeft: stickyRule, whiteSpace: 'nowrap' }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
-                            <ContractText row={row} league={league} isDark={isDark} />
+                            {edit ? <EditContract row={row} edit={edit} league={league} isDark={isDark} /> : <ContractText row={row} league={league} isDark={isDark} />}
                           </span>
                         </td>
                         <td style={{ position: 'sticky', right: 0, zIndex: 2, ...rowBg(row), boxSizing: 'border-box', padding: '9px 14px 9px 10px', textAlign: 'right', width: STATUS_W, minWidth: STATUS_W, borderBottom: rowBorder }}>
                           <span style={{ display: 'inline-block', opacity: dim }}>
-                            <RowStatusPill row={row} league={league} isDark={isDark} />
+                            {edit ? <KeepToggle row={row} edit={edit} isDark={isDark} /> : <RowStatusPill row={row} league={league} isDark={isDark} />}
                           </span>
                         </td>
                       </tr>
@@ -672,7 +815,7 @@ function isGoalieRow(row, playerMap) {
   return String(row.pos || '').toUpperCase() === 'G';
 }
 
-function StatTables({ rows, league, playerMap, isDark, toolbar }) {
+function StatTables({ rows, league, playerMap, isDark, toolbar, edit }) {
   const skaters = rows.filter(r => !isGoalieRow(r, playerMap));
   const goalies = rows.filter(r => isGoalieRow(r, playerMap));
   // The toolbar rides on whichever table actually renders — a search matching
@@ -684,13 +827,13 @@ function StatTables({ rows, league, playerMap, isDark, toolbar }) {
       {skaters.length > 0 && (
         <StatTable title="Skaters" rows={skaters} cats={statCategoriesFor(league, 'skater')}
           league={league} playerMap={playerMap} isDark={isDark}
-          toolbar={toolbar} defaultSortKey="p" />
+          toolbar={toolbar} defaultSortKey="p" edit={edit} />
       )}
       {goalies.length > 0 && (
         <StatTable title="Goalies" rows={goalies} cats={statCategoriesFor(league, 'goalie')}
           league={league} playerMap={playerMap} isDark={isDark}
           toolbar={toolbarOnSkaters ? null : toolbar}
-          defaultSortKey="svPct" />
+          defaultSortKey="svPct" edit={edit} />
       )}
     </>
   );
@@ -921,7 +1064,7 @@ function InvalidLinkPage({ isDark }) {
 // selected tab is the only one in the Tab order, arrows move between them),
 // so a screen reader announces "tab, 2 of 7, selected" and the chip order it
 // hears is the alphabetical order the strip shows.
-function FilterChip({ id, label, active, danger, onClick, isDark }) {
+function FilterChip({ id, label, active, danger, onClick, isDark, focusable }) {
   const t = makeTheme(isDark);
   let colors;
   if (danger) {
@@ -934,7 +1077,7 @@ function FilterChip({ id, label, active, danger, onClick, isDark }) {
       : { background: t.cardBg, color: t.textSecondary, border: `1px solid ${t.border}` };
   }
   return (
-    <button role="tab" id={chipDomId(id)} aria-selected={active} aria-controls={PANEL_ID} tabIndex={active ? 0 : -1}
+    <button role="tab" id={chipDomId(id)} aria-selected={active} aria-controls={PANEL_ID} tabIndex={(focusable ?? active) ? 0 : -1}
       onClick={onClick} style={{
       ...tokens.typePill, fontWeight: 600, borderRadius: tokens.radiusPill,
       padding: '6px 13px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
@@ -965,9 +1108,17 @@ function railKeyDown(e, chips, filter, setFilter) {
 
 // ── The page ────────────────────────────────────────────────────────────────
 
-// `initialFilter` is a render-test seam only (a server render can't click a
-// team chip) — the same reason the paste modals take `initialText`.
-function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
+// The league's views: the pill rail and whatever the selected pill shows.
+// Shared by the public page (read-only) and the commissioner's league page
+// (`editor` set) — one component, so the two can't drift.
+//
+//   filter / setFilter — controlled by the host (the commissioner page keeps
+//                        it across its full-page tools).
+//   editor             — { canEditTeam(teamId), onUpdateLeague } or null.
+//   page               — content that replaces the views (a commissioner
+//                        tool page); the rail still shows, with no pill
+//                        selected, so any pill leads straight back.
+function LeagueBoard({ league, isDark, filter, setFilter, editor = null, page = null }) {
   const t = makeTheme(isDark);
   const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
   const termed = hasTerm(league);
@@ -982,14 +1133,12 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
   const hasExpired = termed && allRows.some(r => r.kind === 'expired');
   const anyKeepers = allRows.some(r => r.kind === 'keeper');
   const teams = league.teams || [];
+  const snake = league.draftType === 'snake';
 
-  const [filter, setFilter] = React.useState(initialFilter);
-  // Player search — filters the current view's rows as you type, using the
-  // same normalized matching the commissioner Eligible Pool search uses
-  // (trade-talk use case: "what would it cost to get X?").
   const [search, setSearch] = React.useState('');
   const teamFilterId = filter.startsWith('team:') ? filter.slice(5) : null;
   const filterTeam = teamFilterId ? teams.find(tm => tm.id === teamFilterId) : null;
+  const canEdit = !!(editor && filterTeam && editor.canEditTeam(filterTeam.id));
 
   // Print always renders the default view (§12) — the rail is hidden in
   // print, so whatever filter was active would otherwise print unlabeled.
@@ -997,34 +1146,23 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
     const reset = () => setFilter('overview');
     window.addEventListener('beforeprint', reset);
     return () => window.removeEventListener('beforeprint', reset);
-  }, []);
-
-  // Sticky countdown pill appears only once the header band has scrolled off.
-  const bandRef = React.useRef(null);
-  const [pillOn, setPillOn] = React.useState(false);
-  React.useEffect(() => {
-    const el = bandRef.current;
-    if (!el || !cd) return;
-    const io = new IntersectionObserver(([entry]) => setPillOn(!entry.isIntersecting), { threshold: 0 });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [cd != null]);
+  }, [setFilter]);
 
   // Row selection per filter. Expired players stay out of the Rostered view
   // (the trade view — nobody can keep them) but DO show on their team's tab,
-  // pinned last and marked not keepable, so a GM reading "my team" sees who
-  // is heading back to the draft. Post-deadline the default view narrows to
-  // declared keepers.
+  // pinned last and marked not keepable. Post-deadline the read-only views
+  // narrow to declared keepers; an editor still sees the whole roster (the
+  // commissioner grants exceptions after the deadline).
   let rows;
-  if (filter === 'overview' || filter === 'board') {
-    rows = []; // card / board views — the row list isn't shown
+  if (page || filter === 'overview' || filter === 'board') {
+    rows = [];
   } else if (filter === 'expired') {
     rows = allRows.filter(r => r.kind === 'expired');
   } else if (filter === 'contracts') {
     rows = allRows.filter(r => r.kind === 'keeper' || r.kind === 'contract');
   } else if (teamFilterId) {
     rows = allRows.filter(r => r.teamId === teamFilterId);
-    if (locked) rows = rows.filter(r => r.kind === 'keeper');
+    if (locked && !canEdit) rows = rows.filter(r => r.kind === 'keeper');
   } else {
     rows = locked ? allRows.filter(r => r.kind === 'keeper') : allRows.filter(r => r.kind !== 'expired');
   }
@@ -1032,56 +1170,74 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
     const q = normalizeName(search);
     rows = rows.filter(r => normalizeName(r.player).includes(q));
   }
-  // Kept players pin to the top of every view — the team tabs (that team's
-  // keepers) and the Rostered view (every declared keeper in the league). The
-  // row highlight carries the meaning, so the list stays flat.
+  // Kept players pin to the top of every read-only view; while editing, rows
+  // hold their place so a Keep click doesn't move the row away.
   const sortedRows = React.useMemo(
-    () => expiredLast(keepersFirst(sortRowsDefault(rows, playerMap, league))),
+    () => {
+      const sorted = sortRowsDefault(rows, playerMap, league);
+      return expiredLast(canEdit ? sorted : keepersFirst(sorted));
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allRows, filter, locked, search, playerMap, league]
+    [allRows, filter, locked, search, playerMap, league, canEdit, page]
   );
 
-  const chips = sharedFilterChips({ league, locked, termed, hasExpired, hasBoard: board.ok, teams });
-
-  // The header status line — one line, same place on every tab, so switching
-  // tabs never shifts the layout. Before the deadline it says whether anyone
-  // has declared yet (the Overview cards below make "not yet declared" a
-  // false claim once a team has); after it, that keepers are locked.
-  const statusLine = locked
-    ? `Keepers locked · ${cd.dateShort}`
-    : `${anyKeepers ? 'Keepers being declared' : 'Keepers not yet declared'} · ${cd ? `deadline ${cd.dateShort}` : 'deadline not set'}`;
+  // An editor gets the board tab on every snake league — with no standings
+  // yet it's where pick trades are recorded (the ownership grid).
+  const chips = sharedFilterChips({ league, locked, termed, hasExpired, hasBoard: editor ? snake : board.ok, teams });
 
   const teamHasExpired = filterTeam
     ? allRows.some(r => r.kind === 'expired' && r.teamId === filterTeam.id)
     : false;
 
-  // Desktop always gets the table treatment — hockey with stat groups,
-  // stats-less leagues a compact name/price/status table (no stat columns,
-  // no skater/goalie split). Mobile cards are for mobile widths only.
-  const useTable = isDesktop;
+  // What a Keep / term / price edit does on this view. Null on every view the
+  // viewer can't edit, which is what keeps the read-only page read-only.
+  const edit = React.useMemo(() => {
+    if (!canEdit) return null;
+    const teamId = filterTeam.id;
+    const apply = next => { if (next && next !== league) editor.onUpdateLeague(next); };
+    const auction = isAuctionCost(league);
+    const keeperTeam = row => row.keeperTeamId || row.teamId || teamId;
+    return {
+      teamId,
+      accent: auction ? tokens.warning : tokens.info,
+      accentBorder: auction ? tokens.warningBorder : tokens.infoBorder,
+      blockedReason: row => keepBlockedReason(league, teamId, row.player),
+      keep: row => apply(keepPlayer(league, teamId, row.entry || { player: row.player, pos: row.pos })),
+      keepByName: (name, rec) => apply(keepPlayer(league, teamId, { player: name, pos: rec?.pos })),
+      unkeep: row => apply(unkeepPlayer(league, keeperTeam(row), row.player)),
+      keeperOf: row => (teams.find(tm => tm.id === keeperTeam(row))?.keepers || [])
+        .find(k => normalizeName(k.player) === normalizeName(row.player)) || null,
+      setPrice: (row, n) => apply(setKeeperPrice(league, keeperTeam(row), row.player, n)),
+      resetPrice: row => apply(resetKeeperPrice(league, keeperTeam(row), row.player)),
+      setTerm: (row, { year, length }) => {
+        const { league: next, changes } = setContractYear(league, row.teamId || teamId, row.player, { year, length });
+        if (next !== league) apply(appendChanges(next, changes));
+      },
+    };
+  }, [canEdit, filterTeam, league, editor, teams]);
 
-  // The search filters this list, so it reads as part of it: rendered inside
-  // the table's card as a header strip rather than floating between the chip
-  // rail and the table, belonging to neither.
   const searchBar = (
     <ListSearch value={search} onChange={setSearch} count={sortedRows.length} isDark={isDark} />
   );
 
-  const body = filter === 'overview' ? (
-    // The commissioner's Keepers home, read-only: one card per team, K1..KN
-    // slots with declared keepers, "Final yr" in red, open slots as
-    // placeholders, and the expiring roll-up. Same component, `member` mode.
-    <KeepersOverview league={league} accentColor={sport.color} isDark={isDark} member />
+  const body = page ? page : filter === 'overview' ? (
+    // One card per team, K1..KN slots with declared keepers. For an editor a
+    // card opens that team's tab, where the keeping happens.
+    editor
+      ? <KeepersOverview league={league} accentColor={sport.color} isDark={isDark} onOpenTeam={id => setFilter(`team:${id}`)} />
+      : <KeepersOverview league={league} accentColor={sport.color} isDark={isDark} member />
   ) : filter === 'board' ? (
-    <SharedDraftBoard league={league} board={board} isDark={isDark} />
+    // The commissioner's board is the Picks page itself — the same grid with
+    // reassign on, the Traded Picks roll-up, Add trade and the paste import.
+    editor && snake
+      ? <DraftPicksPanel league={league} isDark={isDark} accentColor={sport.color} onUpdateLeague={editor.onUpdateLeague} />
+      : <SharedDraftBoard league={league} board={board} isDark={isDark} />
   ) : (
     <>
       {filter === 'expired' && (
         <ViewHeader title="Expired contracts" subtitle="not keepable — re-enter the draft" danger isDark={isDark} />
       )}
-      {/* Mascot speech is for WAITING surfaces only — it renders solely when
-          there is nothing else to show. The "no keepers yet" fact itself lives
-          in the header status line, on every tab, so nothing here shifts. */}
+      {edit && <TeamEditBar league={league} team={filterTeam} edit={edit} isDark={isDark} />}
       {filter === 'keepable' && !locked && !anyKeepers && !search.trim() && sortedRows.length === 0 && (
         <EmptyStateBanner isDark={isDark} />
       )}
@@ -1096,19 +1252,19 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
             {search.trim() ? `No players match “${search.trim()}”.` : 'Nothing here yet.'}
           </div>
         </div>
-      ) : useTable ? (
+      ) : isDesktop ? (
         isHockey ? (
           <StatTables rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
-            toolbar={searchBar} />
+            toolbar={searchBar} edit={edit} />
         ) : (
           <StatTable rows={sortedRows} cats={[]} league={league} playerMap={playerMap} isDark={isDark}
-            toolbar={searchBar} />
+            toolbar={searchBar} edit={edit} />
         )
       ) : (
         <div>
           <div style={{ marginBottom: tokens.spaceXs }}>{searchBar}</div>
           <RowList rows={sortedRows} league={league} playerMap={playerMap} isDark={isDark}
-            label={filterTeam ? `${filterTeam.name} players` : 'Players'} />
+            label={filterTeam ? `${filterTeam.name} players` : 'Players'} edit={edit} />
         </div>
       )}
 
@@ -1118,8 +1274,6 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
       {filterTeam && termed && teamHasExpired && !locked && (
         <ViewFooter isDark={isDark}>Expired contracts can&rsquo;t be kept — those players go back into the draft.</ViewFooter>
       )}
-      {/* Below the roster on a team tab only — the picks belong to a team,
-          not to the Rostered view. */}
       {filterTeam && <TeamPicksSection league={league} board={board} team={filterTeam} isDark={isDark} />}
       {filter === 'keepable' && locked && (
         <ViewFooter isDark={isDark}>Keepers are final. Everyone else heads to the draft.</ViewFooter>
@@ -1127,6 +1281,56 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
     </>
   );
 
+  const activeChip = page ? null : filter;
+  return (
+    <>
+      {/* The rail/table/picks classes live here so a host page (the
+          commissioner's league view) gets them too. */}
+      <style>{SHARE_STYLES}</style>
+      <div className="kh-share-rail" style={{ marginBottom: tokens.spaceMd }}>
+        <div className="kh-share-rail-scroll" role="tablist" aria-label="Views"
+          onKeyDown={e => railKeyDown(e, chips, activeChip ?? chips[0]?.id, setFilter)}
+          style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 0' }}>
+          {chips.map((chip, i) => (
+            <FilterChip key={chip.id} id={chip.id} label={chip.label} danger={chip.danger}
+              active={activeChip === chip.id} focusable={activeChip == null ? i === 0 : undefined} isDark={isDark}
+              onClick={() => setFilter(chip.id)} />
+          ))}
+        </div>
+      </div>
+      <div id={PANEL_ID} role={page ? undefined : 'tabpanel'} aria-labelledby={page ? undefined : chipDomId(filter)}>
+        {body}
+      </div>
+    </>
+  );
+}
+
+// `initialFilter` is a render-test seam only (a server render can't click a
+// team chip) — the same reason the paste modals take `initialText`.
+function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
+  const t = makeTheme(isDark);
+  const sport = SPORT_CONFIG[league.sport] || SPORT_CONFIG.hockey;
+  const cd = useCountdown(league.keeperDeadline, league.keeperDeadlineTime);
+  const locked = !!cd?.locked;
+  const anyKeepers = (league.teams || []).some(tm => (tm.keepers || []).length > 0);
+  const [filter, setFilter] = React.useState(initialFilter);
+
+  // Sticky countdown pill appears only once the header band has scrolled off.
+  const bandRef = React.useRef(null);
+  const [pillOn, setPillOn] = React.useState(false);
+  React.useEffect(() => {
+    const el = bandRef.current;
+    if (!el || !cd) return;
+    const io = new IntersectionObserver(([entry]) => setPillOn(!entry.isIntersecting), { threshold: 0 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [cd != null]);
+
+  // The header status line — one line, same place on every tab, so switching
+  // tabs never shifts the layout.
+  const statusLine = locked
+    ? `Keepers locked · ${cd.dateShort}`
+    : `${anyKeepers ? 'Keepers being declared' : 'Keepers not yet declared'} · ${cd ? `deadline ${cd.dateShort}` : 'deadline not set'}`;
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <style>{SHARE_STYLES}</style>
@@ -1206,20 +1410,7 @@ function SharedLeaguePage({ league, isDark, initialFilter = 'overview' }) {
 
       {/* Filter rail + list */}
       <div style={{ flex: 1, width: '100%', maxWidth: 1100, margin: '0 auto', padding: `${tokens.spaceMd}px ${tokens.spaceLg}px 0`, boxSizing: 'border-box' }}>
-        <div className="kh-share-rail" style={{ marginBottom: tokens.spaceMd }}>
-          <div className="kh-share-rail-scroll" role="tablist" aria-label="Views"
-            onKeyDown={e => railKeyDown(e, chips, filter, setFilter)}
-            style={{ display: 'flex', gap: 6, overflowX: 'auto', padding: '2px 0' }}>
-            {chips.map(chip => (
-              <FilterChip key={chip.id} id={chip.id} label={chip.label} danger={chip.danger}
-                active={filter === chip.id} isDark={isDark}
-                onClick={() => setFilter(chip.id)} />
-            ))}
-          </div>
-        </div>
-        <div id={PANEL_ID} role="tabpanel" aria-labelledby={chipDomId(filter)}>
-          {body}
-        </div>
+        <LeagueBoard league={league} isDark={isDark} filter={filter} setFilter={setFilter} />
       </div>
 
       <FooterMark isDark={isDark} />
@@ -1259,4 +1450,4 @@ function SharedLeagueRoute({ isDark }) {
   return <SharedLeaguePage league={state.league} isDark={isDark} />;
 }
 
-export { SharedLeagueRoute, SharedLeaguePage, InvalidLinkPage };
+export { SharedLeagueRoute, SharedLeaguePage, InvalidLinkPage, LeagueBoard };

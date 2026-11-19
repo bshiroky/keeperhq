@@ -3,10 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Pencil, Check, RefreshCw, ClipboardList, Download, X, Upload, Wallet, Dices, ListOrdered, History, Settings as SettingsIcon, Clock, Link2, Trash2 } from 'lucide-react';
 import { makeTheme, SPORT_CONFIG, DRAFT_LABEL, SportLogo, HScrollRow, tokens, Input, Select, NumberInput, Button, MOTION_STYLES, SaveToast, KeepersCelebration } from './components.jsx';
 import { shouldCelebrate, markSeen } from './lib/celebration.js';
-import { KeepersOverview } from './tabs/OverviewTab.jsx';
-import { SetKeepersWorkbench } from './tabs/SetKeepersTab.jsx';
+import { LeagueBoard } from './SharedLeaguePage.jsx';
 import { LotteryTab } from './tabs/LotteryTab.jsx';
-import { DraftPicksPanel } from './tabs/DraftPicksTab.jsx';
 import { StandingsCard } from './tabs/StandingsTab.jsx';
 import { draftOrderConfigOf, BASIS_POINTS, BASIS_RANK, BASIS_LABEL, TIEBREAK_CHAIN, TIEBREAK_MANUAL, TIEBREAK_LABEL } from './lib/draftOrder.js';
 import { aliasesByTeam, withTeamAliases } from './lib/teamMap.js';
@@ -1512,30 +1510,6 @@ function SectionPanel({ title, isDark, onClose, children }) {
 }
 
 // ── Keepers-home sub-tab toggle (Overview · Set keepers) ─────────────────────
-function SubTabs({ view, onChange, isDark, accentColor }) {
-  const t = makeTheme(isDark);
-  const items = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'set',      label: 'Set keepers' },
-  ];
-  return (
-    <div style={{ display: 'inline-flex', background: t.sectionBg, border: `1px solid ${t.border}`, borderRadius: tokens.radiusMd, padding: 3, gap: 3 }}>
-      {items.map(o => {
-        const active = view === o.id;
-        return (
-          <button key={o.id} onClick={() => onChange(o.id)} style={{
-            background: active ? accentColor : 'transparent', border: 'none',
-            borderRadius: tokens.radiusSm, padding: '7px 16px',
-            ...tokens.typePill, fontWeight: 700,
-            color: active ? '#fff' : t.textSecondary, cursor: 'pointer', fontFamily: 'inherit',
-            transition: 'background 0.15s, color 0.15s',
-          }}>{o.label}</button>
-        );
-      })}
-    </div>
-  );
-}
-
 // Phase pill copy for the identity card, derived from league.status.
 const PHASE_LABEL = {
   'pre-draft': 'Pre-Draft', 'setup': 'Setup', 'draft-ready': 'Draft Ready',
@@ -1650,9 +1624,11 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
     ? `Draft ${new Date(league.draftDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
     : null;
 
-  // Section doors — the supporting surfaces, opened from the Keepers tab row.
-  // Pool / Settings open as routed slide-in sheets; Import, Last Draft, and
-  // (snake only) Picks / Lottery are full-page takeovers.
+  // Commissioner tools — the supporting surfaces, in a strip at the foot of
+  // the identity card (they're about this league, not views of it; the views
+  // are the pill rail below). Pool / Settings open as routed slide-in sheets;
+  // Import, Last Draft and (snake) Lottery are full-page takeovers. Picks is
+  // gone as a door: pick trades live on the Draft board pill.
   const sectionDoors = [
     { id: 'import',   label: 'Import',   Icon: Upload },
     // Last Draft — the imported prior-year draft's home (full page, both
@@ -1661,11 +1637,8 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
     // distinct from Picks (upcoming-draft pick ownership).
     ...(hasLastDraftPage(league) ? [{ id: 'draft', label: 'Last Draft', Icon: History }] : []),
     { id: 'payouts',  label: 'Pool',     Icon: Wallet },
-    // Picks + Lottery are snake-only (round-based draft picks don't exist in
-    // an auction; the route gate mirrors this) and both open as FULL PAGES,
-    // not sheets — the round×team grid is page-sized content.
+    // Lottery is snake-only (the route gate mirrors this) and a full page.
     ...(league.draftType === 'snake' ? [
-      { id: 'picks',   label: 'Picks',   Icon: ListOrdered },
       { id: 'lottery', label: 'Lottery', Icon: Dices },
     ] : []),
     { id: 'settings', label: 'Settings', Icon: SettingsIcon },
@@ -1676,26 +1649,24 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   const [savedAt, setSavedAt] = React.useState(0);
   const notifySaved = () => setSavedAt(Date.now());
 
-  // Keepers home internal sub-view + the team focused in Set-keepers. Clicking a
-  // team card on Overview jumps into Set-keepers for that team.
-  const [view, setView] = React.useState('overview'); // 'overview' | 'set'
-  const [selectedTeamId, setSelectedTeamId] = React.useState(teams[0]?.id || null);
-  function openSetKeepers(teamId) {
-    if (teamId) setSelectedTeamId(teamId);
-    setView('set');
-  }
+  // The league's views are the shared page's pill rail (LeagueBoard), with
+  // editing on: the commissioner can edit every team. A GM signed in with
+  // Yahoo will get the same page with canEditTeam true for their own team.
+  // `/picks` is an old door — it lands on the Draft board pill.
+  const [filter, setFilter] = React.useState(activeTab === 'picks' ? 'board' : 'overview');
+  React.useEffect(() => {
+    if (activeTab === 'picks') { setFilter('board'); navigate(`${basePath}/overview`, { replace: true }); }
+  }, [activeTab, basePath, navigate]);
+  const editor = React.useMemo(() => ({ canEditTeam: () => true, onUpdateLeague }), [onUpdateLeague]);
 
-  // Keepers-declared celebration. Skip while the Set-keepers view owns the
-  // moment (its StepDone fires the inline celebration + writes the season flag,
-  // so we stay silent on the way back).
+  // Keepers-declared celebration.
   const [celebrating, setCelebrating] = React.useState(false);
   React.useEffect(() => {
-    if (view === 'set') return;
     if (shouldCelebrate(league)) {
       markSeen(league.id, league.season);  // write on SHOW, not dismiss
       setCelebrating(true);
     }
-  }, [league.teams, league.season, league.id, view]);
+  }, [league.teams, league.season, league.id]);
 
   const closePanel = () => navigate(`${basePath}/overview`);
 
@@ -1707,7 +1678,7 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
   // Settings) still overlay the Keepers home.
   const fullPage = (activeTab === 'import' || (activeTab === 'draft' && hasLastDraftPage(league)))
     ? activeTab
-    : ((activeTab === 'lottery' || activeTab === 'picks') && league.draftType === 'snake'
+    : (activeTab === 'lottery' && league.draftType === 'snake'
       ? activeTab
       : null);
 
@@ -1758,38 +1729,33 @@ function LeagueView({ league, isDark, onUpdateLeague, onDeleteLeague, activeTab 
         <div style={{ flexShrink: 0 }}>
           <DeadlineLine league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} />
         </div>
-      </div>
-
-      {/* Section B — Overview/Set-keepers toggle (left) + section doors (right).
-          On a full-page view neither sub-tab is active (the active door carries
-          the current-surface signal); clicking one navigates back to the
-          Keepers home with that sub-view selected. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '0 0 16px' }}>
-        <SubTabs view={fullPage ? null : view} isDark={isDark} accentColor={accentColor}
-          onChange={v => { setView(v); if (fullPage) navigate(`${basePath}/overview`); }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+        {/* Commissioner tools — full width at the foot of the card. */}
+        <nav aria-label="Commissioner tools" className="kh-tools" style={{
+          flexBasis: 'calc(100% + 40px)', boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 7,
+          borderTop: `1px solid ${t.divider}`, margin: '2px -20px -14px', padding: '10px 20px',
+          background: t.sectionBg, borderRadius: `0 0 ${tokens.radiusLg}px ${tokens.radiusLg}px`,
+          overflowX: 'auto',
+        }}>
+          <span style={{ ...tokens.typeLabelEyebrow, color: t.textMuted, marginRight: 4, whiteSpace: 'nowrap' }}>Commissioner</span>
           {sectionDoors.map(d => (
             <SectionDoorButton key={d.id} to={`${basePath}/${d.id}`} active={activeTab === d.id} label={d.label} Icon={d.Icon} isDark={isDark} />
           ))}
-        </div>
+        </nav>
       </div>
 
-      {fullPage === 'lottery' ? (
-        <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
-      ) : fullPage === 'picks' ? (
-        <DraftPicksPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-      ) : fullPage === 'draft' ? (
-        <LastDraftPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-      ) : fullPage === 'import' ? (
-        <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
-      ) : view === 'overview' ? (
-        <KeepersOverview league={league} accentColor={accentColor} isDark={isDark} onOpenTeam={openSetKeepers} />
-      ) : (
-        <SetKeepersWorkbench
-          league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague}
-          selectedTeamId={selectedTeamId} onSelectTeam={setSelectedTeamId}
-        />
-      )}
+      {/* The league's views — the same pill rail members see, with editing on.
+          A full-page tool replaces the views but keeps the rail (no pill
+          selected), so any pill leads straight back. */}
+      <LeagueBoard league={league} isDark={isDark} editor={editor}
+        filter={filter}
+        setFilter={f => { setFilter(f); if (fullPage) navigate(`${basePath}/overview`); }}
+        page={fullPage === 'lottery' ? (
+          <LotteryTab league={league} accentColor={accentColor} isDark={isDark} onUpdateLeague={onUpdateLeague} />
+        ) : fullPage === 'draft' ? (
+          <LastDraftPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+        ) : fullPage === 'import' ? (
+          <ImportPanel league={league} isDark={isDark} onUpdateLeague={onUpdateLeague} accentColor={accentColor} />
+        ) : null} />
 
       {/* Section panels — routed; closing returns to the Keepers home */}
       {activeTab === 'payouts' && (

@@ -17,3 +17,5 @@ export { LeagueRulesModal, RulesGrid, RulesButton } from '../src/LeagueRulesModa
 export { InvalidLinkPage } from '../src/SharedLeaguePage.jsx';
 export { DraftBoardGrid } from '../src/tabs/DraftBoardGrid.jsx';
 export { KeepersOverview } from '../src/tabs/OverviewTab.jsx';
+export { LeagueBoard } from '../src/SharedLeaguePage.jsx';
+export { keepPlayer, unkeepPlayer, keepBlockedReason, setKeeperPrice, resetKeeperPrice, makeKeeper } from '../src/lib/keeperEdits.js';
