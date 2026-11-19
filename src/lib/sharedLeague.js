@@ -34,6 +34,10 @@ export async function fetchSharedLeague(token) {
 //   kind 'contract' — under contract from last season, not yet declared
 //   kind 'rostered' — on a roster with no contract (fresh Y1 deal if kept)
 //   kind 'expired'  — contract ran out; NOT keepable (snake only)
+// Non-keeper rows also carry `entry`, the buildTeamPool entry they came from,
+// so an editor can declare the keeper with the same next year / keep cost the
+// row shows. Keeper rows carry `keeperTeamId`, the team whose list holds the
+// declaration (differs from teamId only for a traded keeper).
 
 const KIND_PRIORITY = { keeper: 3, contract: 2, rostered: 1, expired: 0 };
 
@@ -63,7 +67,7 @@ export function buildSharedRows(league) {
       const len = k.contractLength || defaultLen;
       put({
         kind: 'keeper', player: k.player, pos: k.pos,
-        teamId: owner.id, teamName: owner.name,
+        teamId: owner.id, teamName: owner.name, keeperTeamId: team.id,
         year: keeperEnteringYear(league, k) || 1, len,
         final: isFinalYear(league, k),
         cost: k.keptFor,
@@ -90,6 +94,7 @@ export function buildSharedRows(league) {
         year: e.nextYear, len: e.length, final: !!e.final, cost: e.nextCost,
         draftedCost: e.wasCost ?? null,
         round: e.acquisitionRound ?? null,
+        entry: e,
       });
     }
     for (const e of pool.rosteredNoContract) {
@@ -98,6 +103,7 @@ export function buildSharedRows(league) {
         teamId: team.id, teamName: team.name,
         year: 1, len: defaultLen, final: !!e.final, cost: e.nextCost,
         round: e.acquisitionRound ?? null,
+        entry: e,
       });
     }
     if (termed) {
@@ -110,6 +116,7 @@ export function buildSharedRows(league) {
           kind: 'expired', player: e.player, pos: e.pos,
           teamId: team.id, teamName: team.name,
           year: len, len, final: false,
+          entry: { ...e, length: len },
         });
       }
     }

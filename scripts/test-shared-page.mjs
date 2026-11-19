@@ -27,7 +27,7 @@ const {
   keepersFirst, sortTeamsByName, SharedLeaguePage, sharedDraftBoard,
   keeperRuleFacts, ruleNotes, LeagueRulesModal, RulesButton, InvalidLinkPage,
   buildTeamPool, buildStatusIndex, EligiblePool, setContractYear, clearContractOnUnkeep, teamPicks, teamTradedAwayPicks, formatPickNumber,
-  keeperCostModelOf,
+  keeperCostModelOf, LeagueBoard, keepPlayer, unkeepPlayer, keepBlockedReason, setKeeperPrice, resetKeeperPrice,
 } = await import('../.tmp-shared-bundle.mjs');
 
 let passed = 0;
@@ -765,10 +765,10 @@ console.log(process.exitCode ? '\nFAILURES above' : `\nALL ${passed} SHARED-PAGE
 const renderTeam = (league, teamId) => renderToStaticMarkup(
   React.createElement(SharedLeaguePage, { league, isDark: false, initialFilter: `team:${teamId}` }));
 
-// A cell of the picks grid: "R{round}" eyebrow, the number (SrOnly "Pick "
-// before it), then the via / traded-to line. These match one <li> at a time.
+// A pick chip: "R{round}", the number (SrOnly "Pick " before it), then the
+// via / traded-to text. These match one <li> at a time.
 const cellRe = (round, number) => new RegExp(
-  `<li class="kh-share-row"[^>]*>(?:(?!</li>).)*?>R${round}</span>(?:(?!</li>).)*?Pick </span>${number}</div>(?:(?!</li>).)*?</li>`, 's');
+  `<li class="kh-share-pick"[^>]*>(?:(?!</li>).)*?>R${round}</span>(?:(?!</li>).)*?Pick </span>${number}</span>(?:(?!</li>).)*?</li>`, 's');
 const cellOf = (html, round, number) => (html.match(cellRe(round, number)) || [])[0] || null;
 
 test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none on the Rostered view', () => {
@@ -778,7 +778,8 @@ test('team picks: lottery drawn — exact numbers, "via" on a traded pick, none 
   assert.ok(html.includes('<ul class="kh-share-picks">'), 'the picks are a grid, not a list of rows');
   assert.ok(cellOf(html, 1, 1), 'round 1, pick 1 (won the lottery)');
   const p5 = cellOf(html, 2, 5);
-  assert.ok(p5 && p5.includes('via Alpha'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(p5 && p5.includes('originally Alpha’s pick'), 'Alpha’s round-2 pick, held by trade, numbered by the snake');
+  assert.ok(html.includes('From trades:</span> R2 #5 (Alpha)'), 'the trades line names the origin');
   assert.ok(cellOf(html, 2, 8), 'own round-2 pick, last of the round');
   assert.ok(!/Lottery not drawn|isn’t set yet/.test(html), 'no caveat once the order is final');
   const alpha = renderTeam(SNAKE_PROJECTION, 't1');
@@ -811,7 +812,7 @@ test('team picks: no standings — rounds and ownership only, and it says the or
   assert.deepEqual(list.picks.map(p => [p.round, p.number, p.via]), [[1, null, null], [2, null, 't1'], [2, null, null]]);
   const html = renderTeam(none, 't4');
   assert.ok(html.includes('isn’t set yet'));
-  assert.ok(html.includes('Round 1,') && html.includes('via Alpha'));
+  assert.ok(html.includes('Round 1,') && html.includes('From trades:</span> R2 (Alpha)'));
   assert.ok(!html.includes('Pick </span>'), 'no numbers without an order');
   assert.ok(html.includes('number not set'), 'the empty number slot says so to a reader');
 });
@@ -829,7 +830,8 @@ test('team picks: a traded-away pick stays in the grid at its round, struck thro
   const cell = cellOf(html, 2, 5);
   assert.ok(cell, 'the traded-away pick is a cell at its round');
   assert.ok(cell.includes('text-decoration:line-through'), 'struck through');
-  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Delta/.test(cell), 'R2 · 5 → traded to Delta');
+  assert.ok(cell.includes(', traded to Delta'), 'the chip reads "traded to Delta"');
+  assert.ok(html.includes('Traded away:</span> R2 #5 → Delta'), 'the trades line names where it went');
   assert.equal(teamTradedAwayPicks(SNAKE_PROJECTION, 't4').picks.length, 0, 'Delta gave nothing away');
   assert.ok(!renderTeam(SNAKE_PROJECTION, 't4').includes('traded to'), 'nothing struck when nothing was traded away');
   // Pending lottery: a lottery team's traded-away pick carries the range.
@@ -843,6 +845,13 @@ test('team picks: two picks in one round are two cells with distinct numbers, ne
   assert.equal((html.match(/>R2<\/span>/g) || []).length, 2, 'two R2 cells');
   assert.ok(cellOf(html, 2, 5) && cellOf(html, 2, 8), 'each with its own number');
   assert.ok(!/×\s*2/.test(html));
+});
+
+test('team picks: no order and no trades — one sentence, not a chip per round', () => {
+  const { standings, lotteryDraw, draftPicks, ...plain } = SNAKE_PROJECTION;
+  const html = renderTeam({ ...plain, draftPicks: { rounds: 2 } }, 't2');
+  assert.ok(html.includes('Holds its own pick in all 2 rounds.'));
+  assert.ok(!html.includes('kh-share-pick"'), 'no chips');
 });
 
 test('team picks: an auction league lists nothing', () => {
@@ -1034,11 +1043,11 @@ test('a11y: colour-only states carry text — kept rows, final year, expired', (
 test('a11y: traded picks name their origin in text; the round pill reads as "Round N"', () => {
   const html = renderTeam(A11Y, 't1');
   assert.ok(html.includes('originally Alpha’s pick'), 'the held-by-trade pick names whose it was, in the DOM');
-  assert.ok(/<span aria-hidden="true">via Alpha<\/span>/.test(html), '"via" stays the visible shorthand');
+  assert.ok(/From trades:<\/span> R2[^<]*\(Alpha\)/.test(html), 'the origin is visible once, in the trades line');
   assert.ok(/<span aria-hidden="true">R2<\/span><span[^>]*>Round 2,<\/span>/.test(html), 'R2 is read as Round 2');
   assert.ok(/Pick <\/span>3</.test(html), 'the bare number is read as "Pick 3"');
   const gone = renderTeam(A11Y, 't2');
-  assert.ok(/<span aria-hidden="true">→ <\/span>traded to Zamboni/.test(gone), 'the arrow is decoration; "traded to" is the text');
+  assert.ok(gone.includes(', traded to Zamboni'), 'the chip reads "traded to Zamboni"; the arrow line is visual only');
 });
 
 test('a11y: the countdown reads in context; the sticky duplicate is hidden', () => {
@@ -1313,6 +1322,79 @@ test('positions: every eligible position shows, keepers included', () => {
   const html = renderPage(multi, false);
   assert.ok(html.includes('RB/WR'), 'the full eligibility list renders');
   assert.ok(html.includes('QB'));
+});
+
+// ── One page, editing by entitlement ───────────────────────────────────────
+// The commissioner's league page is the shared page with an `editor`. The
+// public link passes none, and must never render an edit control.
+
+const renderBoard = (league, filter, editor = null) => renderToStaticMarkup(
+  React.createElement(LeagueBoard, { league, isDark: false, filter, setFilter() {}, editor }));
+const EDITOR = { canEditTeam: () => true, onUpdateLeague() {} };
+
+test('entitlements: the public page has no edit controls; an editor gets them on a team tab only', () => {
+  const pub = renderBoard(TERMED, 'team:t1');
+  assert.ok(!/aria-label="Keep /.test(pub), 'no Keep button on the public team tab');
+  assert.ok(!pub.includes('contract year'), 'no year selects on the public team tab');
+  assert.ok(pub.includes('On team'));
+  const ed = renderBoard(TERMED, 'team:t1', EDITOR);
+  assert.ok(/aria-label="Keep Nico Hischier"/.test(ed), 'Keep toggle in the row');
+  assert.ok(ed.includes('Nico Hischier — contract year'), 'year select replaces the contract text');
+  assert.ok(ed.includes('>Keeper</th>'), 'the column is Keeper, not On team');
+  assert.ok(ed.includes('of 0 keepers') || ed.includes('keepers</span>'), 'slot count shown');
+  // The Rostered view stays read-only even for an editor: names, not toggles.
+  const rostered = renderBoard(TERMED, 'keepable', EDITOR);
+  assert.ok(!/aria-label="Keep /.test(rostered));
+  assert.ok(rostered.includes('On team'));
+  // An editor that can't edit this team sees it read-only.
+  const other = renderBoard(TERMED, 'team:t1', { canEditTeam: id => id === 'nope', onUpdateLeague() {} });
+  assert.ok(!/aria-label="Keep /.test(other));
+});
+
+test('entitlements: the editor gets the Draft board pill on any snake league; the public only once it can be built', () => {
+  const noStandings = { ...TERMED, standings: null };
+  assert.ok(!renderBoard(noStandings, 'overview').includes('>Draft board<'));
+  assert.ok(renderBoard(noStandings, 'overview', EDITOR).includes('>Draft board<'));
+});
+
+test('keep edits: keep, slot limit, kept elsewhere, unkeep, price override and reset — all logged', () => {
+  const L = {
+    id: 'x', sport: 'basketball', draftType: 'auction', keeperCostModel: 'auction', termModel: 'none', keeperSlots: 1,
+    auctionRules: { costIncreasePerYear: 5, undraftedStartCost: 5 },
+    teams: [
+      { id: 'a', name: 'A', roster: [{ player: 'One' }, { player: 'Two' }], priorKeepers: [{ player: 'One', keptFor: 20 }], keepers: [] },
+      { id: 'b', name: 'B', roster: [], priorKeepers: [], keepers: [{ player: 'Three', keptFor: 9 }] },
+    ],
+  };
+  const k1 = keepPlayer(L, 'a', { player: 'One', nextCost: 25 });
+  assert.deepEqual(k1.teams[0].keepers.map(k => [k.player, k.keptFor]), [['One', 25]]);
+  assert.equal(k1.changeLog[0].kind, 'keep');
+  assert.equal(keepBlockedReason(k1, 'a', 'Two'), 'All 1 keeper slots are used');
+  assert.equal(keepPlayer(k1, 'a', { player: 'Two' }), k1, 'a full team is unchanged');
+  assert.equal(keepBlockedReason(L, 'a', 'Three'), 'Kept by B');
+  assert.equal(keepPlayer(L, 'a', { player: 'Three' }), L);
+  assert.equal(keepPlayer(k1, 'a', { player: 'One' }), k1, 'keeping twice is a no-op');
+  const priced = setKeeperPrice(k1, 'a', 'One', 40);
+  assert.deepEqual([priced.teams[0].keepers[0].keptFor, priced.teams[0].keepers[0].keptForComputed, priced.teams[0].keepers[0].keptForOverridden], [40, 25, true]);
+  assert.equal(setKeeperPrice(priced, 'a', 'One', 40), priced);
+  const reset = resetKeeperPrice(priced, 'a', 'One');
+  assert.equal(reset.teams[0].keepers[0].keptFor, 25);
+  const un = unkeepPlayer(reset, 'a', 'One');
+  assert.deepEqual(un.teams[0].keepers, []);
+  assert.equal(un.changeLog[0].to, 'unkept');
+  assert.equal(unkeepPlayer(un, 'a', 'One'), un);
+  assert.deepEqual(un.teams[0].priorKeepers, L.teams[0].priorKeepers, 'unkeeping never touches the draft record');
+});
+
+test('keep edits: a termed keep writes the next year and anchor; unkeeping a Y1 removes the contract it created', () => {
+  const T = { ...TERMED, season: '2026-27', keeperSlots: 2 };
+  const kept = keepPlayer(T, 't1', { player: 'Nico Hischier', nextYear: 1, length: 3 });
+  const k = kept.teams[0].keepers[0];
+  assert.deepEqual([k.contractYear, k.contractLength, k.startSeason], [1, 3, '2026-27']);
+  const rows = renderBoard(kept, 'team:t1', EDITOR);
+  assert.ok(/aria-label="Keeping Nico Hischier/.test(rows), 'the row reads as kept');
+  const back = unkeepPlayer(kept, 't1', 'Nico Hischier');
+  assert.deepEqual(back.teams[0].keepers, []);
 });
 
 console.log(`\nALL ${passed} SHARED-PAGE TESTS PASS (with season anchoring)`);

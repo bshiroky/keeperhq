@@ -98,6 +98,8 @@ export function describeChange(entry) {
         detail: `${entry.from == null ? '—' : `R${entry.from}`} → ${entry.to == null ? '—' : `R${entry.to}`}`,
         where,
       };
+    case 'keep':
+      return { subject: entry.player, action: entry.to === 'unkept' ? 'no longer kept' : 'kept', detail: '', where };
     case 'rosterRemove':
       return { subject: entry.player, action: 'removed from roster by hand', detail: '', where };
     case 'rosterAdd':
