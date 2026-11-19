@@ -1593,8 +1593,9 @@ Yahoo work off 47%, not off the optimistic reading.
   the editable value (`EditContract`: `TermControl` year selects on a termed
   league, a keep-price input with the Edited mark on a dollar-cost keeper —
   commits on blur so a resort can't move the row mid-edit), a `TeamEditBar`
-  above shows "N of M keepers" plus a directory search to keep a player not on
-  the roster, rows hold their place instead of pinning keepers first, and
+  above shows "N of M keepers" plus a "Keep someone off this roster" button
+  that opens a directory search (a button, not a standing field: it read as
+  the list's own search), rows hold their place instead of pinning keepers first, and
   post-deadline the editor still sees the whole roster (exceptions). The
   Rostered / Under contract / Expired views stay read-only for everyone.
   (2) **Overview cards open that team's tab** for an editor.
@@ -1610,7 +1611,10 @@ Yahoo work off 47%, not off the optimistic reading.
   `resetKeeperPrice`), term edits through `setContractYear`; keeps and unkeeps
   are now logged (`kind: 'keep'`). Shared rows carry the pool `entry` (and
   keepers their `keeperTeamId`) so a Keep writes the same next year / cost the
-  row shows. No SQL.
+  row shows. The team tab's **picks are compact chips** (`R2 17`, `via X`
+  tinted, traded-away struck with `→ X`) wrapping in a few lines instead of a
+  grid of half-empty tiles; a team with no order and no trades gets one
+  sentence ("Holds its own pick in all 17 rounds"). No SQL.
 
 ### What Yahoo's API returns (MEASURED by the spike, two real leagues)
 
